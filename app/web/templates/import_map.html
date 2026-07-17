@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Map Import Columns{% endblock %}
+{% block content %}
+<header class="page-header"><div><h1>Column Mapping</h1><p>{{ batch.original_filename }}</p></div></header>
+<section class="card">
+  <form action="/imports/{{ batch.import_batch_id }}/preview" method="post">
+    <label>Worksheet</label>
+    <select name="worksheet">{% for sheet in sheets %}<option value="{{ sheet }}" {{ 'selected' if sheet == selected_sheet else '' }}>{{ sheet }}</option>{% endfor %}</select>
+    <div class="table-wrap"><table><thead><tr><th>Source Column</th><th>Part Pulse Field</th></tr></thead><tbody>
+      {% for header in headers %}
+      <tr><td>{{ header }}</td><td><select name="map_{{ header }}"><option value="">Do not import</option>{% for field in import_fields %}<option value="{{ field }}" {{ 'selected' if mapping.get(header) == field else '' }}>{{ field|humanize }}</option>{% endfor %}</select></td></tr>
+      {% endfor %}
+    </tbody></table></div>
+    <button type="submit">Validate Import</button>
+  </form>
+</section>
+{% endblock %}

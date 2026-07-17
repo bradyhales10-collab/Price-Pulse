@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% from "components.html" import money, badge %}
+{% block title %}{{ product.oem_part_number }}{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div><h1>{{ product.manufacturer }} {{ product.oem_part_number }}</h1><p>{{ product.product_name or 'Unnamed product' }}</p></div>
+  {% if listing.canonical_url %}<a class="button" href="{{ listing.canonical_url }}" target="_blank" rel="noreferrer">Open {{ listing.competitor_name }}</a>{% endif %}
+</header>
+
+<section class="grid three">
+  <article class="card"><h2>Our Pricing</h2><div class="big-price">{{ money(product.our_current_price, True) }}</div><p>Calc Cost: {{ money(product.current_cost) }}</p></article>
+  <article class="card"><h2>Selected Competitor Price</h2><div class="big-price">{{ money(product.selling_price, True) }}</div><p>Reference: {% if product.reference_price %}<span class="strike">${{ product.reference_price }}</span>{% else %}<span class="muted">None</span>{% endif %}</p><p>{% if product.savings_percent is not none %}{{ badge('Save ' ~ product.savings_percent ~ '%', 'success') }}{% endif %} {{ badge(product.price_display_type, 'blue') }}</p><p>Confidence {{ badge(product.selling_price_confidence or product.price_parse_confidence, 'success') }}</p></article>
+  <article class="card"><h2>Availability</h2><p>{{ product.availability_raw or 'No availability text' }}</p>{{ badge(product.availability_status, 'success' if product.availability_status == 'in_stock' else 'blue') }}<p>Last checked {{ product.last_successful_check_at|datetime or 'Never' }}</p></article>
+</section>
+
+<section class="grid two">
+  <article class="card"><h2>Competitor Listings</h2><div class="table-wrap"><table><thead><tr><th>Competitor</th><th>Price</th><th>Latest Result</th><th>Last Checked</th><th>Page</th></tr></thead><tbody>{% for item in listings %}<tr><td>{{ item.competitor_name }}</td><td>{{ money(item.selling_price, True) }}</td><td>{{ badge((item.latest_page_classification or item.price_display_type or 'never_checked')|humanize, 'success' if item.selling_price else 'warning') }}</td><td>{{ (item.latest_event_at or item.last_successful_check_at)|datetime or 'Never' }}</td><td>{% if item.canonical_url %}<a href="{{ item.canonical_url }}" target="_blank" rel="noreferrer">Open</a>{% else %}<span class="muted">Not carried</span>{% endif %}</td></tr>{% endfor %}</tbody></table></div></article>
+  <article class="card"><h2>Price History</h2>{% if history %}<div class="timeline">{% for item in history %}<div><b>{{ item.effective_at|datetime }} - {{ item.competitor_name }}</b><span>{{ item.change_type|humanize }}: {{ money(item.previous_price) }} to {{ money(item.new_price, True) }} {{ item.percent_change }}</span></div>{% endfor %}</div>{% else %}<div class="empty">Only one or no price observation exists. A trend will appear after meaningful price changes.</div>{% endif %}</article>
+</section>
+
+<section class="card">
+  <h2>Scan Event Timeline</h2>
+  {% if events %}
+  <div class="table-wrap"><table><thead><tr><th>Competitor</th><th>Checked</th><th>HTTP</th><th>Page</th><th>Session</th><th>Price Found</th><th>Confidence</th><th>Warnings</th></tr></thead><tbody>{% for event in events %}<tr><td>{{ event.competitor_name }}</td><td>{{ event.checked_at|datetime }}</td><td>{{ event.http_status }}</td><td>{{ event.page_classification|humanize }}</td><td>{{ event.session_status|humanize }}</td><td>{{ 'Yes' if event.price_found else 'No' }}</td><td>{{ event.price_parse_confidence|humanize }}</td><td>{{ (event.parse_warnings or 'None')|humanize }}</td></tr>{% endfor %}</tbody></table></div>
+  {% else %}<div class="empty">No scan events are available for this product.</div>{% endif %}
+</section>
+{% endblock %}

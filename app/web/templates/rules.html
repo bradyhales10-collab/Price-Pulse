@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% from "components.html" import badge %}
+{% block title %}Pricing Rules{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1>Pricing Rules</h1>
+    <p>Rules generate suggested prices after a price check. Review Queue still controls what gets approved or exported.</p>
+  </div>
+  <a class="button" href="/reviews">Open Review Queue</a>
+</header>
+
+{% if error %}<section class="card">{{ badge('Error', 'warning') }} {{ error }}</section>{% endif %}
+{% if message %}<section class="card">{{ badge('Saved', 'success') }} {{ message }}</section>{% endif %}
+
+<section class="card">
+  <div class="section-title"><h2>Strategy Presets</h2><span class="muted">Applies the rule settings below.</span></div>
+  <div class="preset-grid">
+    {% for preset in presets %}
+      <form method="post" action="/rules/presets/{{ preset.preset_code }}">
+        <strong>{{ preset.name }}</strong>
+        <p>{{ preset.description }}</p>
+        <button type="submit">Use {{ preset.name }}</button>
+      </form>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="card">
+  <div class="section-title"><h2>Active Pricing Logic</h2></div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Rule</th>
+          <th>Status</th>
+          <th>Setting</th>
+          <th>What It Does</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for rule in rules %}
+        <tr>
+          <td><strong>{{ rule.rule_name }}</strong></td>
+          <td>{{ badge('Enabled' if rule.is_enabled else 'Disabled', 'success' if rule.is_enabled else 'neutral') }}</td>
+          <td>
+            <form id="rule-{{ rule.rule_code }}" method="post" action="/rules/{{ rule.rule_code }}">
+              <label class="check"><input type="checkbox" name="is_enabled" value="1" {{ 'checked' if rule.is_enabled else '' }}> Enabled</label>
+              {% if rule.rule_type == 'margin_floor' %}
+                <input name="setting_value" value="{{ rule.settings.get('minimum_margin_pct', 20) }}" aria-label="Minimum margin percent"> %
+              {% elif rule.rule_type == 'rounding' %}
+                <input name="setting_value" value="{{ rule.settings.get('ending_cents', 99) }}" aria-label="Ending cents"> cents ending
+              {% elif rule.rule_type == 'anchor' %}
+                <input name="setting_value" value="{{ rule.settings.get('adjustment_cents', 0) }}" aria-label="Adjustment cents"> cents adjustment
+              {% else %}
+                <input type="hidden" name="setting_value" value="">
+                <span class="muted">No setting</span>
+              {% endif %}
+            </form>
+          </td>
+          <td>{{ rule.description }}</td>
+          <td><button type="submit" form="rule-{{ rule.rule_code }}">Save</button></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card">
+  <div class="section-title"><h2>Suggested Workflow</h2></div>
+  <div class="metrics">
+    <span>1. Price Check <b>Collect competitor prices</b></span>
+    <span>2. Pricing Rules <b>Generate suggested prices</b></span>
+    <span>3. Review Queue <b>Select rules and approve rows</b></span>
+    <span>4. Export <b>Send approved update file onward</b></span>
+  </div>
+</section>
+{% endblock %}

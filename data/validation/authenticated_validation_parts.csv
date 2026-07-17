@@ -1,0 +1,6 @@
+validation_order,test_case_id,manufacturer,oem_part_number,test_purpose
+1,KAW-AUTH-001,Kawasaki,41080-1514,Known proven baseline.
+2,KAW-AUTH-002,Kawasaki,55061-5438-739,Complex three-segment part number.
+3,KAW-AUTH-003,Kawasaki,K53001-240,Part number beginning with a letter.
+4,KAW-AUTH-004,Kawasaki,14081-005,Superseded-product wording.
+5,KAW-AUTH-005,Kawasaki,92071-2128,Previously unusual public-page price behavior.

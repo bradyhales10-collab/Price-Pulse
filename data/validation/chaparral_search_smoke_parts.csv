@@ -1,0 +1,9 @@
+Test_Case_ID,Manufacturer,OEM_Part_Number,Search_Observed_Product_Name,Search_Observed_MSRP,Expected_Partzilla_URL,Test_Purpose,Verified_Date,Source_URL
+CHAP-KAW-1,Kawasaki,41080-1514,,,,Chaparral search smoke test,,
+CHAP-HON-1,Honda,15410-MFJ-D02,,,,Chaparral search smoke test,,
+CHAP-YAM-1,Yamaha,5GH-13440-90-00,,,,Chaparral search smoke test,,
+CHAP-SUZ-1,Suzuki,16510-07J00,,,,Chaparral search smoke test,,
+CHAP-CAN-1,Can-Am,420956744,,,,Chaparral search smoke test,,
+CHAP-POL-1,Polaris,2520799,,,,Chaparral search smoke test,,
+CHAP-KTM-1,KTM,00050000068,,,,Chaparral search smoke test,,
+CHAP-HUS-1,Husqvarna,75038046100,,,,Chaparral unsupported manufacturer check,,

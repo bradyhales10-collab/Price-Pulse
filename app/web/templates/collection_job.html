@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% from "components.html" import badge %}
+{% block title %}Collection Job{% endblock %}
+{% block content %}
+<header class="page-header"><div><h1>Price Check</h1><p>Live Partzilla collection status.</p></div>{{ badge(job.status, 'blue') }}</header>
+<section class="card" data-job-status data-job-id="{{ job.job_id }}">
+  <div class="metrics">
+    <span>Status <b data-status>{{ job.status }}</b></span>
+    <span>Competitor <b data-competitor>{{ job.progress.competitor if job.progress else '' }}</b></span>
+    <span>Checked <b><span data-completed>{{ job.progress.completed if job.progress else 0 }}</span> / <span data-total>{{ job.progress.total if job.progress else job.planned_count or 0 }}</span></b></span>
+    <span>Remaining <b data-remaining>{{ job.progress.remaining if job.progress else job.planned_count or 0 }}</b></span>
+    <span>ETA <b data-eta>Calculating</b></span>
+  </div>
+  {% if job.message %}<p>{{ badge('Message', 'warning') }} <span data-message>{{ job.message }}</span></p>{% else %}<p data-message></p>{% endif %}
+  {% if job.manual_command %}<details><summary>PowerShell fallback</summary><pre><code>{{ job.manual_command }}</code></pre></details>{% endif %}
+  <div class="progress-grid" data-competitor-progress></div>
+</section>
+<section class="card">
+  <div class="section-title"><h2>Recent Parts Checked</h2><span data-last-part></span></div>
+  <div class="table-wrap"><table><thead><tr><th>#</th><th>Competitor</th><th>Manufacturer</th><th>OEM Part</th><th>Price</th><th>Result</th><th>Checked At</th></tr></thead><tbody data-progress-rows></tbody></table></div>
+</section>
+<section class="card"><p><a href="/runs">View Scan Runs</a> | <a href="/comparison">View Price Comparison</a> | <a href="/comparison">Export Results</a></p></section>
+{% endblock %}

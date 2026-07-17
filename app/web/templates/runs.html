@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% from "components.html" import badge %}
+{% block title %}Scan Runs{% endblock %}
+{% block content %}
+<header class="page-header"><div><h1>Scan Runs</h1><p>Collection history and operational outcomes.</p></div><form method="post" action="/runs/clear" onsubmit="return confirm('Delete all scan run history and events? Current competitor prices will stay available.');"><button type="submit" class="danger-button">Clear Scan Runs</button></form></header>
+<section class="card">
+{% if runs %}
+<div class="table-wrap"><table><thead><tr><th>Run ID</th><th>Competitor</th><th>Started</th><th>Completed</th><th>Duration</th><th>Status</th><th>Requested</th><th>Attempted</th><th>Successful</th><th>Changed</th><th>Warnings</th><th>Blocks</th><th>Errors</th></tr></thead><tbody>{% for run in runs %}<tr><td><a href="/runs/{{ run.scan_run_id }}">{{ run.scan_run_id }}</a></td><td>{{ run.competitor_name }}</td><td>{{ run.started_at|datetime }}</td><td>{{ run.completed_at|datetime }}</td><td>{{ run.duration }}</td><td>{{ badge(run.run_status, 'success' if run.run_status == 'completed' else 'warning') }}</td><td>{{ run.requested_part_count }}</td><td>{{ run.attempted_part_count }}</td><td>{{ run.successful_part_count }}</td><td>{{ run.changed_part_count }}</td><td>{{ run.warning_count }}</td><td>{{ run.blocked_count }}</td><td>{{ run.error_count }}</td></tr>{% endfor %}</tbody></table></div>
+{% else %}<div class="empty">No scan runs have been recorded yet.</div>{% endif %}
+</section>
+{% endblock %}

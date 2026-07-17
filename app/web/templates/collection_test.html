@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% from "components.html" import money, badge %}
+{% block title %}Test Collection{% endblock %}
+{% block content %}
+<header class="page-header"><div><h1>Test Collection</h1><p>Manually initiate a controlled authenticated Partzilla test collection.</p></div></header>
+{% if errors %}<section class="card">{% for error in errors %}<p>{{ badge('Error', 'warning') }} {{ error }}</p>{% endfor %}</section>{% endif %}
+<section class="card">
+  <form method="get" class="filters"><input name="manufacturer" value="{{ manufacturer }}" placeholder="Manufacturer filter"><input name="limit" type="number" min="1" max="50" value="{{ limit }}"><button>Plan</button></form>
+  <div class="section-title"><h2>Planned Products</h2><span>{{ parts|length }} planned</span></div>
+  <div class="table-wrap"><table><thead><tr><th>Manufacturer</th><th>OEM Part Number</th><th>Our Current Price</th><th>Existing Partzilla Price</th><th>Last Checked</th></tr></thead><tbody>{% for part in parts %}<tr><td>{{ part.manufacturer }}</td><td>{{ part.oem_part_number }}</td><td>{{ money(part.our_current_price) }}</td><td>{{ money(part.partzilla_price) }}</td><td>{{ part.last_checked|datetime or 'Never' }}</td></tr>{% endfor %}</tbody></table></div>
+  <form method="post"><input type="hidden" name="manufacturer" value="{{ manufacturer }}"><input type="hidden" name="limit" value="{{ limit }}"><label>Delay seconds</label><input name="delay_seconds" type="number" min="1" value="1"><p>This will run a headless authenticated price check for {{ parts|length }} products and show live progress.</p><input name="confirmation" placeholder="Type RUN to continue"><button type="submit">Start Checking Prices</button></form>
+</section>
+{% endblock %}

@@ -1,0 +1,7 @@
+Test_Case_ID,Manufacturer,OEM_Part_Number,Search_Observed_Product_Name,Search_Observed_MSRP,Expected_Partzilla_URL,Test_Purpose,Verified_Date,Source_URL
+MS-001,Kawasaki,13270-1800,,,,MotoSport probe regular price,,https://www.motosport.com/oem-parts/part-number/13270-1800
+MS-002,Kawasaki,41080-1483,,,,MotoSport probe discounted price,,https://www.motosport.com/oem-parts/part-number/41080-1483
+MS-003,Kawasaki,41080-1514,,,,MotoSport probe known Partzilla baseline,,https://www.motosport.com/oem-parts/part-number/41080-1514
+MS-004,Kawasaki,34028-0327,,,,MotoSport probe availability,,https://www.motosport.com/oem-parts/part-number/34028-0327
+MS-005,Kawasaki,14081-005,,,,MotoSport probe missing or normal behavior,,https://www.motosport.com/oem-parts/part-number/14081-005
+MS-006,Kawasaki,K53001-240,,,,MotoSport probe alphanumeric part,,https://www.motosport.com/oem-parts/part-number/K53001-240

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Part Pulse{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">PP</div>
+      <div>
+        <strong>PART PULSE</strong>
+        <span>OEM Competitive Price Intelligence</span>
+      </div>
+    </div>
+    <nav>
+      <a class="{{ 'active' if active == 'dashboard' else '' }}" href="/">Dashboard</a>
+      <a class="{{ 'active' if active == 'products' else '' }}" href="/products">Product Catalog</a>
+      <a class="{{ 'active' if active == 'imports' else '' }}" href="/imports">Price Check</a>
+      <a class="{{ 'active' if active == 'comparison' else '' }}" href="/comparison">Price Comparison</a>
+      <a class="{{ 'active' if active == 'runs' else '' }}" href="/runs">Scan Runs</a>
+      <a class="{{ 'active' if active == 'quality' else '' }}" href="/quality">Data Quality</a>
+      <a class="{{ 'active' if active == 'reviews' else '' }}" href="/reviews">Review Queue</a>
+      <a class="{{ 'active' if active == 'rules' else '' }}" href="/rules">Pricing Rules</a>
+      <span class="nav-disabled">Settings <em>Coming Soon</em></span>
+    </nav>
+  </aside>
+  <main class="page">
+    {% block content %}{% endblock %}
+  </main>
+  <script src="{{ url_for('static', path='/dashboard.js') }}"></script>
+</body>
+</html>

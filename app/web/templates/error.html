@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Dashboard Error{% endblock %}
+{% block content %}
+<section class="card error-card">
+  <h1>Part Pulse could not load this page</h1>
+  <p>{{ message }}</p>
+  <p class="muted">Database: {{ database }}</p>
+</section>
+{% endblock %}

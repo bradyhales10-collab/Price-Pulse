@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% from "components.html" import money, badge, product_table %}
+{% block title %}Part Pulse Dashboard{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1>Part Pulse Intelligence</h1>
+    <p>Competitive OEM pricing, availability, and change monitoring</p>
+  </div>
+</header>
+
+<section class="kpi-grid">
+  {% for kpi in kpis %}
+    <a class="kpi-card" href="{{ kpi.href }}">
+      <span>{{ kpi.label }}</span>
+      <strong>{{ kpi.value }}</strong>
+    </a>
+  {% endfor %}
+</section>
+
+<section class="card">
+  <div class="section-title">
+    <h2>Management Summary</h2>
+    <div class="quick-actions">
+      <a class="button" href="/imports">Start Price Check</a>
+      <a class="button" href="/reviews?status=Approved">Export Approved Updates</a>
+    </div>
+  </div>
+  <div class="management-grid">
+    <span>Products checked <b>{{ management.total_products }}</b></span>
+    <span>Competitor prices found <b>{{ management.priced_by_competitor }}</b></span>
+    <span>Missing competitor prices <b>{{ management.missing_competitor_price }}</b></span>
+    <span>Hidden cart prices <b>{{ management.hidden_price_review }}</b></span>
+    <span>Pending review <b>{{ management.pending_review }}</b></span>
+    <span>Ready to export <b>{{ management.ready_for_export }}</b></span>
+    <span>Suggested increases <b>{{ management.suggested_increases }}</b></span>
+    <span>Suggested decreases <b>{{ management.suggested_decreases }}</b></span>
+    <span>Approved annual impact <b>{{ money(management.annual_price_impact, True) }}</b></span>
+  </div>
+  <div class="action-strip">
+    {% for action in management.actions %}
+      <a href="{{ action.href }}">
+        <strong>{{ action.value }}</strong>
+        <span>{{ action.label }}</span>
+        <small>{{ action.detail }}</small>
+      </a>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="grid two">
+  <article class="card hero-card">
+    <div class="section-title">
+      <h2>Latest Collection Run</h2>
+      {% if latest_run %}{{ badge(latest_run.run_status, 'success' if latest_run.run_status == 'completed' else 'warning') }}{% endif %}
+    </div>
+    {% if latest_run %}
+      <div class="success-ring" style="--pct: {{ latest_run.success_percent }}%">
+        <strong>{{ latest_run.successful_part_count }} / {{ latest_run.attempted_part_count }}</strong>
+        <span>{{ latest_run.success_percent }}% success</span>
+      </div>
+      <div class="metrics">
+        <span>Started <b>{{ latest_run.started_at|datetime }}</b></span>
+        <span>Completed <b>{{ latest_run.completed_at|datetime }}</b></span>
+        <span>Duration <b>{{ latest_run.duration }}</b></span>
+        <span>Requested <b>{{ latest_run.requested_part_count }}</b></span>
+        <span>Changed <b>{{ latest_run.changed_part_count }}</b></span>
+        <span>Warnings <b>{{ latest_run.warning_count }}</b></span>
+        <span>Blocked <b>{{ latest_run.blocked_count }}</b></span>
+        <span>Challenges <b>{{ latest_run.challenge_count }}</b></span>
+        <span>Errors <b>{{ latest_run.error_count }}</b></span>
+      </div>
+    {% else %}
+      <div class="empty">No completed scan runs are available yet.</div>
+    {% endif %}
+  </article>
+
+  <article class="card">
+    <div class="section-title"><h2>Catalog Composition</h2></div>
+    <div class="mini-bars">
+      {% for label, count in composition.items() %}
+        <div><span>{{ label.replace('_', ' ').title() }}</span><b>{{ count }}</b><i style="width: {{ count * 8 if count * 8 < 100 else 100 }}%"></i></div>
+      {% endfor %}
+    </div>
+    <h3>Manufacturer Coverage</h3>
+    <div class="chip-list">
+      {% for item in manufacturers %}
+        <span class="chip">{{ item.manufacturer }} <b>{{ item.count }}</b></span>
+      {% else %}
+        <span class="muted">No manufacturers imported yet.</span>
+      {% endfor %}
+    </div>
+  </article>
+
+  <article class="card">
+    <div class="section-title"><h2>Our Price vs Partzilla</h2><a href="/comparison">Open Comparison</a></div>
+    <div class="metrics">
+      <span>Our price higher <b>{{ comparison_summary.our_price_higher }}</b></span>
+      <span>Our price lower <b>{{ comparison_summary.our_price_lower }}</b></span>
+      <span>Same price <b>{{ comparison_summary.same_price }}</b></span>
+      <span>Missing competitor price <b>{{ comparison_summary.missing_competitor_price }}</b></span>
+    </div>
+  </article>
+</section>
+
+<section class="grid two">
+  <article class="card">
+    <div class="section-title">
+      <h2>Top Savings</h2>
+      <a href="/products?price_type=discounted">View All</a>
+    </div>
+    {{ product_table(top_savings, True) }}
+  </article>
+  <article class="card">
+    <div class="section-title"><h2>Recent Price Changes</h2></div>
+    {% if recent_changes %}
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Date</th><th>Part</th><th>Product</th><th>Change</th><th>Previous</th><th>New</th><th>%</th></tr></thead>
+          <tbody>
+            {% for change in recent_changes %}
+            <tr>
+              <td>{{ change.effective_at|datetime }}</td>
+              <td>{{ change.oem_part_number }}</td>
+              <td>{{ change.product_name }}</td>
+              <td>{{ badge(change.change_type, 'blue') }}</td>
+              <td>{{ money(change.previous_price) }}</td>
+              <td>{{ money(change.new_price, True) }}</td>
+              <td>{{ change.percent_change }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty">No competitive price changes have been detected yet.<br>The system is monitoring current pricing and will surface changes here.</div>
+    {% endif %}
+  </article>
+</section>
+
+<section class="card review-preview">
+  <div>
+    <h2>Pricing Review Queue</h2>
+    <p>Review competitor gaps, hidden cart prices, and proposed pricing decisions.</p>
+  </div>
+  <a class="button" href="/reviews">Open Review Queue</a>
+</section>
+{% endblock %}

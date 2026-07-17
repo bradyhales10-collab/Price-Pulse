@@ -1,0 +1,114 @@
+document.addEventListener("change", (event) => {
+  if (event.target.matches(".filters select")) {
+    event.target.form?.requestSubmit();
+  }
+});
+
+document.addEventListener("click", (event) => {
+  if (event.target.matches("[data-select-visible]")) {
+    document.querySelectorAll(".row-select").forEach((box) => { box.checked = true; });
+  }
+  if (event.target.matches("[data-clear-selection]")) {
+    document.querySelectorAll(".row-select").forEach((box) => { box.checked = false; });
+  }
+});
+
+document.addEventListener("submit", (event) => {
+  if (event.target.matches("[data-upload-form]")) {
+    event.preventDefault();
+    const file = event.target.querySelector("input[type=file]").files[0];
+    const status = event.target.querySelector("[data-upload-status]");
+    if (!file) return;
+    status.textContent = "Uploading...";
+    file.arrayBuffer().then((buffer) => fetch(`/imports/upload?filename=${encodeURIComponent(file.name)}`, {
+      method: "POST",
+      body: buffer,
+      headers: { "content-type": "application/octet-stream", "x-filename": file.name }
+    })).then((response) => {
+      if (response.redirected) {
+        window.location.href = response.url;
+      } else if (response.ok) {
+        window.location.reload();
+      } else {
+        status.textContent = "Upload failed.";
+      }
+    }).catch(() => { status.textContent = "Upload failed."; });
+  }
+  if (event.target.matches("#comparison-export")) {
+    const ids = Array.from(document.querySelectorAll(".row-select:checked")).map((box) => box.value);
+    document.querySelector("#selected-ids").value = ids.join(",");
+  }
+});
+
+function formatEta(seconds) {
+  if (seconds === null || seconds === undefined || Number.isNaN(Number(seconds))) return "Calculating";
+  const value = Math.max(0, Number(seconds));
+  const minutes = Math.floor(value / 60);
+  const remaining = Math.floor(value % 60);
+  return minutes ? `${minutes}m ${remaining}s` : `${remaining}s`;
+}
+
+function formatTimestamp(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short"
+  });
+}
+
+function renderProgress(job) {
+  const progress = job.progress || {};
+  const root = document.querySelector("[data-job-status]");
+  if (!root) return;
+  const displayStatus = job.status === "retrying_visible" ? job.status : (progress.status || job.status || "");
+  root.querySelector("[data-status]").textContent = displayStatus;
+  const competitor = root.querySelector("[data-competitor]");
+  if (competitor) competitor.textContent = progress.competitor || "";
+  root.querySelector("[data-completed]").textContent = progress.completed ?? 0;
+  root.querySelector("[data-total]").textContent = progress.total ?? job.planned_count ?? 0;
+  root.querySelector("[data-remaining]").textContent = progress.remaining ?? "";
+  root.querySelector("[data-eta]").textContent = formatEta(progress.eta_seconds);
+  const message = document.querySelector("[data-message]");
+  if (message) message.textContent = job.message || progress.message || "";
+  const last = document.querySelector("[data-last-part]");
+  if (last) last.textContent = progress.last_attempted_part ? `Last: ${progress.last_attempted_part}` : "";
+  const body = document.querySelector("[data-progress-rows]");
+  if (body) {
+    body.innerHTML = (progress.rows || []).map((row) => `<tr><td>${row.run_order || ""}</td><td>${row.competitor || ""}</td><td>${row.manufacturer || ""}</td><td>${row.oem_part_number || ""}</td><td>${row.selling_price || ""}</td><td>${row.result_type || ""}</td><td>${formatTimestamp(row.checked_at)}</td></tr>`).join("");
+  }
+  const competitorProgress = document.querySelector("[data-competitor-progress]");
+  if (competitorProgress) {
+    const entries = Object.entries(job.progress_by_competitor || {});
+    competitorProgress.innerHTML = entries.map(([key, item]) => `
+      <div class="progress-card">
+        <span>${key}</span>
+        <b>${item.completed ?? 0} / ${item.total ?? 0}</b>
+        <small>${item.run_status || item.status || "waiting"}${item.last_attempted_part ? ` · Last: ${item.last_attempted_part}` : ""}</small>
+      </div>
+    `).join("");
+  }
+}
+
+function pollJob() {
+  const root = document.querySelector("[data-job-status]");
+  if (!root) return;
+  const jobId = root.dataset.jobId;
+  fetch(`/collections/jobs/${encodeURIComponent(jobId)}/status`)
+    .then((response) => response.json())
+    .then((job) => {
+      renderProgress(job);
+      const status = job.status === "retrying_visible" ? job.status : ((job.progress && job.progress.status) || job.status || "");
+      if (!["completed", "failed", "completed_with_warnings", "stopped_blocked", "stopped_challenge"].includes(status)) {
+        window.setTimeout(pollJob, 2000);
+      }
+    })
+    .catch(() => window.setTimeout(pollJob, 5000));
+}
+
+pollJob();

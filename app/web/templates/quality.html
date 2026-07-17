@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% from "components.html" import money, badge %}
+{% block title %}Data Quality{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div><h1>Data Quality</h1><p>Products needing attention across missing prices, confidence, failures, warnings, and supersession.</p></div>
+  <div class="quick-actions">
+    <a class="button" href="/reviews?status=Pending%20Review&bucket=Missing%20Competitor%20Price">Review Missing Prices</a>
+    <a class="button" href="/reviews?status=Pending%20Review&bucket=Hidden%20Price">Review Hidden Prices</a>
+  </div>
+</header>
+
+<section class="card"><div class="section-title"><h2>Audit Status</h2></div><div class="empty">Run database audit from the command line to generate a fresh audit report.</div></section>
+
+<section class="card">
+  <div class="section-title"><h2>Competitor Review Status</h2></div>
+  <div class="table-wrap"><table><thead><tr><th>Competitor</th><th>Status</th><th>Legal Review</th><th>Cart Probe</th><th>Login</th><th>Public Price</th><th>Direct URL</th><th>Notes</th></tr></thead><tbody>{% for competitor in competitors %}<tr><td>{{ competitor.competitor_name }}</td><td>{{ competitor.status|humanize }}</td><td>{{ competitor.legal_review_status|humanize }}</td><td>{{ (competitor.cart_price_probe_status or 'not_reviewed')|humanize }}</td><td>{{ 'Yes' if competitor.requires_login else 'No' }}</td><td>{{ 'Yes' if competitor.supports_public_price else 'No' }}</td><td>{{ 'Yes' if competitor.supports_direct_part_url else 'No' }}</td><td>{{ competitor.notes or '' }}</td></tr>{% endfor %}</tbody></table></div>
+</section>
+
+<section class="card">
+  <div class="section-title"><h2>Missing Prices</h2><span>{{ missing_price_products|length }} shown</span></div>
+  <p class="muted">These are products where at least one carried competitor listing was checked but no selling price was stored.</p>
+  {{ product_quality_table(missing_price_products) }}
+</section>
+
+<section class="card">
+  <div class="section-title"><h2>Not Carried By Competitor</h2><span>{{ not_carried|length }} shown</span></div>
+  {{ listing_quality_table(not_carried) }}
+</section>
+
+{% for title, rows in [('Low Confidence', low_confidence), ('Consecutive Failures', failures), ('Recent Warnings', warnings), ('Supersession Review', supersession)] %}
+<section class="card">
+  <div class="section-title"><h2>{{ title }}</h2><span>{{ rows|length }} shown</span></div>
+  {{ listing_quality_table(rows) }}
+</section>
+{% endfor %}
+{% endblock %}
+
+{% macro product_quality_table(rows) -%}
+  {% if rows %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Manufacturer</th><th>OEM Part</th><th>Product</th><th>Our Price</th><th>Calc Cost</th><th>Partzilla</th><th>MotoSport</th><th>Chaparral</th><th>Last Checked</th></tr></thead>
+      <tbody>
+      {% for item in rows %}
+        <tr>
+          <td><span class="manufacturer">{{ item.manufacturer }}</span></td>
+          <td><a href="/products/{{ item.product_id }}">{{ item.oem_part_number }}</a></td>
+          <td>{{ item.product_name or 'Unnamed product' }}</td>
+          <td>{{ money(item.our_current_price, True) }}</td>
+          <td>{{ money(item.current_cost) }}</td>
+          <td>{{ competitor_status(item.partzilla) }}</td>
+          <td>{{ competitor_status(item.motosport) }}</td>
+          <td>{{ competitor_status(item.chaparral) }}</td>
+          <td>{{ item.last_checked_at|datetime or 'Never' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <div class="empty">No products match this view.</div>
+  {% endif %}
+{%- endmacro %}
+
+{% macro competitor_status(item) -%}
+  {% if item.price %}{{ money(item.price, True) }}{% else %}<span class="muted">No price</span>{% endif %}
+  <br>{{ badge(item.status|humanize, 'warning' if item.needs_review else 'blue') }}
+{%- endmacro %}
+
+{% macro listing_quality_table(rows) -%}
+  {% if rows %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Competitor</th><th>Manufacturer</th><th>OEM Part</th><th>Product</th><th>Competitor Price</th><th>Latest Result</th><th>Warnings</th><th>Last Checked</th></tr></thead>
+      <tbody>
+      {% for item in rows %}
+        <tr>
+          <td>{{ item.competitor_name or item.competitor_code or 'Unknown' }}</td>
+          <td><span class="manufacturer">{{ item.manufacturer }}</span></td>
+          <td><a href="/products/{{ item.product_id }}">{{ item.oem_part_number }}</a></td>
+          <td>{{ item.product_name or 'Unnamed product' }}</td>
+          <td>{{ money(item.selling_price, True) }}</td>
+          <td>{{ badge((item.latest_page_classification or item.price_display_type or 'never_checked')|humanize, 'warning') }}</td>
+          <td>{{ (item.parse_warnings or 'None')|humanize }}</td>
+          <td>{{ (item.latest_event_at or item.last_successful_check_at)|datetime or 'Never' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <div class="empty">No products match this view.</div>
+  {% endif %}
+{%- endmacro %}

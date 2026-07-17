@@ -1,0 +1,6 @@
+Test_Case_ID,Manufacturer,OEM_Part_Number,Search_Observed_Product_Name,Search_Observed_MSRP,Expected_Partzilla_URL,Test_Purpose,Verified_Date,Source_URL
+KAW-001,Kawasaki,41080-0729-11H,Name,,https://example.test,Complex,2026-07-07,https://example.test
+KAW-002,Kawasaki,K53001-240,Name,,https://example.test,Complex,2026-07-07,https://example.test
+KAW-003,Kawasaki,KMT4X7-3-4,Name,,https://example.test,Complex,2026-07-07,https://example.test
+KAW-004,Kawasaki,46092-S013,Name,,https://example.test,Complex,2026-07-07,https://example.test
+KAW-005,Kawasaki,3099,Name,,https://example.test,Complex,2026-07-07,https://example.test

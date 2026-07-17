@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% from "components.html" import money, badge %}
+{% block title %}Product Catalog{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div><h1>Product Catalog</h1><p>One row per OEM part with our price, calc cost, competitor prices, and review signals.</p></div>
+</header>
+
+<form class="filters" method="get">
+  <input name="search" placeholder="Search part, SKU, or product" value="{{ filters.search }}">
+  <select name="manufacturer"><option value="">All manufacturers</option>{% for item in manufacturers %}<option value="{{ item }}" {{ 'selected' if item == filters.manufacturer else '' }}>{{ item }}</option>{% endfor %}</select>
+  <select name="price_type"><option value="">All competitor price types</option>{% for item in ['regular','discounted','unknown'] %}<option value="{{ item }}" {{ 'selected' if item == filters.price_type else '' }}>{{ item|humanize }}</option>{% endfor %}</select>
+  <select name="availability"><option value="">All availability</option>{% for item in availability_options %}<option value="{{ item }}" {{ 'selected' if item == filters.availability else '' }}>{{ item|humanize }}</option>{% endfor %}</select>
+  <select name="superseded"><option value="">Superseded: all</option><option value="true" {{ 'selected' if filters.superseded == 'true' else '' }}>Superseded</option><option value="false" {{ 'selected' if filters.superseded == 'false' }}>Not superseded</option></select>
+  <select name="confidence"><option value="">All confidence</option>{% for item in ['high','medium','low'] %}<option value="{{ item }}" {{ 'selected' if item == filters.confidence else '' }}>{{ item|humanize }}</option>{% endfor %}</select>
+  <select name="sort">{% for key,label in [('last_checked','Last checked'),('part_number','OEM part'),('our_price','Our price'),('lowest_competitor','Lowest competitor')] %}<option value="{{ key }}" {{ 'selected' if key == filters.sort else '' }}>{{ label }}</option>{% endfor %}</select>
+  <select name="page_size">{% for size in [25,50,100] %}<option value="{{ size }}" {{ 'selected' if size == filters.page_size else '' }}>{{ size }} rows</option>{% endfor %}</select>
+  <label class="check"><input type="checkbox" name="needs_review" value="1" {{ 'checked' if filters.needs_review else '' }}> Needs review</label>
+  <button type="submit">Apply</button>
+</form>
+
+{% set query_base = 'search=' ~ filters.search|urlencode ~ '&manufacturer=' ~ filters.manufacturer|urlencode ~ '&price_type=' ~ filters.price_type|urlencode ~ '&availability=' ~ filters.availability|urlencode ~ '&superseded=' ~ filters.superseded|urlencode ~ '&confidence=' ~ filters.confidence|urlencode ~ '&needs_review=' ~ (1 if filters.needs_review else 0) ~ '&sort=' ~ filters.sort|urlencode ~ '&page_size=' ~ filters.page_size %}
+
+<section class="card">
+  <div class="section-title"><h2>{{ total }} Products</h2><span>Page {{ filters.page }} of {{ total_pages }}</span></div>
+  {{ pagination(query_base, filters.page, total_pages) }}
+  {% if products %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Manufacturer</th>
+          <th>OEM Part</th>
+          <th>Internal SKU</th>
+          <th>Product</th>
+          <th>Our Price</th>
+          <th>Calc Cost</th>
+          <th>Our Margin</th>
+          <th>Partzilla</th>
+          <th>MotoSport</th>
+          <th>Chaparral</th>
+          <th>Lowest Competitor</th>
+          <th>Gap vs Lowest</th>
+          <th>Units</th>
+          <th>Inventory</th>
+          <th>Priority</th>
+          <th>Last Checked</th>
+          <th>Review</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for item in products %}
+        <tr>
+          <td><span class="manufacturer">{{ item.manufacturer }}</span></td>
+          <td><a href="/products/{{ item.product_id }}">{{ item.oem_part_number }}</a></td>
+          <td>{{ item.internal_sku or '' }}</td>
+          <td>{{ item.product_name or 'Unnamed product' }}</td>
+          <td>{{ money(item.our_current_price, True) }}</td>
+          <td>{{ money(item.current_cost) }}</td>
+          <td>{% if item.our_margin_pct %}{{ item.our_margin_pct }}%{% else %}<span class="muted">None</span>{% endif %}</td>
+          <td>{{ competitor_cell(item.partzilla) }}</td>
+          <td>{{ competitor_cell(item.motosport) }}</td>
+          <td>{{ competitor_cell(item.chaparral) }}</td>
+          <td>{{ money(item.lowest_competitor_price, True) }}</td>
+          <td>{% if item.difference_vs_lowest_competitor %}${{ item.difference_vs_lowest_competitor }}{% else %}<span class="muted">None</span>{% endif %}</td>
+          <td>{{ item.units_sold_12m or '' }}</td>
+          <td>{{ item.inventory_qty or '' }}</td>
+          <td>{{ item.scan_priority or '' }}</td>
+          <td>{{ item.last_checked_at|datetime or 'Never' }}</td>
+          <td>{% if item.needs_review %}{{ badge('Needs Review', 'warning') }}{% else %}{{ badge('OK', 'success') }}{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ pagination(query_base, filters.page, total_pages) }}
+  {% else %}
+    <div class="empty">No products match this view.</div>
+  {% endif %}
+</section>
+{% endblock %}
+
+{% macro competitor_cell(item) -%}
+  {% if item.price %}
+    {{ money(item.price, True) }}
+    {% if item.savings_percent is not none %}<br>{{ badge('Save ' ~ item.savings_percent ~ '%', 'success') }}{% endif %}
+  {% else %}
+    <span class="muted">No price</span>
+  {% endif %}
+{%- endmacro %}
+
+{% macro pagination(query_base, page, total_pages) -%}
+  <div class="pagination">
+    {% if page > 1 %}<a href="?{{ query_base }}&page={{ page - 1 }}">Previous</a>{% endif %}
+    {% for number in range(1, total_pages + 1) %}
+      {% if number == 1 or number == total_pages or (number >= page - 2 and number <= page + 2) %}
+        {% if number == page %}<span class="active">{{ number }}</span>{% else %}<a href="?{{ query_base }}&page={{ number }}">{{ number }}</a>{% endif %}
+      {% elif number == page - 3 or number == page + 3 %}
+        <span>...</span>
+      {% endif %}
+    {% endfor %}
+    {% if page < total_pages %}<a href="?{{ query_base }}&page={{ page + 1 }}">Next</a>{% endif %}
+  </div>
+{%- endmacro %}

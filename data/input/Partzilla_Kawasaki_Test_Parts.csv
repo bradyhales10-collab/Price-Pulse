@@ -1,0 +1,26 @@
+﻿Test_Case_ID,Manufacturer,OEM_Part_Number,Search_Observed_Product_Name,Search_Observed_MSRP,Expected_Partzilla_URL,Test_Purpose,Verified_Date,Source_URL
+KAW-001,Kawasaki,13270-1800,PLATE,,https://www.partzilla.com/product/kawasaki/13270-1800,Standard numeric-hyphen part number,2026-07-07,https://www.partzilla.com/product/kawasaki/13270-1800
+KAW-002,Kawasaki,41080-0729-11H,"DISC,FR,ABS,BLACK",254.0,https://www.partzilla.com/product/kawasaki/41080-0729-11H,Three-segment suffix format,2026-07-07,https://www.partzilla.com/product/kawasaki/41080-0729-11H
+KAW-003,Kawasaki,35011-1903,STAY,,https://www.partzilla.com/product/kawasaki/35011-1903,Standard part number,2026-07-07,https://www.partzilla.com/product/kawasaki/35011-1903
+KAW-004,Kawasaki,41080-1514,DISC,282.32,https://www.partzilla.com/product/kawasaki/41080-1514,Known sign-in-to-see-price page,2026-07-07,https://www.partzilla.com/product/kawasaki/41080-1514
+KAW-005,Kawasaki,49050-0016,SPIDER,,https://www.partzilla.com/product/kawasaki/49050-0016,Standard part number,2026-07-07,https://www.partzilla.com/product/kawasaki/49050-0016
+KAW-006,Kawasaki,55061-5438-739,"COWLING,SIDE,RH,M.F.S",380.98,https://www.partzilla.com/product/kawasaki/55061-5438-739,Three-segment color/suffix format,2026-07-07,https://www.partzilla.com/product/kawasaki/55061-5438-739
+KAW-007,Kawasaki,13070-1330,GUIDE,,https://www.partzilla.com/product/kawasaki/13070-1330,Standard part number,2026-07-07,https://www.partzilla.com/product/kawasaki/13070-1330
+KAW-008,Kawasaki,49050-0008,SPIDER,142.93,https://www.partzilla.com/product/kawasaki/49050-0008,Standard part number with observed MSRP,2026-07-07,https://www.partzilla.com/product/kawasaki/49050-0008
+KAW-009,Kawasaki,56054-4327,"MARK,SIDE COWL.,NINJA",52.81,https://www.partzilla.com/product/kawasaki/56054-4327,Product name contains punctuation,2026-07-07,https://www.partzilla.com/product/kawasaki/56054-4327
+KAW-010,Kawasaki,18090-1754,"BODYCOMPMUFFLER,LH",817.35,https://www.partzilla.com/product/kawasaki/18090-1754,High MSRP item,2026-07-07,https://www.partzilla.com/product/kawasaki/18090-1754
+KAW-011,Kawasaki,99920-1550-01,OWN MAN KAF300A1,21.87,https://www.partzilla.com/product/kawasaki/99920-1550-01,Manual with trailing numeric suffix,2026-07-07,https://www.partzilla.com/product/kawasaki/99920-1550-01
+KAW-012,Kawasaki,14081-005,"SUPERSEDED BY 14081007 BRACKET A,BALANCER",37.17,https://www.partzilla.com/product/kawasaki/14081-005,Superseded-part wording test,2026-07-07,https://www.partzilla.com/product/kawasaki/14081-005
+KAW-013,Kawasaki,14094-0051,"COVER,SEAT UNDER,RR,U",26.88,https://www.partzilla.com/product/kawasaki/14094-0051,Known sign-in-to-see-price page,2026-07-07,https://www.partzilla.com/product/kawasaki/14094-0051
+KAW-014,Kawasaki,K53001-240,SOLO SEAT,340.06,https://www.partzilla.com/product/kawasaki/K53001-240,Part number begins with letter,2026-07-07,https://www.partzilla.com/product/kawasaki/K53001-240
+KAW-015,Kawasaki,92071-2128,GROMMET,,https://www.partzilla.com/product/kawasaki/92071-2128,Indexed page with visible selling price in search result,2026-07-07,https://www.partzilla.com/product/kawasaki/92071-2128
+KAW-016,Kawasaki,KMT4X7-3-4,MOTO 4 BLACK 7 3/4,195.55,https://www.partzilla.com/product/kawasaki/KMT4X7-3-4,Unusual alphanumeric multi-segment part number,2026-07-07,https://www.partzilla.com/product/kawasaki/KMT4X7-3-4
+KAW-017,Kawasaki,46102-0690,"ROD,STABILIZER",47.69,https://www.partzilla.com/product/kawasaki/46102-0690,Standard part number,2026-07-07,https://www.partzilla.com/product/kawasaki/46102-0690
+KAW-018,Kawasaki,46092-S013,BRAKE GRIP LEVER,20.06,https://www.partzilla.com/product/kawasaki/46092-S013,Letter suffix in second segment,2026-07-07,https://www.partzilla.com/product/kawasaki/46092-S013
+KAW-019,Kawasaki,35040-5056-27P,"FENDERCOMPFRONT,EBONY/GRAY",,https://www.partzilla.com/product/kawasaki/35040-5056-27P,Three-segment suffix with letter,2026-07-07,https://www.partzilla.com/product/kawasaki/35040-5056-27P
+KAW-020,Kawasaki,41073-0031,"WHEELASSY,FR",1145.24,https://www.partzilla.com/product/kawasaki/41073-0031,High MSRP and sign-in-to-see-price,2026-07-07,https://www.partzilla.com/product/kawasaki/41073-0031
+KAW-021,Kawasaki,21175-0838,CONTROL UNITELECTRONIC,1248.11,https://www.partzilla.com/product/kawasaki/21175-0838,Very high MSRP item,2026-07-07,https://www.partzilla.com/product/kawasaki/21175-0838
+KAW-022,Kawasaki,14093-0886-839,"COVER,LH,UPP,S.BLACK",169.14,https://www.partzilla.com/product/kawasaki/14093-0886-839,Three-segment numeric suffix,2026-07-07,https://www.partzilla.com/product/kawasaki/14093-0886-839
+KAW-023,Kawasaki,34028-0327,STEP,37.3,https://www.partzilla.com/product/kawasaki/34028-0327,Standard part number,2026-07-07,https://www.partzilla.com/product/kawasaki/34028-0327
+KAW-024,Kawasaki,49093-0075,CONVERTERASSYDRIVE,1164.07,https://www.partzilla.com/product/kawasaki/49093-0075,High MSRP and sign-in-to-see-price,2026-07-07,https://www.partzilla.com/product/kawasaki/49093-0075
+KAW-025,Kawasaki,3099,STAR LTD II ANT 7 1/4,120.02,https://www.partzilla.com/product/kawasaki/3099,Short all-numeric part number,2026-07-07,https://www.partzilla.com/product/kawasaki/3099

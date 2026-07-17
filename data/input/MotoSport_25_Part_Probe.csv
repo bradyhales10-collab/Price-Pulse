@@ -1,0 +1,26 @@
+Test_Case_ID,Manufacturer,OEM_Part_Number,Search_Observed_Product_Name,Search_Observed_MSRP,Expected_Partzilla_URL,Test_Purpose,Verified_Date,Source_URL,Internal_SKU
+MS25-HON-001,Honda,18327-MEN-A30,Honda realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/18327-MEN-A30,MS25-HON-001
+MS25-HON-002,Honda,06115-MCA-000,Honda realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/06115-MCA-000,MS25-HON-002
+MS25-HON-003,Honda,50620-HN1-000,Honda realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/50620-HN1-000,MS25-HON-003
+MS25-HON-004,Honda,07JAZ-001070A,Honda realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/07JAZ-001070A,MS25-HON-004
+MS25-HON-005,Honda,83500-HN7-000ZA,Honda realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/83500-HN7-000ZA,MS25-HON-005
+MS25-YAM-001,Yamaha,1MC-2835V-00-P4,Yamaha realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/1MC-2835V-00-P4,MS25-YAM-001
+MS25-YAM-002,Yamaha,1S3-23391-20-00,Yamaha realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/1S3-23391-20-00,MS25-YAM-002
+MS25-YAM-003,Yamaha,B4B-2172A-00-00,Yamaha realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/B4B-2172A-00-00,MS25-YAM-003
+MS25-YAM-004,Yamaha,94227-19292-00,Yamaha realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/94227-19292-00,MS25-YAM-004
+MS25-YAM-005,Yamaha,F3H-U410M-00-00,Yamaha realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/F3H-U410M-00-00,MS25-YAM-005
+MS25-SUZ-001,Suzuki,13101-38H00,Suzuki realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/13101-38H00,MS25-SUZ-001
+MS25-SUZ-002,Suzuki,37101-20820,Suzuki realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/37101-20820,MS25-SUZ-002
+MS25-SUZ-003,Suzuki,09363-02002,Suzuki realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/09363-02002,MS25-SUZ-003
+MS25-SUZ-004,Suzuki,99500-37L00-03E,Suzuki realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/99500-37L00-03E,MS25-SUZ-004
+MS25-SUZ-005,Suzuki,17418-33400,Suzuki realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/17418-33400,MS25-SUZ-005
+MS25-POL-001,Polaris,2879324,Polaris realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/2879324,MS25-POL-001
+MS25-POL-002,Polaris,2638684-728,Polaris realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/2638684-728,MS25-POL-002
+MS25-POL-003,Polaris,5452743,Polaris realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/5452743,MS25-POL-003
+MS25-POL-004,Polaris,4010818,Polaris realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/4010818,MS25-POL-004
+MS25-POL-005,Polaris,1541864-067,Polaris realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/1541864-067,MS25-POL-005
+MS25-CAN-001,Can-Am,705002244,Can-Am realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/705002244,MS25-CAN-001
+MS25-CAN-002,Can-Am,S83625RCA000JF,Can-Am realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/S83625RCA000JF,MS25-CAN-002
+MS25-CAN-003,Can-Am,707003505,Can-Am realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/707003505,MS25-CAN-003
+MS25-CAN-004,Can-Am,708300053,Can-Am realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/708300053,MS25-CAN-004
+MS25-CAN-005,Can-Am,705014896,Can-Am realistic MotoSport probe part,,,MotoSport 25-part realistic multi-OEM coverage probe,,https://www.motosport.com/oem-parts/part-number/705014896,MS25-CAN-005

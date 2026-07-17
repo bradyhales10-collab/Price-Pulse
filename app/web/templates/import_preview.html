@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% from "components.html" import badge %}
+{% block title %}Import Preview{% endblock %}
+{% block content %}
+<header class="page-header"><div><h1>Import Preview</h1><p>{{ preview.worksheet_name }}</p></div>{% if imported %}{{ badge('Imported', 'success') }}{% endif %}</header>
+{% if errors %}<section class="card">{% for error in errors %}<p>{{ badge('Error', 'warning') }} {{ error }}</p>{% endfor %}</section>{% endif %}
+<section class="kpi-grid">
+  {% for label,value in [('Rows Read', preview.rows_read),('Valid Rows', preview.valid_rows),('Invalid Rows', preview.invalid_rows),('New Products', preview.new_products),('Existing Products', preview.existing_products),('Duplicate Rows', preview.duplicate_rows)] %}
+  <div class="kpi-card"><span>{{ label }}</span><strong>{{ value }}</strong></div>
+  {% endfor %}
+</section>
+<section class="card">
+  <div class="section-title"><h2>Preview Rows</h2><a href="/imports/{{ preview.import_batch_id }}/validation-errors.csv">Download Validation Errors</a></div>
+  <div class="table-wrap"><table><thead><tr><th>Row</th><th>Status</th><th>Action</th><th>Internal SKU</th><th>Manufacturer</th><th>OEM Part</th><th>Price</th><th>Messages</th></tr></thead><tbody>{% for row in preview.rows %}<tr><td>{{ row.source_row_number }}</td><td>{{ badge(row.status, 'success' if row.status == 'valid' else 'warning') }}</td><td>{{ row.action }}</td><td>{{ row.values.get('internal_sku','') }}</td><td>{{ row.values.get('manufacturer','') }}</td><td>{{ row.values.get('oem_part_number','') }}</td><td>{{ row.values.get('our_current_price','') }}</td><td>{{ '; '.join(row.messages) }}</td></tr>{% endfor %}</tbody></table></div>
+  {% if not imported and preview.invalid_rows == 0 %}
+  <form action="/imports/{{ preview.import_batch_id }}/start-price-check" method="post"><label>Delay seconds</label><input name="delay_seconds" type="number" min="1" value="1"><button type="submit">Start Checking Prices</button></form>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% from "components.html" import badge %}
+{% block title %}Price Check{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div><h1>Price Check</h1><p>Upload OEM parts, choose competitors, collect prices, then review exceptions and export updates.</p></div>
+  <div class="quick-actions"><a class="button" href="/imports/template">Download Template</a><form method="post" action="/data/reset" onsubmit="return confirm('Start fresh? This will permanently remove uploaded parts, comparison results, review decisions, scan runs, and import history. Login state and configuration will stay saved.');"><button type="submit" class="danger-button">Start Fresh</button></form></div>
+</header>
+
+{% if error %}<section class="card">{{ badge('Error', 'warning') }} {{ error }}</section>{% endif %}
+{% if errors %}<section class="card">{% for item in errors %}<p>{{ badge('Error', 'warning') }} {{ item }}</p>{% endfor %}</section>{% endif %}
+
+<section class="card">
+  <div class="section-title"><h2>1. Upload Parts File</h2>{% if preview %}{{ badge('File Read', 'success') }}{% endif %}</div>
+  <form data-upload-form class="upload-box">
+    <input type="file" name="upload_file" accept=".xlsx,.csv" required>
+    <button type="submit">Upload File</button>
+    <p data-upload-status>Accepted: .xlsx or .csv, up to {{ max_upload_mb }} MB.</p>
+  </form>
+</section>
+
+{% if preview %}
+<section class="card">
+  <div class="section-title"><h2>2. File Read Summary</h2><a href="/imports/{{ preview.import_batch_id }}/validation-errors.csv">Validation CSV</a></div>
+  <div class="metrics">
+    <span>Rows read <b>{{ preview.rows_read }}</b></span>
+    <span>Valid parts <b>{{ preview.valid_rows }}</b></span>
+    <span>Invalid rows <b>{{ preview.invalid_rows }}</b></span>
+    <span>Duplicate rows <b>{{ preview.duplicate_rows }}</b></span>
+  </div>
+  {% if preview.mapping %}
+  <details class="preview-details">
+    <summary>Show recognized columns ({{ preview.mapping|length }})</summary>
+    <div class="table-wrap"><table><thead><tr><th>Uploaded Header</th><th>Part Pulse Field</th></tr></thead><tbody>
+      {% for header, field in preview.mapping.items() %}<tr><td>{{ header }}</td><td>{{ field|humanize }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    <p class="muted">Other uploaded columns are left unchanged and are not used for price checking.</p>
+  </details>
+  {% endif %}
+  {% if preview.invalid_rows == 0 %}
+  <form action="/imports/{{ preview.import_batch_id }}/start-price-check" method="post" class="primary-action">
+    <div class="competitor-picker">
+      <strong>Competitors</strong>
+      {% for competitor in competitors %}
+        <label class="check"><input type="checkbox" name="competitor" value="{{ competitor.competitor_key }}" {{ 'checked' if competitor.capabilities.status == 'active' else '' }}> {{ competitor.display_name }} {% if competitor.capabilities.status == 'active' %}{{ badge('Active', 'success') }}{% else %}{{ badge('Experimental Probe', 'warning') }}{% endif %}</label>
+      {% endfor %}
+    </div>
+    <p class="muted">Selected competitors will be checked against the uploaded parts list and saved to production price history.</p>
+    <div class="inline-action"><label>Delay seconds</label><input name="delay_seconds" type="number" min="1" value="1"><button type="submit">Start Checking Prices</button></div>
+  </form>
+  {% else %}
+  <p>{{ badge('Fix File', 'warning') }} Correct the invalid rows, then upload again.</p>
+  {% endif %}
+  <details class="preview-details">
+    <summary>Show row preview (first 25 rows)</summary>
+    <div class="table-wrap"><table><thead><tr><th>Row</th><th>Status</th><th>Manufacturer</th><th>OEM Part</th><th>Internal SKU</th><th>Our Price</th><th>Messages</th></tr></thead><tbody>{% for row in preview.rows[:25] %}<tr><td>{{ row.source_row_number }}</td><td>{{ badge(row.status, 'success' if row.status == 'valid' else 'warning') }}</td><td>{{ row.values.get('manufacturer','') }}</td><td>{{ row.values.get('oem_part_number','') }}</td><td>{{ row.values.get('internal_sku','') }}</td><td>{{ row.values.get('our_current_price','') }}</td><td>{{ '; '.join(row.messages) }}</td></tr>{% endfor %}</tbody></table></div>
+  </details>
+</section>
+{% endif %}
+
+{% if job %}
+<section class="card" data-job-status data-job-id="{{ job.job_id }}">
+  <div class="section-title"><h2>3. Live Price Check</h2>{{ badge(job.status, 'blue') }}</div>
+  <div class="metrics">
+    <span>Status <b data-status>{{ job.status }}</b></span>
+    <span>Competitor <b data-competitor>{{ job.progress.competitor if job.progress else '' }}</b></span>
+    <span>Checked <b class="checked-count"><span data-completed>{{ job.progress.completed if job.progress else 0 }}</span><i>/</i><span data-total>{{ job.progress.total if job.progress else job.planned_count or 0 }}</span></b></span>
+    <span>Remaining <b data-remaining>{{ job.progress.remaining if job.progress else job.planned_count or 0 }}</b></span>
+    <span>ETA <b data-eta>Calculating</b></span>
+  </div>
+  {% if job.message %}<p>{{ badge('Message', 'warning') }} <span data-message>{{ job.message }}</span></p>{% else %}<p data-message></p>{% endif %}
+  {% if job.manual_command %}<details><summary>PowerShell fallback</summary><pre><code>{{ job.manual_command }}</code></pre></details>{% endif %}
+  <div class="progress-grid" data-competitor-progress></div>
+</section>
+<section class="card">
+  <div class="section-title"><h2>Next Steps</h2></div>
+  <div class="quick-actions">
+    <a class="button" href="/reviews">Review Exceptions</a>
+    <a class="button" href="/comparison">View All Price Comparisons</a>
+    <a class="button" href="/reviews/export?status=All&bucket=All">Export Pricing Review</a>
+    <a class="button" href="/quality">Check Data Quality</a>
+  </div>
+</section>
+<section class="card">
+  <div class="section-title"><h2>Recent Parts Checked</h2><span data-last-part></span></div>
+  <div class="table-wrap"><table><thead><tr><th>#</th><th>Competitor</th><th>Manufacturer</th><th>OEM Part</th><th>Price</th><th>Result</th><th>Checked At</th></tr></thead><tbody data-progress-rows></tbody></table></div>
+  <p><a href="/reviews">Review Exceptions</a> | <a href="/comparison">View Price Comparison</a> | <a href="/runs">View Scan Runs</a></p>
+</section>
+{% endif %}
+
+{% if history %}
+<section class="card">
+  <div class="section-title"><h2>Recent Files</h2><form method="post" action="/imports/history/clear" onsubmit="return confirm('Clear recent upload history? Imported products and prices will stay in the catalog.');"><button type="submit">Clear Recent Files</button></form></div>
+  <div class="table-wrap"><table><thead><tr><th>Date</th><th>Filename</th><th>Rows</th><th>Valid</th><th>Invalid</th><th>Status</th></tr></thead><tbody>{% for item in history[:8] %}<tr><td>{{ item.uploaded_at|datetime }}</td><td><a href="/imports?import_batch_id={{ item.import_batch_id }}">{{ item.original_filename }}</a></td><td>{{ item.rows_read }}</td><td>{{ item.valid_rows }}</td><td>{{ item.invalid_rows }}</td><td>{{ badge(item.status, 'success' if item.status == 'imported' else 'blue') }}</td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% endif %}
+{% endblock %}

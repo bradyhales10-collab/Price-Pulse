@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% from "components.html" import badge, money %}
+{% block title %}Run {{ run.scan_run_id }}{% endblock %}
+{% block content %}
+<header class="page-header"><div><h1>Scan Run {{ run.scan_run_id }}</h1><p>{{ run.competitor_name }} collection details</p></div>{{ badge(run.run_status, 'success' if run.run_status == 'completed' else 'warning') }}</header>
+<section class="kpi-grid">
+  {% for label,value in [('Requested',run.requested_part_count),('Attempted',run.attempted_part_count),('Successful',run.successful_part_count),('Changed',run.changed_part_count),('Warnings',run.warning_count),('Errors',run.error_count)] %}
+    <div class="kpi-card"><span>{{ label }}</span><strong>{{ value }}</strong></div>
+  {% endfor %}
+</section>
+<section class="card"><h2>Timing</h2><div class="metrics"><span>Started <b>{{ run.started_at|datetime }}</b></span><span>Completed <b>{{ run.completed_at|datetime }}</b></span><span>Duration <b>{{ run.duration }}</b></span><span>Success <b>{{ run.success_percent }}%</b></span><span>Blocked <b>{{ run.blocked_count }}</b></span><span>Challenges <b>{{ run.challenge_count }}</b></span></div></section>
+<section class="card"><h2>Scan Events</h2>{% if events %}<div class="table-wrap"><table><thead><tr><th>Part</th><th>Product</th><th>Checked</th><th>HTTP</th><th>Page</th><th>Session</th><th>Price</th><th>Availability</th><th>Warnings</th></tr></thead><tbody>{% for event in events %}<tr><td>{{ event.oem_part_number }}</td><td>{{ event.product_name }}</td><td>{{ event.checked_at|datetime }}</td><td>{{ event.http_status }}</td><td>{{ event.page_classification }}</td><td>{{ event.session_status }}</td><td>{{ money(event.selling_price) }}</td><td>{{ event.availability_status }}</td><td>{{ event.parse_warnings or 'None' }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty">No scan events were recorded for this run.</div>{% endif %}</section>
+{% endblock %}
