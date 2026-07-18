@@ -306,10 +306,10 @@ def test_comparison_formulas_filters_and_review_export() -> None:
     export_path = export_review(rows, TEST_OUTPUT_DIR / "exports")
     exported = read_rows(export_path, "Pricing Review")
     assert exported[0] == REVIEW_COLUMNS
-    assert "Chaparral_Selling_Price" in exported[0]
-    assert exported[0].index("Updated_Price") > exported[0].index("Chaparral_Reference_Price")
+    assert "Chaparral_Price" in exported[0]
+    assert exported[0].index("Updated_Price") > exported[0].index("Suggested_Price")
+    assert exported[0][-1] == "New_Margin_Pct"
     assert exported[1][exported[0].index("Updated_Price")] == ""
-    assert exported[1][exported[0].index("Review_Status")] == "Pending Review"
 
 
 def test_comparison_excludes_motosport_cart_hidden_reference_from_lowest_price() -> None:
@@ -356,7 +356,7 @@ def test_comparison_layout_is_compact_and_highlights_lowest_our_price() -> None:
     assert "Show Lower Prices" in page.text
     assert "Show All Prices" in page.text
     assert "Show Hidden Prices" not in page.text
-    assert page.text.index("Our Price") < page.text.index("Partzilla Price") < page.text.index("MotoSport Price") < page.text.index("Chaparral Price") < page.text.index("Calc Cost") < page.text.index("Margin %")
+    assert page.text.index("Product") < page.text.index("Partzilla Price") < page.text.index("MotoSport Price") < page.text.index("Chaparral Price") < page.text.index("Lowest Competitor") < page.text.index("Gap vs Lowest") < page.text.index("Our Price") < page.text.index("Calc Cost") < page.text.index("Margin %") < page.text.index("Suggested Price") < page.text.index("Updated Price") < page.text.index("New Margin")
     for removed_heading in ["<th>Reference</th>", "<th>Savings</th>", "<th>Units</th>", "<th>Margin at Partzilla</th>", "<th>Priority</th>"]:
         assert removed_heading not in page.text
 
@@ -488,8 +488,8 @@ def test_review_queue_saves_decisions_and_updates_exports() -> None:
     headers = exported[0]
     exported_row = next(row for row in exported if row[2] == "K-PRICE")
     assert exported_row[headers.index("Updated_Price")] == "11.49"
-    assert exported_row[headers.index("Review_Status")] == "Needs Price Change"
-    assert exported_row[headers.index("Notes")] == "Lower to stay close to lowest competitor."
+    assert "Review_Status" not in headers
+    assert "Notes" not in headers
 
 
 def test_pricing_rules_page_and_review_queue_rule_selection() -> None:
@@ -580,11 +580,9 @@ def test_pricing_rules_page_and_review_queue_rule_selection() -> None:
     exported = read_rows(export_path, "Pricing Review")
     headers = exported[0]
     exported_row = next(row for row in exported if row[2] == "K-PRICE")
-    assert exported_row[headers.index("Applied_Rule_Names")] == "Skip Unsafe Competitor Data, Use Lowest Competitor, Protect Minimum Margin"
-    assert exported_row[headers.index("Rule_Skip_Unsafe_Competitor_Data")] == "Yes"
-    assert exported_row[headers.index("Rule_Use_Lowest_Competitor")] == "Yes"
-    assert exported_row[headers.index("Rule_Round_To_99")] == "No"
-    assert exported_row[headers.index("Rule_Protect_Minimum_Margin")] == "Yes"
+    assert exported_row[headers.index("Updated_Price")] == "10.49"
+    for removed_column in ["Applied_Rule_Names", "Rule_Skip_Unsafe_Competitor_Data", "Rule_Use_Lowest_Competitor", "Rule_Round_To_99", "Rule_Protect_Minimum_Margin"]:
+        assert removed_column not in headers
 
 
 def test_approved_review_price_updates_catalog_and_export() -> None:
@@ -623,7 +621,7 @@ def test_approved_review_price_updates_catalog_and_export() -> None:
     headers = exported[0]
     exported_row = next(row for row in exported if row[2] == "K-PRICE")
     assert exported_row[headers.index("Updated_Price")] == "11.49"
-    assert exported_row[headers.index("Review_Status")] == "Approved"
+    assert "Review_Status" not in headers
 
 
 def test_review_export_route_exports_filtered_view() -> None:

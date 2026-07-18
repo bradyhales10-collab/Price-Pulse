@@ -3,37 +3,40 @@
 {% block title %}Data Quality{% endblock %}
 {% block content %}
 <header class="page-header">
-  <div><h1>Data Quality</h1><p>Products needing attention across missing prices, confidence, failures, warnings, and supersession.</p></div>
+  <div><h1>Data Quality</h1><p>Actionable product and competitor price issues that may need cleanup before pricing decisions.</p></div>
   <div class="quick-actions">
     <a class="button" href="/comparison?missing_competitor_price=1">Review Missing Prices</a>
-    <a class="button" href="/comparison?hidden_competitor_price=1">Review Hidden Prices</a>
   </div>
 </header>
 
-<section class="card"><div class="section-title"><h2>Audit Status</h2></div><div class="empty">Run database audit from the command line to generate a fresh audit report.</div></section>
-
 <section class="card">
-  <div class="section-title"><h2>Competitor Review Status</h2></div>
-  <div class="table-wrap"><table><thead><tr><th>Competitor</th><th>Status</th><th>Legal Review</th><th>Cart Probe</th><th>Login</th><th>Public Price</th><th>Direct URL</th><th>Notes</th></tr></thead><tbody>{% for competitor in competitors %}<tr><td>{{ competitor.competitor_name }}</td><td>{{ competitor.status|humanize }}</td><td>{{ competitor.legal_review_status|humanize }}</td><td>{{ (competitor.cart_price_probe_status or 'not_reviewed')|humanize }}</td><td>{{ 'Yes' if competitor.requires_login else 'No' }}</td><td>{{ 'Yes' if competitor.supports_public_price else 'No' }}</td><td>{{ 'Yes' if competitor.supports_direct_part_url else 'No' }}</td><td>{{ competitor.notes or '' }}</td></tr>{% endfor %}</tbody></table></div>
+  <div class="management-grid compact">
+    <span>Missing prices <b>{{ missing_price_products|length }}</b></span>
+    <span>Low confidence <b>{{ low_confidence|length }}</b></span>
+    <span>Failures <b>{{ failures|length }}</b></span>
+    <span>Warnings <b>{{ warnings|length }}</b></span>
+    <span>Supersession <b>{{ supersession|length }}</b></span>
+  </div>
 </section>
 
 <section class="card">
   <div class="section-title"><h2>Missing Prices</h2><span>{{ missing_price_products|length }} shown</span></div>
-  <p class="muted">These are products where at least one carried competitor listing was checked but no selling price was stored.</p>
+  <p class="muted">Products where at least one carried competitor is missing a stored selling price.</p>
   {{ product_quality_table(missing_price_products) }}
 </section>
 
-<section class="card">
-  <div class="section-title"><h2>Not Carried By Competitor</h2><span>{{ not_carried|length }} shown</span></div>
-  {{ listing_quality_table(not_carried) }}
-</section>
-
-{% for title, rows in [('Low Confidence', low_confidence), ('Consecutive Failures', failures), ('Recent Warnings', warnings), ('Supersession Review', supersession)] %}
+{% for title, rows in [('Low Confidence Prices', low_confidence), ('Collection Failures', failures), ('Recent Warnings', warnings), ('Supersession Review', supersession)] %}
 <section class="card">
   <div class="section-title"><h2>{{ title }}</h2><span>{{ rows|length }} shown</span></div>
   {{ listing_quality_table(rows) }}
 </section>
 {% endfor %}
+
+<section class="card">
+  <div class="section-title"><h2>Not Carried By Competitor</h2><span>{{ not_carried|length }} shown</span></div>
+  <p class="muted">Informational only. These are expected skips when a competitor does not carry that OEM.</p>
+  {{ listing_quality_table(not_carried) }}
+</section>
 {% endblock %}
 
 {% macro product_quality_table(rows) -%}

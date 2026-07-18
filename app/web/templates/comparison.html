@@ -48,14 +48,14 @@
           <th>Manufacturer</th>
           <th>OEM Part</th>
           <th>Product</th>
-          <th>Our Price</th>
           <th>Partzilla Price</th>
           <th>MotoSport Price</th>
           <th>Chaparral Price</th>
-          <th>Calc Cost</th>
-          <th>Margin %</th>
           <th>Lowest Competitor</th>
           <th>Gap vs Lowest</th>
+          <th>Our Price</th>
+          <th>Calc Cost</th>
+          <th>Margin %</th>
           <th>Suggested Price</th>
           <th>Updated Price</th>
           <th>New Margin</th>
@@ -72,14 +72,14 @@
           <td>{{ row.manufacturer }}</td>
           <td>{{ row.oem_part_number }}</td>
           <td>{{ row.product_name }}</td>
-          <td class="{{ row.our_price_class }}">{{ money(row.our_current_price, True) }}</td>
           <td>{{ money(row.partzilla_selling_price, True) }}</td>
           <td>{% if row.motosport_hidden_price %}<b>Price in cart</b>{% elif row.motosport_selling_price %}{{ money(row.motosport_selling_price, True) }}{% else %}<span class="muted">None</span>{% endif %}</td>
           <td>{% if row.chaparral_selling_price %}{{ money(row.chaparral_selling_price, True) }}{% else %}<span class="muted">None</span>{% endif %}</td>
-          <td>{{ money(row.current_cost) }}</td>
-          <td>{% if row.our_gross_margin_pct %}{{ row.our_gross_margin_pct }}%{% else %}<span class="muted">None</span>{% endif %}</td>
           <td>{% if row.lowest_competitor_name %}{{ row.lowest_competitor_name }} {{ money(row.lowest_competitor_price, True) }}{% else %}<span class="muted">None</span>{% endif %}</td>
           <td class="{{ row.price_difference_class }}">{% if row.difference_vs_lowest_competitor %}{{ money(row.difference_vs_lowest_competitor, True) }}{% else %}<span class="muted">None</span>{% endif %}</td>
+          <td class="{{ row.our_price_class }}">{{ money(row.our_current_price, True) }}</td>
+          <td>{{ money(row.current_cost) }}</td>
+          <td>{% if row.our_gross_margin_pct %}{{ row.our_gross_margin_pct }}%{% else %}<span class="muted">None</span>{% endif %}</td>
           <td>{% if row.rule_suggestion.suggested_price %}<span class="money strong">${{ row.rule_suggestion.suggested_price }}</span>{% else %}<span class="muted">None</span>{% endif %}</td>
           <td>
             <input class="price-input" name="suggested_new_price" form="comparison-review-{{ row.product_id }}" value="{{ row.suggested_new_price or '' }}" placeholder="Set price" data-price-input data-product-id="{{ row.product_id }}">

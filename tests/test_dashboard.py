@@ -214,7 +214,8 @@ def test_data_quality_page() -> None:
     assert "Manufacturer Not Carried" in response.text
     assert [row["oem_part_number"] for row in data["not_carried"]] == ["P-100"]
     assert "P-100" not in [row["oem_part_number"] for row in data["missing_prices"]]
-    assert "Run database audit from the command line" in response.text
+    assert "Run database audit from the command line" not in response.text
+    assert "Competitor Review Status" not in response.text
 
 
 def test_empty_database_handling() -> None:

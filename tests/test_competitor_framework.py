@@ -1765,7 +1765,8 @@ def test_motosport_cart_probe_status_is_production_enabled() -> None:
     assert row["status"] == "active"
     assert row["cart_price_probe_status"] == "production_enabled"
     page = TestClient(create_app(db), raise_server_exceptions=False).get("/quality")
-    assert "Production Enabled" in page.text
+    assert "Production Enabled" not in page.text
+    assert "Competitor Review Status" not in page.text
 
 
 def test_dashboard_competitor_selection_and_warning_render() -> None:
