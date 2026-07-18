@@ -326,6 +326,55 @@ def test_comparison_export_route_can_export_selected_rows_without_multipart() ->
     assert response.headers["content-disposition"].endswith(".xlsx\"")
 
 
+def test_uploaded_file_opens_filtered_price_comparison() -> None:
+    db = _empty_db("uploaded_file_comparison.db")
+    first = _upload_simple_batch(db, "older.xlsx", "SKU-FIRST", "Honda", "H-FIRST")
+    second = _upload_simple_batch(db, "newer.xlsx", "SKU-SECOND", "Yamaha", "Y-SECOND")
+    confirm_import(db, first.import_batch_id)
+    confirm_import(db, second.import_batch_id)
+    client = TestClient(create_app(db), raise_server_exceptions=False)
+
+    imports = client.get("/imports")
+    comparison = client.get(f"/comparison?import_batch_id={second.import_batch_id}")
+
+    assert imports.status_code == 200
+    assert imports.text.index("newer.xlsx") < imports.text.index("older.xlsx")
+    assert f"/comparison?import_batch_id={second.import_batch_id}" in imports.text
+    assert comparison.status_code == 200
+    assert "Y-SECOND" in comparison.text
+    assert "H-FIRST" not in comparison.text
+    assert "From Selected File" in comparison.text
+
+
+def test_comparison_page_saves_updated_price_decision() -> None:
+    db = _comparison_db("comparison_save_decision.db")
+    client = TestClient(create_app(db), raise_server_exceptions=False)
+    product_id = _product_id(db, "K-PRICE")
+
+    page = client.get("/comparison")
+    assert page.status_code == 200
+    assert "Suggested Price" in page.text
+    assert "Updated Price" in page.text
+
+    response = client.post(
+        f"/comparison/{product_id}/review",
+        data={
+            "review_status": "Approved",
+            "suggested_new_price": "11.49",
+            "notes": "Approved directly from comparison.",
+            "return_query": "page_size=50",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    row = next(item for item in comparison_rows(db) if item["oem_part_number"] == "K-PRICE")
+    assert row["review_status"] == "Approved"
+    assert row["suggested_new_price"] == "11.49"
+    assert row["our_current_price"] == "11.49"
+    assert row["notes"] == "Approved directly from comparison."
+
+
 def test_review_queue_saves_decisions_and_updates_exports() -> None:
     db = _comparison_db("review_queue.db")
     client = TestClient(create_app(db), raise_server_exceptions=False)
@@ -730,11 +779,11 @@ def test_branding_theme_and_navigation_are_present() -> None:
         "Price Comparison",
         "Scan Runs",
         "Data Quality",
-        "Review Queue",
         "Pricing Rules",
         "Settings",
     ]:
         assert label in base
+    assert "Review Queue" not in base
 
 
 def _comparison_db(name: str = "comparison.db") -> Path:

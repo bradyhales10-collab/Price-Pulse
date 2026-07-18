@@ -3,17 +3,17 @@
 {% block title %}Price Comparison{% endblock %}
 {% block content %}
 <header class="page-header">
-  <div><h1>Price Comparison</h1><p>Our current price versus the lowest supported competitor price found.</p></div>
+  <div><h1>Price Comparison</h1><p>Compare the selected product list, set updated prices, and export approved changes.</p></div>
   <div class="quick-actions">
-    <a class="button" href="/reviews">Review Exceptions</a>
-    <a class="button" href="/reviews/export?status=All&bucket=All">Export Pricing Review</a>
+    <a class="button" href="/imports">Price Check Files</a>
     <form method="post" action="/comparison/clear" onsubmit="return confirm('Clear all stored competitor prices and comparison history? Your products, selling prices, and costs will stay in the catalog.');"><button type="submit" class="danger-button">Clear Comparison Results</button></form>
     <form method="post" action="/data/reset" onsubmit="return confirm('Start fresh? This will permanently remove uploaded parts, comparison results, review decisions, scan runs, and import history. Login state and configuration will stay saved.');"><button type="submit" class="danger-button">Start Fresh</button></form>
   </div>
 </header>
-<form class="filters" method="get"><input name="search" value="{{ filters.search }}" placeholder="Search SKU, part, product"><select name="price_position"><option value="">All gaps</option><option value="above" {{ 'selected' if filters.price_position == 'above' else '' }}>Our price above</option><option value="below" {{ 'selected' if filters.price_position == 'below' else '' }}>Our price below</option></select><select name="page_size">{% for size in [25,50,100] %}<option value="{{ size }}" {{ 'selected' if size == page_size else '' }}>{{ size }} rows</option>{% endfor %}</select><label class="check"><input type="checkbox" name="competitor_discounted" value="1" {{ 'checked' if filters.competitor_discounted else '' }}> Competitor discounted</label><label class="check"><input type="checkbox" name="missing_competitor_price" value="1" {{ 'checked' if filters.missing_competitor_price else '' }}> Missing competitor price</label><label class="check"><input type="checkbox" name="hidden_competitor_price" value="1" {{ 'checked' if filters.hidden_competitor_price else '' }}> Hidden competitor price</label><button>Apply</button></form>
+{% if message %}<section class="card">{{ message }}</section>{% endif %}
+<form class="filters" method="get"><input name="search" value="{{ filters.search }}" placeholder="Search SKU, part, product"><input type="hidden" name="import_batch_id" value="{{ filters.import_batch_id or '' }}"><select name="price_position"><option value="">All gaps</option><option value="above" {{ 'selected' if filters.price_position == 'above' else '' }}>Our price above</option><option value="below" {{ 'selected' if filters.price_position == 'below' else '' }}>Our price below</option></select><select name="page_size">{% for size in [25,50,100] %}<option value="{{ size }}" {{ 'selected' if size == page_size else '' }}>{{ size }} rows</option>{% endfor %}</select><label class="check"><input type="checkbox" name="competitor_discounted" value="1" {{ 'checked' if filters.competitor_discounted else '' }}> Competitor discounted</label><label class="check"><input type="checkbox" name="missing_competitor_price" value="1" {{ 'checked' if filters.missing_competitor_price else '' }}> Missing competitor price</label><label class="check"><input type="checkbox" name="hidden_competitor_price" value="1" {{ 'checked' if filters.hidden_competitor_price else '' }}> Hidden competitor price</label><button>Apply</button></form>
 <section class="card">
-  <div class="section-title"><h2>{{ total }} Comparison Rows</h2><span>Page {{ page }} of {{ total_pages }}</span><form method="post" action="/comparison/export"><input type="hidden" name="scope" value="all"><button>Export All Results</button></form></div>
+  <div class="section-title"><h2>{{ total }} Comparison Rows{% if filters.import_batch_id %} From Selected File{% endif %}</h2><span>Page {{ page }} of {{ total_pages }}</span><form method="post" action="/comparison/export"><input type="hidden" name="scope" value="all"><input type="hidden" name="import_batch_id" value="{{ filters.import_batch_id or '' }}"><button>Export All Results</button></form></div>
   <div class="management-grid compact">
     <span>Our price higher <b>{{ summary.our_price_higher }}</b></span>
     <span>Our price lower <b>{{ summary.our_price_lower }}</b></span>
@@ -22,23 +22,23 @@
     <span>Pending review <b>{{ summary.needs_review }}</b></span>
   </div>
   <div class="quick-actions">
-    <a class="button" href="/reviews?bucket=Our%20Price%20Higher">Review Higher Prices</a>
-    <a class="button" href="/reviews?bucket=Missing%20Competitor%20Price">Review Missing Prices</a>
-    <a class="button" href="/reviews?bucket=Hidden%20Price">Review Hidden Prices</a>
+    <a class="button" href="/comparison?import_batch_id={{ filters.import_batch_id or '' }}&price_position=above&page_size={{ page_size }}">Show Higher Prices</a>
+    <a class="button" href="/comparison?import_batch_id={{ filters.import_batch_id or '' }}&missing_competitor_price=1&page_size={{ page_size }}">Show Missing Prices</a>
+    <a class="button" href="/comparison?import_batch_id={{ filters.import_batch_id or '' }}&hidden_competitor_price=1&page_size={{ page_size }}">Show Hidden Prices</a>
   </div>
   {% if rows %}
   <div class="pagination">
-    {% if page > 1 %}<a href="?search={{ filters.search }}&price_position={{ filters.price_position }}&competitor_discounted={{ 1 if filters.competitor_discounted else 0 }}&missing_competitor_price={{ 1 if filters.missing_competitor_price else 0 }}&hidden_competitor_price={{ 1 if filters.hidden_competitor_price else 0 }}&page_size={{ page_size }}&page={{ page - 1 }}">Previous</a>{% endif %}
+    {% if page > 1 %}<a href="?{{ page_query }}&page={{ page - 1 }}">Previous</a>{% endif %}
     {% for number in range(1, total_pages + 1) %}
       {% if number == 1 or number == total_pages or (number >= page - 2 and number <= page + 2) %}
-        {% if number == page %}<span class="active">{{ number }}</span>{% else %}<a href="?search={{ filters.search }}&price_position={{ filters.price_position }}&competitor_discounted={{ 1 if filters.competitor_discounted else 0 }}&missing_competitor_price={{ 1 if filters.missing_competitor_price else 0 }}&hidden_competitor_price={{ 1 if filters.hidden_competitor_price else 0 }}&page_size={{ page_size }}&page={{ number }}">{{ number }}</a>{% endif %}
+        {% if number == page %}<span class="active">{{ number }}</span>{% else %}<a href="?{{ page_query }}&page={{ number }}">{{ number }}</a>{% endif %}
       {% elif number == page - 3 or number == page + 3 %}
         <span>...</span>
       {% endif %}
     {% endfor %}
-    {% if page < total_pages %}<a href="?search={{ filters.search }}&price_position={{ filters.price_position }}&competitor_discounted={{ 1 if filters.competitor_discounted else 0 }}&missing_competitor_price={{ 1 if filters.missing_competitor_price else 0 }}&hidden_competitor_price={{ 1 if filters.hidden_competitor_price else 0 }}&page_size={{ page_size }}&page={{ page + 1 }}">Next</a>{% endif %}
+    {% if page < total_pages %}<a href="?{{ page_query }}&page={{ page + 1 }}">Next</a>{% endif %}
   </div>
-  <form method="post" action="/comparison/export" id="comparison-export"><input type="hidden" name="scope" value="selected"><input type="hidden" name="selected" id="selected-ids">
+  <form method="post" action="/comparison/export" id="comparison-export"><input type="hidden" name="scope" value="selected"><input type="hidden" name="import_batch_id" value="{{ filters.import_batch_id or '' }}"><input type="hidden" name="selected" id="selected-ids"></form>
   <div class="table-wrap">
     <table>
       <thead>
@@ -56,10 +56,14 @@
           <th>Margin %</th>
           <th>Lowest Competitor</th>
           <th>Gap vs Lowest</th>
+          <th>Suggested Price</th>
+          <th>Updated Price</th>
+          <th>New Margin</th>
           <th>Inventory</th>
           <th>Priority</th>
-          <th>Review Status</th>
+          <th>Decision</th>
           <th>Notes</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
@@ -77,28 +81,45 @@
           <td>{{ money(row.current_cost) }}</td>
           <td>{% if row.our_gross_margin_pct %}{{ row.our_gross_margin_pct }}%{% else %}<span class="muted">None</span>{% endif %}</td>
           <td>{% if row.lowest_competitor_name %}{{ row.lowest_competitor_name }} {{ money(row.lowest_competitor_price, True) }}{% else %}<span class="muted">None</span>{% endif %}</td>
-          <td>{% if row.difference_vs_lowest_competitor %}${{ row.difference_vs_lowest_competitor }}{% else %}<span class="muted">None</span>{% endif %}</td>
+          <td class="{{ row.price_difference_class }}">{% if row.difference_vs_lowest_competitor %}{{ money(row.difference_vs_lowest_competitor, True) }}{% else %}<span class="muted">None</span>{% endif %}</td>
+          <td>{% if row.rule_suggestion.suggested_price %}<span class="money strong">${{ row.rule_suggestion.suggested_price }}</span>{% else %}<span class="muted">None</span>{% endif %}</td>
+          <td>
+            <input name="suggested_new_price" form="comparison-review-{{ row.product_id }}" value="{{ row.suggested_new_price or '' }}" placeholder="Set price">
+            <input type="hidden" name="displayed_suggested_new_price" form="comparison-review-{{ row.product_id }}" value="{{ row.suggested_new_price or '' }}">
+            <input type="hidden" name="use_rule_suggestion" form="comparison-review-{{ row.product_id }}" value="1">
+            <input type="hidden" name="return_query" form="comparison-review-{{ row.product_id }}" value="{{ request.url.query }}">
+            {% for rule_code in row.rule_suggestion.selected_rule_codes %}
+              <input type="hidden" name="rule_code" form="comparison-review-{{ row.product_id }}" value="{{ rule_code }}">
+            {% endfor %}
+          </td>
+          <td>{% if row.updated_margin_pct %}{{ row.updated_margin_pct }}%{% else %}<span class="muted">Needs cost</span>{% endif %}</td>
           <td>{{ row.inventory_qty or '' }}</td>
           <td>{{ row.scan_priority or '' }}</td>
-          <td>{{ row.review_status }}</td>
-          <td>{{ row.notes }}</td>
+          <td>
+            <select name="review_status" form="comparison-review-{{ row.product_id }}">
+              {% for status in statuses %}
+                <option value="{{ status }}" {{ 'selected' if row.review_status == status else '' }}>{{ status }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td><input name="notes" form="comparison-review-{{ row.product_id }}" value="{{ row.notes }}" placeholder="Add note"></td>
+          <td><form id="comparison-review-{{ row.product_id }}" method="post" action="/comparison/{{ row.product_id }}/review"><button type="submit">Save</button></form></td>
         </tr>
       {% endfor %}
       </tbody>
     </table>
   </div>
-  <button type="button" data-select-visible>Select Visible</button><button type="button" data-clear-selection>Clear Selection</button><button type="submit">Export Selected Results</button>
-  </form>
+  <button type="button" data-select-visible>Select Visible</button><button type="button" data-clear-selection>Clear Selection</button><button type="submit" form="comparison-export">Export Selected Results</button>
   <div class="pagination">
-    {% if page > 1 %}<a href="?search={{ filters.search }}&price_position={{ filters.price_position }}&competitor_discounted={{ 1 if filters.competitor_discounted else 0 }}&missing_competitor_price={{ 1 if filters.missing_competitor_price else 0 }}&hidden_competitor_price={{ 1 if filters.hidden_competitor_price else 0 }}&page_size={{ page_size }}&page={{ page - 1 }}">Previous</a>{% endif %}
+    {% if page > 1 %}<a href="?{{ page_query }}&page={{ page - 1 }}">Previous</a>{% endif %}
     {% for number in range(1, total_pages + 1) %}
       {% if number == 1 or number == total_pages or (number >= page - 2 and number <= page + 2) %}
-        {% if number == page %}<span class="active">{{ number }}</span>{% else %}<a href="?search={{ filters.search }}&price_position={{ filters.price_position }}&competitor_discounted={{ 1 if filters.competitor_discounted else 0 }}&missing_competitor_price={{ 1 if filters.missing_competitor_price else 0 }}&hidden_competitor_price={{ 1 if filters.hidden_competitor_price else 0 }}&page_size={{ page_size }}&page={{ number }}">{{ number }}</a>{% endif %}
+        {% if number == page %}<span class="active">{{ number }}</span>{% else %}<a href="?{{ page_query }}&page={{ number }}">{{ number }}</a>{% endif %}
       {% elif number == page - 3 or number == page + 3 %}
         <span>...</span>
       {% endif %}
     {% endfor %}
-    {% if page < total_pages %}<a href="?search={{ filters.search }}&price_position={{ filters.price_position }}&competitor_discounted={{ 1 if filters.competitor_discounted else 0 }}&missing_competitor_price={{ 1 if filters.missing_competitor_price else 0 }}&hidden_competitor_price={{ 1 if filters.hidden_competitor_price else 0 }}&page_size={{ page_size }}&page={{ page + 1 }}">Next</a>{% endif %}
+    {% if page < total_pages %}<a href="?{{ page_query }}&page={{ page + 1 }}">Next</a>{% endif %}
   </div>
   {% else %}<div class="empty">No comparison rows yet. Import internal product pricing data first.</div>{% endif %}
 </section>

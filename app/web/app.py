@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import math
 from pathlib import Path
-from urllib.parse import parse_qs, quote
+from urllib.parse import parse_qs, quote, urlencode
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -42,7 +42,7 @@ from app.imports import ALL_FIELDS, REQUIRED_FIELDS
 from app.management import management_summary
 from app.maintenance import clear_comparison_results, clear_pending_review_queue, clear_scan_runs, reset_all_test_data
 from app.pricing_rules import apply_pricing_rule_preset, list_pricing_rule_presets, list_pricing_rules, update_pricing_rule
-from app.reviews import ALL_BUCKETS, ALL_STATUSES, REVIEW_BUCKETS, REVIEW_STATUSES, PENDING_REVIEW, review_queue, review_rows, save_bulk_review_decision, save_review_decision, suggested_price_for_product
+from app.reviews import ALL_BUCKETS, ALL_STATUSES, REVIEW_BUCKETS, REVIEW_STATUSES, PENDING_REVIEW, comparison_review_rows, review_queue, review_rows, save_bulk_review_decision, save_review_decision, suggested_price_for_product
 
 
 LOGGER = logging.getLogger(__name__)
@@ -169,8 +169,10 @@ def create_app(database: Path) -> FastAPI:
         missing_competitor_price: int = 0,
         hidden_competitor_price: int = 0,
         needs_review: int = 0,
+        import_batch_id: int | None = None,
         page: int = 1,
         page_size: int = 50,
+        message: str = "",
     ):
         page_size = page_size if page_size in {25, 50, 100} else 50
         page = max(1, page)
@@ -183,8 +185,9 @@ def create_app(database: Path) -> FastAPI:
             missing_competitor_price=bool(missing_competitor_price),
             hidden_competitor_price=bool(hidden_competitor_price),
             needs_review=bool(needs_review),
+            import_batch_id=import_batch_id,
         )
-        rows = comparison_rows(app.state.database, filters)
+        rows = comparison_review_rows(app.state.database, filters)
         total = len(rows)
         summary = {
             "our_price_higher": sum(1 for row in rows if row.get("price_difference_cents") is not None and row["price_difference_cents"] > 0),
@@ -197,6 +200,7 @@ def create_app(database: Path) -> FastAPI:
         page = min(page, total_pages)
         offset = (page - 1) * page_size
         visible_rows = rows[offset : offset + page_size]
+        page_query = _comparison_page_query(filters, page_size)
         return templates.TemplateResponse(
             request,
             "comparison.html",
@@ -210,6 +214,9 @@ def create_app(database: Path) -> FastAPI:
                 "page": page,
                 "page_size": page_size,
                 "total_pages": total_pages,
+                "message": message,
+                "statuses": REVIEW_STATUSES,
+                "page_query": page_query,
             },
         )
 
@@ -223,12 +230,42 @@ def create_app(database: Path) -> FastAPI:
         form = await _urlencoded_form(request)
         selected = form.get("selected", "")
         scope = form.get("scope", "all")
-        rows = comparison_rows(app.state.database)
+        export_filters = ComparisonFilters(import_batch_id=_optional_int_form_value(form.get("import_batch_id")))
+        rows = comparison_review_rows(app.state.database, export_filters)
         if scope == "selected" and selected.strip():
             ids = {int(value) for value in selected.split(",") if value.strip().isdigit()}
             rows = [row for row in rows if row["product_id"] in ids]
         path = export_review(rows, OUTPUT_DIR / "exports")
         return FileResponse(path, filename=path.name)
+
+    @app.post("/comparison/{product_id}/review")
+    async def comparison_review_save(request: Request, product_id: int):
+        body = (await request.body()).decode("utf-8", errors="replace")
+        parsed = parse_qs(body, keep_blank_values=True)
+        form = {key: values[-1] if values else "" for key, values in parsed.items()}
+        selected_rule_codes = parsed.get("rule_code", [])
+        suggested_new_price = form.get("suggested_new_price", "")
+        displayed_suggested_new_price = form.get("displayed_suggested_new_price", "")
+        try:
+            if form.get("use_rule_suggestion") == "1" and (
+                not suggested_new_price.strip() or suggested_new_price.strip() == displayed_suggested_new_price.strip()
+            ):
+                suggestion = suggested_price_for_product(app.state.database, product_id, selected_rule_codes)
+                suggested_new_price = suggestion["suggested_price"]
+            save_review_decision(
+                app.state.database,
+                product_id=product_id,
+                review_status=form.get("review_status", PENDING_REVIEW),
+                suggested_new_price=suggested_new_price,
+                notes=form.get("notes", ""),
+                reviewer=form.get("reviewer", ""),
+                applied_rule_codes=selected_rule_codes,
+            )
+        except ValueError as exc:
+            return RedirectResponse(f"/comparison?message={quote(str(exc))}", status_code=303)
+        query = form.get("return_query", "")
+        suffix = f"&message={quote('Saved updated price.')}" if query else f"?message={quote('Saved updated price.')}"
+        return RedirectResponse(f"/comparison?{query}{suffix}" if query else f"/comparison{suffix}", status_code=303)
 
     @app.get("/reviews", response_class=HTMLResponse)
     def reviews(request: Request, status: str = PENDING_REVIEW, bucket: str = ALL_BUCKETS, page: int = 1, page_size: int = 50, message: str = ""):
@@ -598,6 +635,36 @@ def _int_form_value(value: str | None, default: int) -> int:
         return int(value or default)
     except ValueError:
         return default
+
+
+def _optional_int_form_value(value: str | None) -> int | None:
+    try:
+        return int(value) if value else None
+    except ValueError:
+        return None
+
+
+def _comparison_page_query(filters: ComparisonFilters, page_size: int) -> str:
+    params: dict[str, str | int] = {"page_size": page_size}
+    if filters.search:
+        params["search"] = filters.search
+    if filters.manufacturer:
+        params["manufacturer"] = filters.manufacturer
+    if filters.price_position:
+        params["price_position"] = filters.price_position
+    if filters.competitor_discounted:
+        params["competitor_discounted"] = 1
+    if filters.scan_priority:
+        params["scan_priority"] = filters.scan_priority
+    if filters.missing_competitor_price:
+        params["missing_competitor_price"] = 1
+    if filters.hidden_competitor_price:
+        params["hidden_competitor_price"] = 1
+    if filters.needs_review:
+        params["needs_review"] = 1
+    if filters.import_batch_id:
+        params["import_batch_id"] = filters.import_batch_id
+    return urlencode(params)
 
 
 def _imports_response(

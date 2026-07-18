@@ -95,6 +95,10 @@ def review_rows(database: Path, *, status: str = PENDING_REVIEW, bucket: str = A
     return rows
 
 
+def comparison_review_rows(database: Path, filters: ComparisonFilters = ComparisonFilters()) -> list[dict[str, Any]]:
+    return _annotated_rows(database, filters)
+
+
 def save_review_decision(
     database: Path,
     *,
@@ -165,8 +169,8 @@ def pending_review_count(database: Path) -> int:
     return review_queue(database, status=PENDING_REVIEW, page_size=25).counts.get(PENDING_REVIEW, 0)
 
 
-def _annotated_rows(database: Path) -> list[dict[str, Any]]:
-    rows = comparison_rows(database)
+def _annotated_rows(database: Path, filters: ComparisonFilters = ComparisonFilters()) -> list[dict[str, Any]]:
+    rows = comparison_rows(database, filters)
     rules = list_pricing_rules(database, enabled_only=True)
     for row in rows:
         bucket, reason = _classify_row(row)

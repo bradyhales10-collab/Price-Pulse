@@ -5,9 +5,9 @@
 <header class="page-header">
   <div>
     <h1>Pricing Rules</h1>
-    <p>Rules generate suggested prices after a price check. Review Queue still controls what gets approved or exported.</p>
+    <p>Rules generate suggested prices after a price check. Price Comparison controls what gets approved or exported.</p>
   </div>
-  <a class="button" href="/reviews">Open Review Queue</a>
+  <a class="button" href="/comparison">Open Price Comparison</a>
 </header>
 
 {% if error %}<section class="card">{{ badge('Error', 'warning') }} {{ error }}</section>{% endif %}
@@ -73,7 +73,7 @@
   <div class="metrics">
     <span>1. Price Check <b>Collect competitor prices</b></span>
     <span>2. Pricing Rules <b>Generate suggested prices</b></span>
-    <span>3. Review Queue <b>Select rules and approve rows</b></span>
+    <span>3. Price Comparison <b>Set updated prices and approve rows</b></span>
     <span>4. Export <b>Send approved update file onward</b></span>
   </div>
 </section>

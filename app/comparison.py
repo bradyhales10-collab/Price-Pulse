@@ -23,6 +23,7 @@ class ComparisonFilters:
     missing_competitor_price: bool = False
     hidden_competitor_price: bool = False
     needs_review: bool = False
+    import_batch_id: int | None = None
 
 
 def comparison_rows(database: Path, filters: ComparisonFilters = ComparisonFilters()) -> list[dict[str, Any]]:
@@ -114,6 +115,9 @@ def _where(filters: ComparisonFilters) -> tuple[str, list[Any]]:
     if filters.needs_review:
         clauses.append("COALESCE(prd.review_status, ?) = ?")
         params.extend([PENDING_REVIEW, PENDING_REVIEW])
+    if filters.import_batch_id:
+        clauses.append("ips.source_import_batch_id=?")
+        params.append(filters.import_batch_id)
     return " AND ".join(clauses), params
 
 

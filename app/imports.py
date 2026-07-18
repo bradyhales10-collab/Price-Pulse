@@ -311,7 +311,7 @@ def confirm_import(database: Path, import_batch_id: int, *, worksheet: str | Non
 
 def import_history(database: Path) -> list[dict[str, Any]]:
     with connect_database(database) as conn:
-        return [dict(row) for row in conn.execute("SELECT * FROM import_batches ORDER BY uploaded_at DESC LIMIT 50")]
+        return [dict(row) for row in conn.execute("SELECT * FROM import_batches ORDER BY uploaded_at DESC, import_batch_id DESC LIMIT 50")]
 
 
 def clear_import_history(database: Path) -> int:
