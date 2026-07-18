@@ -367,6 +367,19 @@ def test_comparison_layout_is_compact_and_highlights_lowest_our_price() -> None:
         assert removed_heading not in page.text
 
 
+def test_comparison_quick_filters_work_without_selected_import_file() -> None:
+    db = _comparison_db("comparison_no_import_filter.db")
+    client = TestClient(create_app(db), raise_server_exceptions=False)
+
+    page = client.get("/comparison")
+
+    assert page.status_code == 200
+    assert "/comparison?import_batch_id=" not in page.text
+    assert client.get("/comparison?import_batch_id=&page_size=50").status_code == 200
+    assert client.get("/comparison?page_size=50").status_code == 200
+    assert client.get("/comparison?price_position=above&page_size=50").status_code == 200
+
+
 def test_comparison_export_route_can_export_selected_rows_without_multipart() -> None:
     db = _comparison_db("comparison_web.db")
     client = TestClient(create_app(db), raise_server_exceptions=False)

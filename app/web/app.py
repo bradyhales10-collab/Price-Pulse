@@ -170,13 +170,14 @@ def create_app(database: Path) -> FastAPI:
         missing_competitor_price: int = 0,
         hidden_competitor_price: int = 0,
         needs_review: int = 0,
-        import_batch_id: int | None = None,
+        import_batch_id: str | None = None,
         page: int = 1,
         page_size: int = 50,
         message: str = "",
     ):
         page_size = page_size if page_size in {25, 50, 100} else 50
         page = max(1, page)
+        parsed_import_batch_id = _optional_int_form_value(import_batch_id)
         filters = ComparisonFilters(
             search=search,
             manufacturer=manufacturer,
@@ -186,7 +187,7 @@ def create_app(database: Path) -> FastAPI:
             missing_competitor_price=bool(missing_competitor_price),
             hidden_competitor_price=bool(hidden_competitor_price),
             needs_review=bool(needs_review),
-            import_batch_id=import_batch_id,
+            import_batch_id=parsed_import_batch_id,
         )
         rows = comparison_review_rows(app.state.database, filters)
         total = len(rows)
@@ -218,6 +219,7 @@ def create_app(database: Path) -> FastAPI:
                 "message": message,
                 "statuses": REVIEW_STATUSES,
                 "page_query": page_query,
+                "quick_filter_queries": _comparison_quick_filter_queries(filters, page_size),
             },
         )
 
@@ -691,6 +693,18 @@ def _comparison_page_query(filters: ComparisonFilters, page_size: int) -> str:
     if filters.import_batch_id:
         params["import_batch_id"] = filters.import_batch_id
     return urlencode(params)
+
+
+def _comparison_quick_filter_queries(filters: ComparisonFilters, page_size: int) -> dict[str, str]:
+    base: dict[str, str | int] = {"page_size": page_size}
+    if filters.import_batch_id:
+        base["import_batch_id"] = filters.import_batch_id
+    return {
+        "all": urlencode(base),
+        "above": urlencode(base | {"price_position": "above"}),
+        "below": urlencode(base | {"price_position": "below"}),
+        "missing": urlencode(base | {"missing_competitor_price": 1}),
+    }
 
 
 def _imports_response(

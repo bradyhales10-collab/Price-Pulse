@@ -35,6 +35,8 @@ def test_dashboard_loads_and_kpis_are_correct() -> None:
     assert "Ready to export" in response.text
     assert "OEM Margin Snapshot" in response.text
     assert "Competitor Snapshot" in response.text
+    assert "Our Avg Margin" in response.text
+    assert "Avg Margin Using Our Cost" in response.text
     assert "Monitored Products" in response.text
     assert ">6<" in response.text
     assert "Discounted Products" in response.text

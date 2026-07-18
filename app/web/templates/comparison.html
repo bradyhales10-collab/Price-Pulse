@@ -21,10 +21,10 @@
     <span>Pending review <b>{{ summary.needs_review }}</b></span>
   </div>
   <div class="quick-actions">
-    <a class="button" href="/comparison?import_batch_id={{ filters.import_batch_id or '' }}&page_size={{ page_size }}">Show All Prices</a>
-    <a class="button" href="/comparison?import_batch_id={{ filters.import_batch_id or '' }}&price_position=above&page_size={{ page_size }}">Show Higher Prices</a>
-    <a class="button" href="/comparison?import_batch_id={{ filters.import_batch_id or '' }}&price_position=below&page_size={{ page_size }}">Show Lower Prices</a>
-    <a class="button" href="/comparison?import_batch_id={{ filters.import_batch_id or '' }}&missing_competitor_price=1&page_size={{ page_size }}">Show Missing Prices</a>
+    <a class="button" href="/comparison?{{ quick_filter_queries.all }}">Show All Prices</a>
+    <a class="button" href="/comparison?{{ quick_filter_queries.above }}">Show Higher Prices</a>
+    <a class="button" href="/comparison?{{ quick_filter_queries.below }}">Show Lower Prices</a>
+    <a class="button" href="/comparison?{{ quick_filter_queries.missing }}">Show Missing Prices</a>
   </div>
   {% if rows %}
   <div class="pagination">
