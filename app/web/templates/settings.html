@@ -14,20 +14,23 @@
 <section class="card">
   <div class="section-title">
     <h2>Competitor OEM Coverage</h2>
-    <span class="muted">Checked OEMs are eligible for that competitor.</span>
+    <span class="muted">Checked OEMs are eligible for price checks.</span>
   </div>
   <form method="post" action="/settings/coverage">
     <div class="coverage-grid">
       {% for competitor in competitors %}
         {% set supported = coverage.competitors.get(competitor.competitor_key, []) %}
         <article class="coverage-panel">
-          <div class="section-title">
-            <h3>{{ competitor.display_name }}</h3>
+          <div class="coverage-header">
+            <div>
+              <h3>{{ competitor.display_name }}</h3>
+              <span>{{ supported|length }} of {{ coverage.manufacturers|length }} OEMs selected</span>
+            </div>
             {{ badge(competitor.capabilities.status, 'success' if competitor.capabilities.status == 'active' else 'warning') }}
           </div>
           <div class="coverage-options">
             {% for manufacturer in coverage.manufacturers %}
-              <label class="coverage-check">
+              <label class="coverage-check {{ 'selected' if manufacturer in supported else '' }}">
                 <input type="checkbox" name="coverage_{{ competitor.competitor_key }}" value="{{ manufacturer }}" {{ 'checked' if manufacturer in supported else '' }}>
                 <span>{{ manufacturer }}</span>
               </label>

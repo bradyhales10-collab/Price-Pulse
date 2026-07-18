@@ -8,9 +8,21 @@ document.addEventListener("change", (event) => {
   if (event.target.matches("[data-margin-input]")) {
     syncPriceFromMargin(event.target);
   }
+  if (event.target.matches(".coverage-check input")) {
+    event.target.closest(".coverage-check")?.classList.toggle("selected", event.target.checked);
+  }
 });
 
 document.addEventListener("input", (event) => {
+  if (event.target.matches("[data-price-input]")) {
+    syncMarginFromPrice(event.target);
+  }
+  if (event.target.matches("[data-margin-input]")) {
+    syncPriceFromMargin(event.target);
+  }
+});
+
+document.addEventListener("focusout", (event) => {
   if (event.target.matches("[data-price-input]")) {
     syncMarginFromPrice(event.target);
   }
@@ -192,6 +204,12 @@ function applyTableSorting() {
   });
 }
 
+function initializePriceMarginPairs() {
+  document.querySelectorAll("[data-price-input]").forEach((input) => {
+    syncMarginFromPrice(input);
+  });
+}
+
 function pollJob() {
   const root = document.querySelector("[data-job-status]");
   if (!root) return;
@@ -210,3 +228,4 @@ function pollJob() {
 
 pollJob();
 applyTableSorting();
+initializePriceMarginPairs();

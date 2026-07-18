@@ -270,6 +270,8 @@ def test_settings_page_edits_competitor_oem_coverage(monkeypatch) -> None:
     page = client.get("/settings")
     assert page.status_code == 200
     assert "Competitor OEM Coverage" in page.text
+    assert "1 of 2 OEMs selected" in page.text
+    assert 'class="coverage-check selected"' in page.text
     assert 'name="coverage_partzilla" value="Honda" checked' in page.text
     assert 'name="coverage_partzilla" value="KTM"' in page.text
 
@@ -351,8 +353,11 @@ def test_comparison_layout_is_compact_and_highlights_lowest_our_price() -> None:
 
     assert row["our_price_class"] == "price-below-competitors"
     assert 'class="price-below-competitors"' in page.text
+    assert "Show Lower Prices" in page.text
+    assert "Show All Prices" in page.text
+    assert "Show Hidden Prices" not in page.text
     assert page.text.index("Our Price") < page.text.index("Partzilla Price") < page.text.index("MotoSport Price") < page.text.index("Chaparral Price") < page.text.index("Calc Cost") < page.text.index("Margin %")
-    for removed_heading in ["<th>Reference</th>", "<th>Savings</th>", "<th>Units</th>", "<th>Margin at Partzilla</th>"]:
+    for removed_heading in ["<th>Reference</th>", "<th>Savings</th>", "<th>Units</th>", "<th>Margin at Partzilla</th>", "<th>Priority</th>"]:
         assert removed_heading not in page.text
 
 

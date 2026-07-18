@@ -51,13 +51,13 @@ p { color: var(--muted); }
 .success-ring strong, .success-ring span { z-index: 1; display: block; }
 .success-ring strong { font-size: 26px; }
 .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.metrics span { color: var(--muted); background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; padding: 10px; overflow-wrap: anywhere; }
+.metrics > span { color: var(--muted); background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; padding: 10px; overflow-wrap: anywhere; }
 .metrics b { display: block; color: var(--text); margin-top: 3px; }
 .metrics .checked-count { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; }
 .metrics .checked-count span, .metrics .checked-count i { display: inline; padding: 0; border: 0; background: transparent; color: inherit; font-style: normal; }
 .management-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 12px 0 18px; }
 .management-grid.compact { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-.management-grid span { color: var(--muted); background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; padding: 12px; overflow-wrap: anywhere; }
+.management-grid > span { color: var(--muted); background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; padding: 12px; overflow-wrap: anywhere; }
 .management-grid b { display: block; color: var(--text); margin-top: 4px; font-size: 20px; }
 .management-grid .impact-metric { grid-column: span 2; }
 .management-grid .impact-metric b { font-size: 24px; line-height: 1.15; }
@@ -86,6 +86,7 @@ th, td { padding: 11px 10px; border-bottom: 1px solid var(--line); vertical-alig
 .price-below-competitors .money { color: #0b6b3a; }
 .price-above-competitor { background: #fde9e9; }
 .price-above-competitor .money { color: #9f161b; }
+.price-difference-higher { background: #fde9e9; }
 .price-difference-higher .money { color: #9f161b; }
 .price-difference-lower { background: #e7f7ef; }
 .price-difference-lower .money { color: #0b6b3a; }
@@ -122,11 +123,15 @@ th, td { padding: 11px 10px; border-bottom: 1px solid var(--line); vertical-alig
 .rule-cell { min-width: 130px; max-width: 180px; }
 .rule-cell small { display: block; color: var(--muted); line-height: 1.25; }
 .rule-check { display: block; text-align: center; margin-bottom: 4px; }
-.coverage-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
-.coverage-panel { border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: #f8fafc; }
-.coverage-panel h3 { margin: 0; color: var(--text); text-transform: none; font-size: 16px; }
-.coverage-options { display: grid; gap: 8px; margin-top: 8px; }
-.coverage-check { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.coverage-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.coverage-panel { border: 1px solid var(--line); border-radius: 8px; padding: 16px; background: #f8fafc; }
+.coverage-header { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; margin-bottom: 12px; }
+.coverage-header h3 { margin: 0; color: var(--text); text-transform: none; font-size: 17px; }
+.coverage-header span { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
+.coverage-options { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.coverage-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; border: 1px solid var(--line); border-radius: 999px; padding: 7px 10px; background: white; cursor: pointer; }
+.coverage-check.selected { border-color: #b7dec9; background: #e7f7ef; color: #0b6b3a; font-weight: 700; }
+.coverage-check input { min-height: auto; }
 .price-input, .margin-input { width: 110px; min-width: 110px; }
 .preset-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .preset-grid form { border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: #f8fafc; }
