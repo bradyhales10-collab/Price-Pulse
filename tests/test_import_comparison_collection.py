@@ -337,6 +337,11 @@ def test_review_queue_saves_decisions_and_updates_exports() -> None:
     assert "2 Rows" in pending.text
     assert "Ready to export" in pending.text
     assert "Recommended Action" in pending.text
+    assert "Current Margin" in pending.text
+    assert 'class="sortable-table"' in pending.text
+    assert 'data-sort="number">Our Price' in pending.text
+    assert 'class="price-difference-higher"' in pending.text
+    assert "$12.34" in pending.text
     assert "K-PRICE" in pending.text
     assert "Our Price Higher" in pending.text
 

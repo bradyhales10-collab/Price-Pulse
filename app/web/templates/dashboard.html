@@ -35,7 +35,7 @@
     <span>Ready to export <b>{{ management.ready_for_export }}</b></span>
     <span>Suggested increases <b>{{ management.suggested_increases }}</b></span>
     <span>Suggested decreases <b>{{ management.suggested_decreases }}</b></span>
-    <span>Approved annual impact <b>{{ money(management.annual_price_impact, True) }}</b></span>
+    <span class="impact-metric">Approved annual impact <b>{{ money(management.annual_price_impact, True) }}</b></span>
   </div>
   <div class="action-strip">
     {% for action in management.actions %}

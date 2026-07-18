@@ -178,6 +178,9 @@ def _annotated_rows(database: Path) -> list[dict[str, Any]]:
         row["rule_flags"] = {item["rule_code"]: item for item in suggestion["applied_rules"]}
         if not row.get("suggested_new_price"):
             row["suggested_new_price"] = suggestion["suggested_price"]
+        row["our_current_price_display"] = _format_display_money(row.get("our_current_price"))
+        row["current_margin_pct"] = row.get("our_gross_margin_pct") or ""
+        row["price_difference_class"] = _price_difference_class(row)
         row["updated_margin_pct"] = _updated_margin_pct(row)
         row["estimated_annual_impact"] = _estimated_annual_impact(row)
         row["recommended_action"] = _recommended_action(row)
@@ -313,6 +316,22 @@ def _quantity(value: object) -> Decimal:
 def _format_money(value: Decimal) -> str:
     value = Decimal(value)
     return format(value.quantize(Decimal("0.01")), "f")
+
+
+def _format_display_money(value: object) -> str:
+    money = _decimal_money(value)
+    return "" if money is None else _format_money(money)
+
+
+def _price_difference_class(row: dict[str, Any]) -> str:
+    cents = row.get("price_difference_cents")
+    if cents is None:
+        return ""
+    if cents > 0:
+        return "price-difference-higher"
+    if cents < 0:
+        return "price-difference-lower"
+    return ""
 
 
 def _saved_rule_codes(value: str | None) -> set[str]:

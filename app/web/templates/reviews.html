@@ -30,7 +30,7 @@
     <span>Ready to export <b>{{ queue.summary.ready_for_export }}</b></span>
     <span>Suggested increases <b>{{ queue.summary.suggested_increases }}</b></span>
     <span>Suggested decreases <b>{{ queue.summary.suggested_decreases }}</b></span>
-    <span>Approved annual impact <b>{{ money(queue.summary.estimated_annual_impact, True) }}</b></span>
+    <span class="impact-metric">Approved annual impact <b>{{ money(queue.summary.estimated_annual_impact, True) }}</b></span>
   </div>
   <h3>Review Status</h3>
   <div class="status-tabs">
@@ -67,26 +67,27 @@
     {% if queue.page < queue.total_pages %}<a href="/reviews?status={{ queue.status|urlencode }}&bucket={{ queue.bucket|urlencode }}&page_size={{ queue.page_size }}&page={{ queue.page + 1 }}">Next</a>{% endif %}
   </div>
   <div class="table-wrap">
-    <table>
+    <table class="sortable-table">
       <thead>
         <tr>
           <th></th>
-          <th>Manufacturer</th>
-          <th>OEM Part</th>
-          <th>Product</th>
-          <th>Bucket</th>
-          <th>Our Price</th>
-          <th>Lowest Competitor</th>
-          <th>Difference</th>
-          <th>Recommended Action</th>
-          <th>Decision</th>
-          <th>Updated Price</th>
-          <th>New Margin</th>
-          <th>Annual Impact</th>
+          <th data-sort="text">Manufacturer</th>
+          <th data-sort="text">OEM Part</th>
+          <th data-sort="text">Product</th>
+          <th data-sort="text">Bucket</th>
+          <th data-sort="number">Our Price</th>
+          <th data-sort="text">Lowest Competitor</th>
+          <th data-sort="number">Difference</th>
+          <th data-sort="text">Recommended Action</th>
+          <th data-sort="text">Decision</th>
+          <th data-sort="number">Updated Price</th>
+          <th data-sort="number">Current Margin</th>
+          <th data-sort="number">New Margin</th>
+          <th data-sort="number">Annual Impact</th>
           {% for rule in queue.rule_columns %}
-            <th>{{ rule.rule_name }}</th>
+            <th data-sort="text">{{ rule.rule_name }}</th>
           {% endfor %}
-          <th>Notes</th>
+          <th data-sort="text">Notes</th>
           <th></th>
         </tr>
       </thead>
@@ -98,9 +99,9 @@
           <td><a href="/products/{{ row.product_id }}">{{ row.oem_part_number }}</a></td>
           <td>{{ row.product_name or '' }}</td>
           <td>{{ badge(row.review_bucket, 'warning' if row.review_bucket in ['Hidden Price','Missing Competitor Price','Missing Cost','Needs Data'] else 'blue') }}<br><span class="muted">{{ row.review_reason }}</span></td>
-          <td>{{ money(row.our_current_price, True) }}</td>
+          <td data-sort-value="{{ row.our_current_price_display or '' }}">{% if row.our_current_price_display %}<span class="money strong">${{ row.our_current_price_display }}</span>{% else %}<span class="muted">None</span>{% endif %}</td>
           <td>{% if row.lowest_competitor_name %}{{ row.lowest_competitor_name }} {{ money(row.lowest_competitor_price, True) }}{% else %}<span class="muted">None</span>{% endif %}</td>
-          <td>{{ row.difference_vs_lowest_competitor or '' }}</td>
+          <td class="{{ row.price_difference_class }}" data-sort-value="{{ row.difference_vs_lowest_competitor or '' }}">{% if row.difference_vs_lowest_competitor %}{{ money(row.difference_vs_lowest_competitor, True) }}{% else %}<span class="muted">None</span>{% endif %}</td>
           <td>{{ row.recommended_action }}</td>
           <td>
             <select name="review_status" form="review-{{ row.product_id }}">
@@ -114,6 +115,7 @@
             <input type="hidden" name="displayed_suggested_new_price" form="review-{{ row.product_id }}" value="{{ row.suggested_new_price or '' }}">
             {% if row.rule_suggestion.suggested_price %}<br><span class="muted">Rules suggest ${{ row.rule_suggestion.suggested_price }}</span>{% endif %}
           </td>
+          <td data-sort-value="{{ row.current_margin_pct or '' }}">{% if row.current_margin_pct %}{{ row.current_margin_pct }}%{% else %}<span class="muted">Needs cost</span>{% endif %}</td>
           <td>{% if row.updated_margin_pct %}{{ row.updated_margin_pct }}%{% else %}<span class="muted">Needs cost</span>{% endif %}</td>
           <td>{% if row.estimated_annual_impact %}{{ money(row.estimated_annual_impact, True) }}{% else %}<span class="muted">No units</span>{% endif %}</td>
           <input type="hidden" name="use_rule_suggestion" form="review-{{ row.product_id }}" value="1">
@@ -152,4 +154,49 @@
     <div class="empty">No rows are in this review status.</div>
   {% endif %}
 </section>
+<script>
+document.querySelectorAll(".sortable-table").forEach((table) => {
+  const headers = table.querySelectorAll("th[data-sort]");
+  headers.forEach((header) => {
+    header.classList.add("sortable-heading");
+    header.tabIndex = 0;
+    const sortRows = () => {
+      const tbody = table.tBodies[0];
+      const rows = Array.from(tbody.rows);
+      const nextDirection = header.dataset.direction === "asc" ? "desc" : "asc";
+      headers.forEach((item) => {
+        item.dataset.direction = "";
+        item.classList.remove("sort-asc", "sort-desc");
+      });
+      header.dataset.direction = nextDirection;
+      header.classList.add(nextDirection === "asc" ? "sort-asc" : "sort-desc");
+      const sortType = header.dataset.sort;
+      rows.sort((left, right) => {
+        const leftCell = left.cells[header.cellIndex];
+        const rightCell = right.cells[header.cellIndex];
+        const leftValue = leftCell?.dataset.sortValue || leftCell?.innerText || "";
+        const rightValue = rightCell?.dataset.sortValue || rightCell?.innerText || "";
+        if (sortType === "number") {
+          const leftNumber = Number.parseFloat(leftValue.replace(/[$,%]/g, ""));
+          const rightNumber = Number.parseFloat(rightValue.replace(/[$,%]/g, ""));
+          const leftRank = Number.isNaN(leftNumber) ? Number.POSITIVE_INFINITY : leftNumber;
+          const rightRank = Number.isNaN(rightNumber) ? Number.POSITIVE_INFINITY : rightNumber;
+          return nextDirection === "asc" ? leftRank - rightRank : rightRank - leftRank;
+        }
+        return nextDirection === "asc"
+          ? leftValue.localeCompare(rightValue, undefined, { numeric: true, sensitivity: "base" })
+          : rightValue.localeCompare(leftValue, undefined, { numeric: true, sensitivity: "base" });
+      });
+      rows.forEach((row) => tbody.appendChild(row));
+    };
+    header.addEventListener("click", sortRows);
+    header.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        sortRows();
+      }
+    });
+  });
+});
+</script>
 {% endblock %}

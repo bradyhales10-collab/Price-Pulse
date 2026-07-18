@@ -59,6 +59,8 @@ p { color: var(--muted); }
 .management-grid.compact { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .management-grid span { color: var(--muted); background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; padding: 12px; overflow-wrap: anywhere; }
 .management-grid b { display: block; color: var(--text); margin-top: 4px; font-size: 20px; }
+.management-grid .impact-metric { grid-column: span 2; }
+.management-grid .impact-metric b { font-size: 24px; line-height: 1.15; }
 .action-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .action-strip a { display: block; border: 1px solid var(--line); border-radius: 8px; padding: 12px; color: var(--text); background: white; }
 .action-strip strong { display: block; font-size: 24px; color: var(--rm-red); }
@@ -74,12 +76,19 @@ table { width: 100%; border-collapse: collapse; font-size: 13px; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; padding: 14px; color: var(--text); }
 th { text-align: left; color: var(--rm-charcoal); background: var(--rm-light-gray); white-space: nowrap; }
 thead th { position: sticky; top: 0; z-index: 2; }
+.sortable-heading { cursor: pointer; user-select: none; padding-right: 22px; position: relative; }
+.sortable-heading:after { content: "\2195"; position: absolute; right: 8px; color: var(--muted); font-size: 11px; }
+.sortable-heading.sort-asc:after { content: "\2191"; color: var(--rm-red); }
+.sortable-heading.sort-desc:after { content: "\2193"; color: var(--rm-red); }
 th, td { padding: 11px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 .money.strong { font-weight: 800; color: var(--text); }
 .price-below-competitors { background: #e7f7ef; }
 .price-below-competitors .money { color: #0b6b3a; }
 .price-above-competitor { background: #fde9e9; }
 .price-above-competitor .money { color: #9f161b; }
+.price-difference-higher .money { color: #9f161b; }
+.price-difference-lower { background: #e7f7ef; }
+.price-difference-lower .money { color: #0b6b3a; }
 .strike { text-decoration: line-through; color: var(--muted); }
 .badge { display: inline-flex; align-items: center; min-height: 22px; padding: 3px 8px; border-radius: 999px; background: #edf2f7; color: #425466; font-size: 12px; font-weight: 700; white-space: nowrap; }
 .badge.success { background: #e7f7ef; color: var(--green); }

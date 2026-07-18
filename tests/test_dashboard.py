@@ -33,6 +33,7 @@ def test_dashboard_loads_and_kpis_are_correct() -> None:
     assert "Part Pulse Intelligence" in response.text
     assert "Management Summary" in response.text
     assert "Ready to export" in response.text
+    assert 'class="impact-metric"' in response.text
     assert "Monitored Products" in response.text
     assert ">6<" in response.text
     assert "Discounted Products" in response.text
