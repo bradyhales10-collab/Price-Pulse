@@ -65,10 +65,9 @@ def dashboard_data(database: Path) -> dict[str, Any]:
             "kpis": _kpis(conn),
             "comparison_summary": _comparison_summary(conn),
             "latest_run": latest_run,
-            "composition": _composition(conn),
             "manufacturers": _manufacturer_counts(conn),
-            "top_savings": _top_savings(conn, limit=10),
-            "recent_changes": _recent_changes(conn, limit=10),
+            "oem_snapshots": _oem_snapshots(conn),
+            "competitor_snapshots": _competitor_snapshots(conn),
         }
 
 
@@ -350,6 +349,82 @@ def _manufacturer_counts(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     """)]
 
 
+def _oem_snapshots(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = conn.execute("""
+        WITH product_prices AS (
+            SELECT p.product_id, p.manufacturer, ips.our_current_price_cents our_price, ips.current_cost_cents cost,
+                   MIN(s.selling_price_cents) lowest_competitor_price,
+                   COUNT(DISTINCT l.competitor_id) competitor_count,
+                   COUNT(DISTINCT CASE WHEN s.selling_price_cents IS NOT NULL THEN l.competitor_id END) priced_competitor_count
+            FROM products p
+            LEFT JOIN internal_product_state ips ON ips.product_id=p.product_id
+            LEFT JOIN competitor_listings l ON l.product_id=p.product_id AND l.is_active=1
+            LEFT JOIN current_listing_state s ON s.listing_id=l.listing_id
+            WHERE COALESCE(ips.is_active, p.is_active, 1)=1
+            GROUP BY p.product_id, p.manufacturer, ips.our_current_price_cents, ips.current_cost_cents
+        )
+        SELECT manufacturer,
+               COUNT(*) product_count,
+               SUM(CASE WHEN lowest_competitor_price IS NOT NULL THEN 1 ELSE 0 END) products_with_competitor_price,
+               AVG(CASE WHEN our_price IS NOT NULL AND our_price > 0 AND cost IS NOT NULL THEN (our_price - cost) * 1.0 / our_price END) avg_our_margin,
+               AVG(CASE WHEN lowest_competitor_price IS NOT NULL AND lowest_competitor_price > 0 AND cost IS NOT NULL THEN (lowest_competitor_price - cost) * 1.0 / lowest_competitor_price END) avg_lowest_competitor_margin,
+               AVG(CASE WHEN our_price IS NOT NULL AND lowest_competitor_price IS NOT NULL THEN (our_price - lowest_competitor_price) / 100.0 END) avg_gap_vs_lowest,
+               AVG(CASE WHEN competitor_count > 0 THEN priced_competitor_count * 1.0 / competitor_count END) avg_price_coverage,
+               SUM(CASE WHEN our_price IS NOT NULL AND lowest_competitor_price IS NOT NULL AND our_price > lowest_competitor_price THEN 1 ELSE 0 END) our_higher_count,
+               SUM(CASE WHEN our_price IS NOT NULL AND lowest_competitor_price IS NOT NULL AND our_price < lowest_competitor_price THEN 1 ELSE 0 END) our_lower_count
+        FROM product_prices
+        GROUP BY manufacturer
+        ORDER BY product_count DESC, manufacturer COLLATE NOCASE
+    """).fetchall()
+    return [
+        {
+            "manufacturer": row["manufacturer"],
+            "product_count": row["product_count"],
+            "products_with_competitor_price": row["products_with_competitor_price"],
+            "avg_our_margin": _ratio_percent(row["avg_our_margin"]),
+            "avg_lowest_competitor_margin": _ratio_percent(row["avg_lowest_competitor_margin"]),
+            "avg_gap_vs_lowest": _decimal_money(row["avg_gap_vs_lowest"]),
+            "avg_price_coverage": _ratio_percent(row["avg_price_coverage"]),
+            "our_higher_count": row["our_higher_count"],
+            "our_lower_count": row["our_lower_count"],
+        }
+        for row in rows
+    ]
+
+
+def _competitor_snapshots(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = conn.execute("""
+        SELECT c.competitor_code, c.competitor_name,
+               COUNT(DISTINCT l.product_id) product_count,
+               COUNT(DISTINCT CASE WHEN s.selling_price_cents IS NOT NULL THEN l.product_id END) priced_product_count,
+               AVG(CASE WHEN s.selling_price_cents IS NOT NULL AND s.selling_price_cents > 0 AND ips.current_cost_cents IS NOT NULL THEN (s.selling_price_cents - ips.current_cost_cents) * 1.0 / s.selling_price_cents END) avg_competitor_margin,
+               AVG(CASE WHEN ips.our_current_price_cents IS NOT NULL AND s.selling_price_cents IS NOT NULL THEN (ips.our_current_price_cents - s.selling_price_cents) / 100.0 END) avg_gap,
+               SUM(CASE WHEN ips.our_current_price_cents IS NOT NULL AND s.selling_price_cents IS NOT NULL AND ips.our_current_price_cents > s.selling_price_cents THEN 1 ELSE 0 END) our_higher_count,
+               SUM(CASE WHEN ips.our_current_price_cents IS NOT NULL AND s.selling_price_cents IS NOT NULL AND ips.our_current_price_cents < s.selling_price_cents THEN 1 ELSE 0 END) our_lower_count
+        FROM competitors c
+        LEFT JOIN competitor_listings l ON l.competitor_id=c.competitor_id AND l.is_active=1
+        LEFT JOIN products p ON p.product_id=l.product_id
+        LEFT JOIN internal_product_state ips ON ips.product_id=p.product_id
+        LEFT JOIN current_listing_state s ON s.listing_id=l.listing_id
+        GROUP BY c.competitor_code, c.competitor_name
+        ORDER BY c.competitor_name COLLATE NOCASE
+    """).fetchall()
+    return [
+        {
+            "competitor_code": row["competitor_code"],
+            "competitor_name": row["competitor_name"],
+            "product_count": row["product_count"],
+            "priced_product_count": row["priced_product_count"],
+            "price_coverage": _ratio_percent((row["priced_product_count"] / row["product_count"]) if row["product_count"] else None),
+            "avg_competitor_margin": _ratio_percent(row["avg_competitor_margin"]),
+            "avg_gap": _decimal_money(row["avg_gap"]),
+            "our_higher_count": row["our_higher_count"],
+            "our_lower_count": row["our_lower_count"],
+        }
+        for row in rows
+    ]
+
+
 def _comparison_summary(conn: sqlite3.Connection) -> dict[str, int]:
     rows = conn.execute("""
         SELECT ips.product_id, ips.our_current_price_cents our_price,
@@ -608,6 +683,18 @@ def _catalog_row(row: sqlite3.Row) -> dict[str, Any]:
 
 def _percent_cents(numerator: int, denominator: int) -> str:
     return f"{(Decimal(numerator) / Decimal(denominator) * Decimal('100')).quantize(Decimal('0.01'))}"
+
+
+def _ratio_percent(value: Any) -> str:
+    if value is None:
+        return ""
+    return f"{(Decimal(str(value)) * Decimal('100')).quantize(Decimal('0.01'))}%"
+
+
+def _decimal_money(value: Any) -> str:
+    if value is None:
+        return ""
+    return format(Decimal(str(value)).quantize(Decimal("0.01")), "f")
 
 
 def _run_row(row: sqlite3.Row) -> dict[str, Any]:

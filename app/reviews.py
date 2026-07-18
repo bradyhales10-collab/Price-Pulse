@@ -135,7 +135,7 @@ def save_review_decision(
             """,
             (product_id, review_status, suggested_new_price_cents, applied_rule_codes_json, notes.strip(), reviewer.strip(), reviewed_at, now, now),
         )
-        if review_status == "Approved" and suggested_new_price_cents is not None:
+        if suggested_new_price_cents is not None:
             conn.execute(
                 """
                 UPDATE internal_product_state

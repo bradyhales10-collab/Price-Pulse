@@ -171,12 +171,10 @@ def _styles_xml() -> str:
 def _style_for(column: int, row: int) -> int:
     if row == 1:
         return 1
-    if column in {5, 6, 7, 8, 10, 17}:
+    if column in {5, 6, 7, 9, 10, 11, 12, 14, 15}:
         return 2
-    if column in {9, 11, 12, 13}:
+    if column in {13, 16}:
         return 3
-    if column in {14, 15}:
-        return 4
     return 0
 
 

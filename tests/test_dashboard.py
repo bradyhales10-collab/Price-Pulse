@@ -33,7 +33,8 @@ def test_dashboard_loads_and_kpis_are_correct() -> None:
     assert "Part Pulse Intelligence" in response.text
     assert "Management Summary" in response.text
     assert "Ready to export" in response.text
-    assert 'class="impact-metric"' in response.text
+    assert "OEM Margin Snapshot" in response.text
+    assert "Competitor Snapshot" in response.text
     assert "Monitored Products" in response.text
     assert ">6<" in response.text
     assert "Discounted Products" in response.text
@@ -81,7 +82,8 @@ def test_dashboard_empty_recent_changes_state() -> None:
     response = _client(db).get("/")
 
     assert response.status_code == 200
-    assert "No competitive price changes have been detected yet." in response.text
+    assert "OEM Margin Snapshot" in response.text
+    assert "Competitor Snapshot" in response.text
 
 
 def test_product_search_and_filters() -> None:

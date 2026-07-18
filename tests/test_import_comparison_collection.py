@@ -310,6 +310,12 @@ def test_comparison_formulas_filters_and_review_export() -> None:
     assert exported[0].index("Updated_Price") > exported[0].index("Suggested_Price")
     assert exported[0][-1] == "New_Margin_Pct"
     assert exported[1][exported[0].index("Updated_Price")] == ""
+    with zipfile.ZipFile(export_path) as archive:
+        sheet_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+    for money_cell in ["I2", "J2", "K2", "L2", "O2"]:
+        assert f'<c r="{money_cell}" s="2"' in sheet_xml
+    for percent_cell in ["M2", "P2"]:
+        assert f'<c r="{percent_cell}" s="3"' in sheet_xml
 
 
 def test_comparison_excludes_motosport_cart_hidden_reference_from_lowest_price() -> None:
@@ -465,6 +471,12 @@ def test_review_queue_saves_decisions_and_updates_exports() -> None:
     assert reviewed["review_status"] == "Needs Price Change"
     assert reviewed["suggested_new_price"] == "11.49"
     assert reviewed["notes"] == "Lower to stay close to lowest competitor."
+    with connect_database(db) as conn:
+        saved_price = conn.execute(
+            "SELECT our_current_price_cents FROM internal_product_state WHERE product_id=?",
+            (product_id,),
+        ).fetchone()[0]
+    assert saved_price == 1149
     assert [row["oem_part_number"] for row in comparison_rows(db, ComparisonFilters(needs_review=True))] == ["H-MISSING"]
 
     page = client.get("/reviews?status=Needs%20Price%20Change")
