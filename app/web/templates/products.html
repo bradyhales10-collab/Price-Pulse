@@ -26,7 +26,7 @@
   {{ pagination(query_base, filters.page, total_pages) }}
   {% if products %}
   <div class="table-wrap">
-    <table>
+    <table class="sortable-table">
       <thead>
         <tr>
           <th>Manufacturer</th>
@@ -41,7 +41,6 @@
           <th>Chaparral</th>
           <th>Lowest Competitor</th>
           <th>Gap vs Lowest</th>
-          <th>Units</th>
           <th>Inventory</th>
           <th>Priority</th>
           <th>Last Checked</th>
@@ -63,7 +62,6 @@
           <td>{{ competitor_cell(item.chaparral) }}</td>
           <td>{{ money(item.lowest_competitor_price, True) }}</td>
           <td>{% if item.difference_vs_lowest_competitor %}${{ item.difference_vs_lowest_competitor }}{% else %}<span class="muted">None</span>{% endif %}</td>
-          <td>{{ item.units_sold_12m or '' }}</td>
           <td>{{ item.inventory_qty or '' }}</td>
           <td>{{ item.scan_priority or '' }}</td>
           <td>{{ item.last_checked_at|datetime or 'Never' }}</td>
@@ -83,7 +81,6 @@
 {% macro competitor_cell(item) -%}
   {% if item.price %}
     {{ money(item.price, True) }}
-    {% if item.savings_percent is not none %}<br>{{ badge('Save ' ~ item.savings_percent ~ '%', 'success') }}{% endif %}
   {% else %}
     <span class="muted">No price</span>
   {% endif %}

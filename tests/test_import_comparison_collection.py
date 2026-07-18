@@ -13,6 +13,7 @@ from app.database import connect_database, initialize_database, utc_now
 from app.exports.review_export import REVIEW_COLUMNS, export_review
 from app.imports import confirm_import, preview_import, save_upload
 from app.input_loader import load_parts_csv
+import app.manufacturer_registry as manufacturer_registry
 from app.manufacturer_registry import competitor_supports_manufacturer, normalize_manufacturer, partzilla_slug_for
 from app.reviews import review_rows
 from app.web.app import create_app
@@ -192,7 +193,7 @@ def test_inventory_export_template_maps_to_production_price_check_fields() -> No
     confirm_import(db, updated.import_batch_id)
     updated_row = next(row for row in comparison_rows(db) if row["manufacturer"] == "Can-Am")
     assert updated_row["our_current_price"] == "14.99"
-    assert updated_row["current_cost"] == "4"
+    assert updated_row["current_cost"] == "4.00"
     assert updated_row["our_gross_margin_pct"] == "73.32"
 
 
@@ -244,6 +245,46 @@ def test_manufacturer_registry_supports_configured_coverage_and_aliases() -> Non
     assert partzilla_slug_for("Unknown OEM") is None
 
 
+def test_settings_page_edits_competitor_oem_coverage(monkeypatch) -> None:
+    config_path = TEST_OUTPUT_DIR / "manufacturer_coverage_settings_test.json"
+    TEST_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        json.dumps(
+            {
+                "manufacturers": [
+                    {"display_name": "Honda", "aliases": ["honda"], "partzilla_slug": "honda"},
+                    {"display_name": "KTM", "aliases": ["ktm"], "partzilla_slug": None},
+                ],
+                "competitors": {
+                    "partzilla": ["Honda"],
+                    "motosport": ["Honda", "KTM"],
+                    "chaparral": ["Honda"],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(manufacturer_registry, "MANUFACTURER_COVERAGE_CONFIG", config_path)
+    client = TestClient(create_app(_empty_db("settings_coverage.db")), raise_server_exceptions=False)
+
+    page = client.get("/settings")
+    assert page.status_code == 200
+    assert "Competitor OEM Coverage" in page.text
+    assert 'name="coverage_partzilla" value="Honda" checked' in page.text
+    assert 'name="coverage_partzilla" value="KTM"' in page.text
+
+    response = client.post(
+        "/settings/coverage",
+        content="coverage_partzilla=Honda&coverage_partzilla=KTM&coverage_motosport=Honda&coverage_chaparral=Honda",
+        headers={"content-type": "application/x-www-form-urlencoded"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["competitors"]["partzilla"] == ["Honda", "KTM"]
+
+
 def test_comparison_formulas_filters_and_review_export() -> None:
     db = _comparison_db()
 
@@ -290,7 +331,7 @@ def test_comparison_excludes_motosport_cart_hidden_reference_from_lowest_price()
     page = TestClient(create_app(db), raise_server_exceptions=False).get("/comparison?hidden_competitor_price=1")
 
     assert row["motosport_hidden_price"] is True
-    assert row["motosport_reference_price"] == "5"
+    assert row["motosport_reference_price"] == "5.00"
     assert row["lowest_competitor_name"] == "Partzilla"
     assert row["lowest_competitor_price"] == "10.00"
     assert page.status_code == 200
@@ -501,7 +542,7 @@ def test_pricing_rules_page_and_review_queue_rule_selection() -> None:
     assert save.status_code == 303
 
     reviewed = next(row for row in comparison_rows(db) if row["oem_part_number"] == "K-PRICE")
-    assert reviewed["suggested_new_price"] == "10"
+    assert reviewed["suggested_new_price"] == "10.00"
     assert "use_lowest_competitor" in reviewed["applied_rule_codes_json"]
     assert "round_to_99" not in reviewed["applied_rule_codes_json"]
 

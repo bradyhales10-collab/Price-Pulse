@@ -104,7 +104,7 @@ def test_price_increase_and_decrease_history_and_decimal_details() -> None:
         rows = conn.execute("SELECT change_type, change_details_json FROM listing_history ORDER BY history_id").fetchall()
     assert [row["change_type"] for row in rows] == ["first_observation", "price_change", "price_change"]
     details = json.loads(rows[2]["change_details_json"])
-    assert details["previous_price"] == "300"
+    assert details["previous_price"] == "300.00"
     assert details["new_price"] == "269.99"
     assert details["dollar_change"] == "-30.01"
     assert "percent_change" in details
@@ -113,6 +113,7 @@ def test_price_increase_and_decrease_history_and_decimal_details() -> None:
 def test_exact_cents_are_preserved() -> None:
     assert money_to_cents(Decimal("6.97")) == 697
     assert cents_to_money(697) == "6.97"
+    assert cents_to_money(1000) == "10.00"
 
 
 def test_availability_supersession_and_multiple_changes() -> None:

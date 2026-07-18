@@ -2,6 +2,21 @@ document.addEventListener("change", (event) => {
   if (event.target.matches(".filters select")) {
     event.target.form?.requestSubmit();
   }
+  if (event.target.matches("[data-price-input]")) {
+    syncMarginFromPrice(event.target);
+  }
+  if (event.target.matches("[data-margin-input]")) {
+    syncPriceFromMargin(event.target);
+  }
+});
+
+document.addEventListener("input", (event) => {
+  if (event.target.matches("[data-price-input]")) {
+    syncMarginFromPrice(event.target);
+  }
+  if (event.target.matches("[data-margin-input]")) {
+    syncPriceFromMargin(event.target);
+  }
 });
 
 document.addEventListener("click", (event) => {
@@ -95,6 +110,88 @@ function renderProgress(job) {
   }
 }
 
+function moneyNumber(value) {
+  if (!value) return NaN;
+  return Number.parseFloat(String(value).replace(/[$,% ,]/g, ""));
+}
+
+function formatMoney(value) {
+  if (!Number.isFinite(value)) return "";
+  return value.toFixed(2);
+}
+
+function syncMarginFromPrice(input) {
+  const productId = input.dataset.productId;
+  const margin = document.querySelector(`[data-margin-input][data-product-id="${productId}"]`);
+  if (!margin) return;
+  const price = moneyNumber(input.value);
+  const cost = moneyNumber(margin.dataset.cost);
+  if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(cost)) return;
+  margin.value = (((price - cost) / price) * 100).toFixed(2);
+}
+
+function syncPriceFromMargin(input) {
+  const productId = input.dataset.productId;
+  const price = document.querySelector(`[data-price-input][data-product-id="${productId}"]`);
+  if (!price) return;
+  const margin = moneyNumber(input.value);
+  const cost = moneyNumber(input.dataset.cost);
+  if (!Number.isFinite(margin) || margin >= 100 || !Number.isFinite(cost)) return;
+  price.value = formatMoney(cost / (1 - margin / 100));
+}
+
+function sortableValue(cell) {
+  if (!cell) return "";
+  return cell.dataset.sortValue || cell.innerText || "";
+}
+
+function applyTableSorting() {
+  document.querySelectorAll(".table-wrap table").forEach((table) => {
+    if (table.dataset.sortReady === "1") return;
+    table.dataset.sortReady = "1";
+    const headers = table.querySelectorAll("thead th");
+    headers.forEach((header) => {
+      if (!header.textContent.trim()) return;
+      header.classList.add("sortable-heading");
+      header.tabIndex = 0;
+      const sortRows = () => {
+        const tbody = table.tBodies[0];
+        if (!tbody) return;
+        const rows = Array.from(tbody.rows);
+        const nextDirection = header.dataset.direction === "asc" ? "desc" : "asc";
+        headers.forEach((item) => {
+          item.dataset.direction = "";
+          item.classList.remove("sort-asc", "sort-desc");
+        });
+        header.dataset.direction = nextDirection;
+        header.classList.add(nextDirection === "asc" ? "sort-asc" : "sort-desc");
+        rows.sort((left, right) => {
+          const leftValue = sortableValue(left.cells[header.cellIndex]).trim();
+          const rightValue = sortableValue(right.cells[header.cellIndex]).trim();
+          const leftNumber = moneyNumber(leftValue);
+          const rightNumber = moneyNumber(rightValue);
+          if (Number.isFinite(leftNumber) || Number.isFinite(rightNumber)) {
+            const leftRank = Number.isFinite(leftNumber) ? leftNumber : Number.POSITIVE_INFINITY;
+            const rightRank = Number.isFinite(rightNumber) ? rightNumber : Number.POSITIVE_INFINITY;
+            return nextDirection === "asc" ? leftRank - rightRank : rightRank - leftRank;
+          }
+          return nextDirection === "asc"
+            ? leftValue.localeCompare(rightValue, undefined, { numeric: true, sensitivity: "base" })
+            : rightValue.localeCompare(leftValue, undefined, { numeric: true, sensitivity: "base" });
+        });
+        rows.forEach((row) => tbody.appendChild(row));
+      };
+      header.addEventListener("click", sortRows);
+      header.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          sortRows();
+        }
+      });
+    });
+  });
+}
+
 function pollJob() {
   const root = document.querySelector("[data-job-status]");
   if (!root) return;
@@ -112,3 +209,4 @@ function pollJob() {
 }
 
 pollJob();
+applyTableSorting();

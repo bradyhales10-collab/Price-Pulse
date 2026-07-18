@@ -322,7 +322,11 @@ def money_to_cents(value: Decimal | str | None) -> int | None:
 def cents_to_money(cents: int | None) -> str:
     if cents is None:
         return ""
-    return format(Decimal(cents) / Decimal("100"), "f")
+    return format((Decimal(cents) / Decimal("100")).quantize(Decimal("0.01")), "f")
+
+
+def _format_money_decimal(value: Decimal) -> str:
+    return format(value.quantize(Decimal("0.01")), "f")
 
 
 @dataclass(frozen=True)
@@ -675,9 +679,9 @@ def _change_details(previous: dict[str, Any] | None, observation: ProductObserva
         percent = (dollar / previous_price * Decimal("100")) if previous_price != 0 else Decimal("0")
         details.update(
             {
-                "previous_price": format(previous_price, "f"),
-                "new_price": format(new_price, "f"),
-                "dollar_change": format(dollar, "f"),
+                "previous_price": _format_money_decimal(previous_price),
+                "new_price": _format_money_decimal(new_price),
+                "dollar_change": _format_money_decimal(dollar),
                 "percent_change": format(percent.quantize(Decimal("0.0001")), "f"),
             }
         )

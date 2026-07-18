@@ -40,7 +40,7 @@
   </div>
   <form method="post" action="/comparison/export" id="comparison-export"><input type="hidden" name="scope" value="selected"><input type="hidden" name="import_batch_id" value="{{ filters.import_batch_id or '' }}"><input type="hidden" name="selected" id="selected-ids"></form>
   <div class="table-wrap">
-    <table>
+    <table class="sortable-table">
       <thead>
         <tr>
           <th></th>
@@ -62,7 +62,6 @@
           <th>Inventory</th>
           <th>Priority</th>
           <th>Decision</th>
-          <th>Notes</th>
           <th></th>
         </tr>
       </thead>
@@ -84,15 +83,14 @@
           <td class="{{ row.price_difference_class }}">{% if row.difference_vs_lowest_competitor %}{{ money(row.difference_vs_lowest_competitor, True) }}{% else %}<span class="muted">None</span>{% endif %}</td>
           <td>{% if row.rule_suggestion.suggested_price %}<span class="money strong">${{ row.rule_suggestion.suggested_price }}</span>{% else %}<span class="muted">None</span>{% endif %}</td>
           <td>
-            <input name="suggested_new_price" form="comparison-review-{{ row.product_id }}" value="{{ row.suggested_new_price or '' }}" placeholder="Set price">
+            <input class="price-input" name="suggested_new_price" form="comparison-review-{{ row.product_id }}" value="{{ row.suggested_new_price or '' }}" placeholder="Set price" data-price-input data-product-id="{{ row.product_id }}">
             <input type="hidden" name="displayed_suggested_new_price" form="comparison-review-{{ row.product_id }}" value="{{ row.suggested_new_price or '' }}">
-            <input type="hidden" name="use_rule_suggestion" form="comparison-review-{{ row.product_id }}" value="1">
             <input type="hidden" name="return_query" form="comparison-review-{{ row.product_id }}" value="{{ request.url.query }}">
             {% for rule_code in row.rule_suggestion.selected_rule_codes %}
               <input type="hidden" name="rule_code" form="comparison-review-{{ row.product_id }}" value="{{ rule_code }}">
             {% endfor %}
           </td>
-          <td>{% if row.updated_margin_pct %}{{ row.updated_margin_pct }}%{% else %}<span class="muted">Needs cost</span>{% endif %}</td>
+          <td>{% if row.current_cost %}<input class="margin-input" form="comparison-review-{{ row.product_id }}" value="{{ row.updated_margin_pct or '' }}" placeholder="Margin %" data-margin-input data-product-id="{{ row.product_id }}" data-cost="{{ row.current_cost }}">{% else %}<span class="muted">Needs cost</span>{% endif %}</td>
           <td>{{ row.inventory_qty or '' }}</td>
           <td>{{ row.scan_priority or '' }}</td>
           <td>
@@ -102,7 +100,6 @@
               {% endfor %}
             </select>
           </td>
-          <td><input name="notes" form="comparison-review-{{ row.product_id }}" value="{{ row.notes }}" placeholder="Add note"></td>
           <td><form id="comparison-review-{{ row.product_id }}" method="post" action="/comparison/{{ row.product_id }}/review"><button type="submit">Save</button></form></td>
         </tr>
       {% endfor %}

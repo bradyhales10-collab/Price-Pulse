@@ -154,49 +154,4 @@
     <div class="empty">No rows are in this review status.</div>
   {% endif %}
 </section>
-<script>
-document.querySelectorAll(".sortable-table").forEach((table) => {
-  const headers = table.querySelectorAll("th[data-sort]");
-  headers.forEach((header) => {
-    header.classList.add("sortable-heading");
-    header.tabIndex = 0;
-    const sortRows = () => {
-      const tbody = table.tBodies[0];
-      const rows = Array.from(tbody.rows);
-      const nextDirection = header.dataset.direction === "asc" ? "desc" : "asc";
-      headers.forEach((item) => {
-        item.dataset.direction = "";
-        item.classList.remove("sort-asc", "sort-desc");
-      });
-      header.dataset.direction = nextDirection;
-      header.classList.add(nextDirection === "asc" ? "sort-asc" : "sort-desc");
-      const sortType = header.dataset.sort;
-      rows.sort((left, right) => {
-        const leftCell = left.cells[header.cellIndex];
-        const rightCell = right.cells[header.cellIndex];
-        const leftValue = leftCell?.dataset.sortValue || leftCell?.innerText || "";
-        const rightValue = rightCell?.dataset.sortValue || rightCell?.innerText || "";
-        if (sortType === "number") {
-          const leftNumber = Number.parseFloat(leftValue.replace(/[$,%]/g, ""));
-          const rightNumber = Number.parseFloat(rightValue.replace(/[$,%]/g, ""));
-          const leftRank = Number.isNaN(leftNumber) ? Number.POSITIVE_INFINITY : leftNumber;
-          const rightRank = Number.isNaN(rightNumber) ? Number.POSITIVE_INFINITY : rightNumber;
-          return nextDirection === "asc" ? leftRank - rightRank : rightRank - leftRank;
-        }
-        return nextDirection === "asc"
-          ? leftValue.localeCompare(rightValue, undefined, { numeric: true, sensitivity: "base" })
-          : rightValue.localeCompare(leftValue, undefined, { numeric: true, sensitivity: "base" });
-      });
-      rows.forEach((row) => tbody.appendChild(row));
-    };
-    header.addEventListener("click", sortRows);
-    header.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        sortRows();
-      }
-    });
-  });
-});
-</script>
 {% endblock %}

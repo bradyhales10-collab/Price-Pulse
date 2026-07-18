@@ -40,6 +40,7 @@ from app.imports import (
 )
 from app.imports import ALL_FIELDS, REQUIRED_FIELDS
 from app.management import management_summary
+from app.manufacturer_registry import manufacturer_coverage_settings, save_manufacturer_coverage_settings
 from app.maintenance import clear_comparison_results, clear_pending_review_queue, clear_scan_runs, reset_all_test_data
 from app.pricing_rules import apply_pricing_rule_preset, list_pricing_rule_presets, list_pricing_rules, update_pricing_rule
 from app.reviews import ALL_BUCKETS, ALL_STATUSES, REVIEW_BUCKETS, REVIEW_STATUSES, PENDING_REVIEW, comparison_review_rows, review_queue, review_rows, save_bulk_review_decision, save_review_decision, suggested_price_for_product
@@ -435,6 +436,31 @@ def create_app(database: Path) -> FastAPI:
                 status_code=400,
             )
         return RedirectResponse("/rules?message=Rule%20saved", status_code=303)
+
+    @app.get("/settings", response_class=HTMLResponse)
+    def settings(request: Request, message: str = ""):
+        return templates.TemplateResponse(
+            request,
+            "settings.html",
+            {
+                "active": "settings",
+                "database": app.state.database,
+                "coverage": manufacturer_coverage_settings(),
+                "competitors": list_competitors(),
+                "message": message,
+            },
+        )
+
+    @app.post("/settings/coverage")
+    async def settings_coverage_save(request: Request):
+        body = (await request.body()).decode("utf-8", errors="replace")
+        parsed = parse_qs(body, keep_blank_values=True)
+        selected = {
+            competitor.competitor_key: parsed.get(f"coverage_{competitor.competitor_key}", [])
+            for competitor in list_competitors()
+        }
+        save_manufacturer_coverage_settings(selected)
+        return RedirectResponse("/settings?message=Coverage%20saved", status_code=303)
 
     @app.get("/imports", response_class=HTMLResponse)
     def imports(request: Request, import_batch_id: int | None = None, job_id: str = ""):

@@ -93,7 +93,7 @@ def test_product_search_and_filters() -> None:
     assert "Honda" in manufacturer_page
     assert "Y-100" not in manufacturer_page
     discounted_page = client.get("/products?price_type=discounted").text
-    assert "Save 13%" in discounted_page
+    assert "Save 13%" not in discounted_page
     assert "41080-1514" not in discounted_page
     availability_page = client.get("/products?availability=in_stock").text
     assert "34028-0327" in availability_page
