@@ -460,6 +460,25 @@ def test_comparison_page_saves_updated_price_decision() -> None:
     assert row["notes"] == "Approved directly from comparison."
 
 
+def test_comparison_row_save_defaults_to_reviewed() -> None:
+    db = _comparison_db("comparison_save_defaults_reviewed.db")
+    client = TestClient(create_app(db), raise_server_exceptions=False)
+    product_id = _product_id(db, "K-PRICE")
+
+    response = client.post(
+        f"/comparison/{product_id}/review",
+        data={"suggested_new_price": "11.49", "return_query": "page_size=50"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    row = next(item for item in comparison_rows(db) if item["oem_part_number"] == "K-PRICE")
+    assert row["review_status"] == "Approved"
+    assert row["saved_to_catalog"] is True
+    page = client.get("/imports?page_size=50")
+    assert "Pending review <b>1</b>" in page.text
+
+
 def test_comparison_bulk_save_visible_updates_catalog_and_marks_saved() -> None:
     db = _comparison_db("comparison_bulk_save.db")
     client = TestClient(create_app(db), raise_server_exceptions=False)
@@ -800,7 +819,9 @@ def test_price_check_page_combines_upload_summary_and_start_action() -> None:
     assert "Start Checking Prices" in upload.text
     assert 'min="1"' in upload.text
     assert "Show row preview (first 25 rows)" in upload.text
+    assert upload.text.index("Upload Parts File") < upload.text.index("Uploaded Files")
     assert upload.text.index("Start Checking Prices") < upload.text.index("Show row preview (first 25 rows)")
+    assert "Show Missing Prices" not in upload.text
 
 
 def test_recent_files_can_be_cleared_without_deleting_imported_products() -> None:
@@ -819,6 +840,25 @@ def test_recent_files_can_be_cleared_without_deleting_imported_products() -> Non
         assert conn.execute("SELECT COUNT(*) FROM products").fetchone()[0] == 1
         assert conn.execute("SELECT COUNT(*) FROM import_batches").fetchone()[0] == 0
         assert conn.execute("SELECT source_import_batch_id FROM internal_product_state").fetchone()[0] is None
+
+
+def test_individual_uploaded_file_delete_removes_its_current_comparison_rows() -> None:
+    db = _empty_db("delete_single_upload.db")
+    first = _upload_simple_batch(db, "delete-first.xlsx", "SKU-FIRST", "Honda", "H-DELETE-1")
+    second = _upload_simple_batch(db, "delete-second.xlsx", "SKU-SECOND", "Yamaha", "Y-KEEP-1")
+    confirm_import(db, first.import_batch_id)
+    confirm_import(db, second.import_batch_id)
+    client = TestClient(create_app(db), raise_server_exceptions=False)
+
+    response = client.post(f"/imports/{first.import_batch_id}/delete", follow_redirects=False)
+
+    assert response.status_code == 303
+    page = client.get("/imports")
+    assert "delete-first.xlsx" not in page.text
+    assert "delete-second.xlsx" in page.text
+    with connect_database(db) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM products WHERE oem_part_number='H-DELETE-1'").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM products WHERE oem_part_number='Y-KEEP-1'").fetchone()[0] == 1
 
 
 def test_collection_plan_uses_current_import_batch() -> None:

@@ -9,11 +9,19 @@
 
 {% if error %}<section class="card">{{ badge('Error', 'warning') }} {{ error }}</section>{% endif %}
 {% if errors %}<section class="card">{% for item in errors %}<p>{{ badge('Error', 'warning') }} {{ item }}</p>{% endfor %}</section>{% endif %}
+<section class="card">
+  <div class="section-title"><h2>Upload Parts File</h2>{% if preview %}{{ badge('File Read', 'success') }}{% endif %}</div>
+  <form data-upload-form class="upload-box">
+    <input type="file" name="upload_file" accept=".xlsx,.csv" required>
+    <button type="submit">Upload File</button>
+    <p data-upload-status>Accepted: .xlsx or .csv, up to {{ max_upload_mb }} MB.</p>
+  </form>
+</section>
 
 {% if history %}
 <section class="card">
   <div class="section-title"><h2>Uploaded Files</h2><form method="post" action="/imports/history/clear" onsubmit="return confirm('Clear recent upload history? Imported products and prices will stay in the catalog.');"><button type="submit">Clear Recent Files</button></form></div>
-  <div class="table-wrap"><table><thead><tr><th>Date</th><th>Filename</th><th>Rows</th><th>Valid</th><th>Invalid</th><th>Status</th><th></th></tr></thead><tbody>
+  <div class="table-wrap"><table><thead><tr><th>Date</th><th>Filename</th><th>Rows</th><th>Valid</th><th>Invalid</th><th>Status</th><th></th><th></th></tr></thead><tbody>
     {% for item in history %}
       <tr>
         <td>{{ item.uploaded_at|datetime }}</td>
@@ -23,20 +31,12 @@
         <td>{{ item.invalid_rows }}</td>
         <td>{{ badge(item.status, 'success' if item.status == 'imported' else 'blue') }}</td>
         <td><a class="button" href="/imports?import_batch_id={{ item.import_batch_id }}">{% if item.status == 'imported' %}Open Price Check{% else %}Open File{% endif %}</a></td>
+        <td><form method="post" action="/imports/{{ item.import_batch_id }}/delete" onsubmit="return confirm('Delete this uploaded file and the current comparison rows created from it?');"><button type="submit" class="link-button">Delete</button></form></td>
       </tr>
     {% endfor %}
   </tbody></table></div>
 </section>
 {% endif %}
-
-<section class="card">
-  <div class="section-title"><h2>Upload Parts File</h2>{% if preview %}{{ badge('File Read', 'success') }}{% endif %}</div>
-  <form data-upload-form class="upload-box">
-    <input type="file" name="upload_file" accept=".xlsx,.csv" required>
-    <button type="submit">Upload File</button>
-    <p data-upload-status>Accepted: .xlsx or .csv, up to {{ max_upload_mb }} MB.</p>
-  </form>
-</section>
 
 {% if preview %}
 <section class="card">

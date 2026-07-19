@@ -109,6 +109,7 @@ dialog::backdrop { background: rgba(17,17,17,.45); }
 .empty { background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 20px; text-align: center; }
 .review-preview { display: flex; align-items: center; justify-content: space-between; }
 .filters { display: grid; grid-template-columns: 2fr repeat(6, 1fr) auto; gap: 10px; margin-bottom: 18px; align-items: center; }
+.comparison-workspace .filters { grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(140px, 1fr)) auto; }
 .inline-action { display: flex; gap: 10px; align-items: end; margin-top: 18px; flex-wrap: wrap; }
 .primary-action { background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
 .competitor-picker { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }

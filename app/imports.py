@@ -330,6 +330,78 @@ def clear_import_history(database: Path) -> int:
     return len(rows)
 
 
+def delete_import_batch(database: Path, import_batch_id: int) -> dict[str, int]:
+    with connect_database(database) as conn:
+        batch = conn.execute(
+            "SELECT import_batch_id, stored_filename FROM import_batches WHERE import_batch_id=?",
+            (import_batch_id,),
+        ).fetchone()
+        if batch is None:
+            raise ValueError("Uploaded file not found.")
+        current_product_rows = conn.execute(
+            """
+            SELECT product_id
+            FROM internal_product_state
+            WHERE source_import_batch_id=?
+            """,
+            (import_batch_id,),
+        ).fetchall()
+        product_ids = [int(row["product_id"]) for row in current_product_rows]
+        listing_ids: list[int] = []
+        if product_ids:
+            placeholders = ",".join("?" for _ in product_ids)
+            listing_rows = conn.execute(
+                f"SELECT listing_id FROM competitor_listings WHERE product_id IN ({placeholders})",
+                product_ids,
+            ).fetchall()
+            listing_ids = [int(row["listing_id"]) for row in listing_rows]
+            if listing_ids:
+                listing_placeholders = ",".join("?" for _ in listing_ids)
+                conn.execute(
+                    f"DELETE FROM listing_history WHERE listing_id IN ({listing_placeholders})",
+                    listing_ids,
+                )
+                conn.execute(
+                    f"DELETE FROM scan_events WHERE listing_id IN ({listing_placeholders})",
+                    listing_ids,
+                )
+                conn.execute(
+                    f"DELETE FROM current_listing_state WHERE listing_id IN ({listing_placeholders})",
+                    listing_ids,
+                )
+                conn.execute(
+                    f"DELETE FROM competitor_listings WHERE listing_id IN ({listing_placeholders})",
+                    listing_ids,
+                )
+            conn.execute(
+                f"DELETE FROM competitor_probe_results WHERE product_id IN ({placeholders})",
+                product_ids,
+            )
+            conn.execute(
+                f"DELETE FROM pricing_review_decisions WHERE product_id IN ({placeholders})",
+                product_ids,
+            )
+            conn.execute(
+                f"DELETE FROM internal_product_state WHERE product_id IN ({placeholders})",
+                product_ids,
+            )
+            conn.execute(
+                f"DELETE FROM products WHERE product_id IN ({placeholders})",
+                product_ids,
+            )
+        conn.execute("UPDATE internal_product_state SET source_import_batch_id=NULL WHERE source_import_batch_id=?", (import_batch_id,))
+        conn.execute("DELETE FROM import_batch_rows WHERE import_batch_id=?", (import_batch_id,))
+        conn.execute("DELETE FROM import_batches WHERE import_batch_id=?", (import_batch_id,))
+    stored = IMPORT_DIR / str(batch["stored_filename"])
+    if stored.exists():
+        stored.unlink()
+    return {
+        "uploaded_files": 1,
+        "products": len(product_ids),
+        "listings": len(listing_ids),
+    }
+
+
 def write_import_template(path: Path) -> None:
     headers = ["Internal_SKU", "Manufacturer", "OEM_Part_Number", "Our_Current_Price", "Product_Name", "Calc_Cost", "Product_Category", "Units_Sold_12M", "Inventory_Qty", "Scan_Priority", "Is_Active"]
     examples = [

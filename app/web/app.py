@@ -32,6 +32,7 @@ from app.imports import (
     confirm_import,
     import_history,
     clear_import_history,
+    delete_import_batch,
     preview_import,
     read_headers,
     save_upload,
@@ -201,7 +202,7 @@ def create_app(database: Path) -> FastAPI:
             "our_price_lower": sum(1 for row in rows if row.get("price_difference_cents") is not None and row["price_difference_cents"] < 0),
             "missing_competitor_price": sum(1 for row in rows if not row.get("lowest_competitor_name")),
             "hidden_competitor_price": sum(1 for row in rows if row.get("motosport_hidden_price")),
-            "needs_review": sum(1 for row in rows if row.get("review_status") == PENDING_REVIEW),
+            "needs_review": sum(1 for row in rows if not row.get("saved_to_catalog")),
         }
         total_pages = max(1, math.ceil(total / page_size))
         page = min(page, total_pages)
@@ -277,7 +278,7 @@ def create_app(database: Path) -> FastAPI:
             save_review_decision(
                 app.state.database,
                 product_id=product_id,
-                review_status=form.get("review_status", PENDING_REVIEW),
+                review_status=form.get("review_status", "Approved"),
                 suggested_new_price=suggested_new_price,
                 notes=form.get("notes", ""),
                 reviewer=form.get("reviewer", ""),
@@ -578,7 +579,7 @@ def create_app(database: Path) -> FastAPI:
             "our_price_higher": sum(1 for row in comparison_rows_all if row.get("price_difference_cents") is not None and row["price_difference_cents"] > 0),
             "our_price_lower": sum(1 for row in comparison_rows_all if row.get("price_difference_cents") is not None and row["price_difference_cents"] < 0),
             "missing_competitor_price": sum(1 for row in comparison_rows_all if not row.get("lowest_competitor_name")),
-            "needs_review": sum(1 for row in comparison_rows_all if row.get("review_status") == PENDING_REVIEW),
+            "needs_review": sum(1 for row in comparison_rows_all if not row.get("saved_to_catalog")),
         }
         return templates.TemplateResponse(
             request,
@@ -625,6 +626,14 @@ def create_app(database: Path) -> FastAPI:
     def imports_clear_history():
         clear_import_history(app.state.database)
         return RedirectResponse("/imports", status_code=303)
+
+    @app.post("/imports/{import_batch_id}/delete")
+    def import_delete(import_batch_id: int):
+        try:
+            delete_import_batch(app.state.database, import_batch_id)
+        except ValueError as exc:
+            return RedirectResponse(f"/imports?message={quote(str(exc))}", status_code=303)
+        return RedirectResponse("/imports?message=Uploaded%20file%20and%20its%20comparison%20rows%20were%20deleted.", status_code=303)
 
     @app.get("/imports/template")
     def import_template():
