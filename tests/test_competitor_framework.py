@@ -370,9 +370,9 @@ def test_chaparral_database_seed_and_resolution_cache_table() -> None:
 
 def test_chaparral_unsupported_manufacturer_does_not_open_page() -> None:
     db = _empty_db("chaparral_unsupported_no_page.db")
-    result = _upload_simple_batch(db, "chaparral-unsupported.xlsx", "SKU-HUS", "Husqvarna", "HUS-1")
+    result = _upload_simple_batch(db, "chaparral-unsupported.xlsx", "SKU-AC", "Arctic Cat", "AC-1")
     confirm_import(db, result.import_batch_id)
-    record = PartRecord("", "Husqvarna", "HUS-1")
+    record = PartRecord("", "Arctic Cat", "AC-1")
     with connect_database(db) as conn:
         collect_parts.ensure_competitor_listings(conn, [record], "chaparral")
         plan = collect_parts.plan_collection(conn, [record], Path("input.csv"), 1, competitor_key="chaparral")
@@ -387,7 +387,7 @@ def test_chaparral_unsupported_manufacturer_does_not_open_page() -> None:
     assert row.manufacturer_supported is False
     assert row.lookup_status == "manufacturer_not_carried"
     assert row.result_type == "manufacturer_not_carried"
-    assert "does not carry OEM manufacturer Husqvarna" in row.status_reason
+    assert "does not carry OEM manufacturer Arctic Cat" in row.status_reason
 
 
 def test_probe_summary_reports_unsupported_manufacturer_without_scrape_error() -> None:
@@ -1812,7 +1812,7 @@ def test_motosport_probe_price_can_render_as_fallback_comparison_column() -> Non
             (utc_now(), utc_now()),
         )
     page = TestClient(create_app(db), raise_server_exceptions=False).get("/comparison")
-    assert "MotoSport Price" in page.text
+    assert "<th>MotoSport</th>" in page.text
     assert "Probe" not in page.text
     assert "39.99" in page.text
 

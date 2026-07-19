@@ -238,8 +238,9 @@ def test_manufacturer_registry_supports_configured_coverage_and_aliases() -> Non
     assert competitor_supports_manufacturer("chaparral", "Honda") is True
     assert competitor_supports_manufacturer("chaparral", "Polaris") is True
     assert competitor_supports_manufacturer("chaparral", "KTM") is True
+    assert competitor_supports_manufacturer("chaparral", "Husqvarna") is True
+    assert competitor_supports_manufacturer("chaparral", "GasGas") is True
     assert competitor_supports_manufacturer("chaparral", "Triumph") is True
-    assert competitor_supports_manufacturer("chaparral", "Husqvarna") is False
     assert competitor_supports_manufacturer("partzilla", "Triumph") is False
     assert competitor_supports_manufacturer("motosport", "Triumph") is False
     assert partzilla_slug_for("Unknown OEM") is None
@@ -363,9 +364,11 @@ def test_comparison_layout_is_compact_and_highlights_lowest_our_price() -> None:
     assert "Show Lower Prices" in page.text
     assert "Show All Prices" in page.text
     assert "Show Hidden Prices" not in page.text
-    assert page.text.index("<th>Product</th>") < page.text.index("<th>Partzilla Price</th>") < page.text.index("<th>MotoSport Price</th>") < page.text.index("<th>Chaparral Price</th>") < page.text.index("<th>Lowest Competitor</th>") < page.text.index("<th>Gap vs Lowest</th>") < page.text.index("<th>Original Price</th>") < page.text.index("<th>Our Price</th>") < page.text.index("<th>Calc Cost</th>") < page.text.index("<th>Margin %</th>") < page.text.index("<th>Suggested Price</th>") < page.text.index("<th>Updated Price</th>") < page.text.index("<th>New Margin</th>")
+    assert page.text.index("<th>Product</th>") < page.text.index("<th>Partzilla</th>") < page.text.index("<th>MotoSport</th>") < page.text.index("<th>Chaparral</th>") < page.text.index("<th>Lowest Competitor</th>") < page.text.index("<th>Gap vs Lowest</th>") < page.text.index("<th>Original Price</th>") < page.text.index("<th>Our Price</th>") < page.text.index("<th>Calc Cost</th>") < page.text.index("<th>Margin %</th>") < page.text.index("<th>Suggested Price</th>") < page.text.index("<th>Updated Price</th>") < page.text.index("<th>New Margin</th>")
     assert "Save Visible Updated Prices" in page.text
-    assert "Needs Save" in page.text
+    assert "Needs Review" in page.text
+    assert "Decision" not in page.text
+    assert "data-toggle-visible-selection" in page.text
     for removed_heading in ["<th>Reference</th>", "<th>Savings</th>", "<th>Units</th>", "<th>Margin at Partzilla</th>", "<th>Priority</th>"]:
         assert removed_heading not in page.text
 

@@ -11,6 +11,9 @@ document.addEventListener("change", (event) => {
   if (event.target.matches(".coverage-check input")) {
     event.target.closest(".coverage-check")?.classList.toggle("selected", event.target.checked);
   }
+  if (event.target.matches("[data-toggle-visible-selection]")) {
+    document.querySelectorAll(".row-select").forEach((box) => { box.checked = event.target.checked; });
+  }
 });
 
 document.addEventListener("input", (event) => {

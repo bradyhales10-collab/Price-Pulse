@@ -69,6 +69,6 @@
   "competitors": {
     "partzilla": ["Honda", "Yamaha", "Kawasaki", "Suzuki", "Polaris", "Can-Am", "Arctic Cat", "Sea-Doo", "Ski-Doo"],
     "motosport": ["Honda", "Yamaha", "Kawasaki", "Suzuki", "Can-Am", "KTM", "Husqvarna", "GasGas"],
-    "chaparral": ["Honda", "Yamaha", "Kawasaki", "Suzuki", "Can-Am", "Polaris", "KTM", "Triumph"]
+    "chaparral": ["Honda", "Yamaha", "Kawasaki", "Suzuki", "Can-Am", "Polaris", "KTM", "Husqvarna", "GasGas", "Triumph"]
   }
 }

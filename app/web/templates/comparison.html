@@ -51,14 +51,14 @@
     <table class="sortable-table">
       <thead>
         <tr>
-          <th></th>
+          <th><input type="checkbox" data-toggle-visible-selection aria-label="Select all visible rows"></th>
           <th>Internal SKU</th>
           <th>Manufacturer</th>
           <th>OEM Part</th>
           <th>Product</th>
-          <th>Partzilla Price</th>
-          <th>MotoSport Price</th>
-          <th>Chaparral Price</th>
+          <th>Partzilla</th>
+          <th>MotoSport</th>
+          <th>Chaparral</th>
           <th>Lowest Competitor</th>
           <th>Gap vs Lowest</th>
           <th>Original Price</th>
@@ -69,8 +69,7 @@
           <th>Updated Price</th>
           <th>New Margin</th>
           <th>Inventory</th>
-          <th>Saved</th>
-          <th>Decision</th>
+          <th>Reviewed</th>
           <th></th>
         </tr>
       </thead>
@@ -102,21 +101,14 @@
           </td>
           <td>{% if row.current_cost %}<input class="margin-input" form="comparison-review-{{ row.product_id }}" value="{{ row.updated_margin_pct or '' }}" placeholder="Margin %" data-margin-input data-product-id="{{ row.product_id }}" data-cost="{{ row.current_cost }}">{% else %}<span class="muted">Needs cost</span>{% endif %}</td>
           <td>{{ row.inventory_qty or '' }}</td>
-          <td>{% if row.saved_to_catalog %}<span class="badge success">Saved</span>{% else %}<span class="badge warning">Needs Save</span>{% endif %}</td>
-          <td>
-            <select name="review_status" form="comparison-review-{{ row.product_id }}">
-              {% for status in statuses %}
-                <option value="{{ status }}" {{ 'selected' if row.review_status == status else '' }}>{{ status }}</option>
-              {% endfor %}
-            </select>
-          </td>
+          <td>{% if row.saved_to_catalog %}<span class="badge success">Reviewed</span>{% else %}<span class="badge warning">Needs Review</span>{% endif %}</td>
           <td><form id="comparison-review-{{ row.product_id }}" method="post" action="/comparison/{{ row.product_id }}/review"><button type="submit">Save</button></form></td>
         </tr>
       {% endfor %}
       </tbody>
     </table>
   </div>
-  <button type="button" data-select-visible>Select Visible</button><button type="button" data-clear-selection>Clear Selection</button><button type="submit" form="comparison-export">Export Selected Results</button><button type="button" data-save-visible-prices data-return-query="{{ request.url.query }}">Save Visible Updated Prices</button>
+  <button type="submit" form="comparison-export">Export Selected Results</button><button type="button" data-save-visible-prices data-return-query="{{ request.url.query }}">Save Visible Updated Prices</button>
   <div class="pagination">
     {% if page > 1 %}<a href="?{{ page_query }}&page={{ page - 1 }}">Previous</a>{% endif %}
     {% for number in range(1, total_pages + 1) %}
