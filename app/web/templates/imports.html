@@ -17,12 +17,12 @@
     {% for item in history %}
       <tr>
         <td>{{ item.uploaded_at|datetime }}</td>
-        <td><a href="{{ '/comparison?import_batch_id=' ~ item.import_batch_id if item.status == 'imported' else '/imports?import_batch_id=' ~ item.import_batch_id }}">{{ item.original_filename }}</a></td>
+        <td><a href="{{ '/imports?import_batch_id=' ~ item.import_batch_id }}">{{ item.original_filename }}</a></td>
         <td>{{ item.rows_read }}</td>
         <td>{{ item.valid_rows }}</td>
         <td>{{ item.invalid_rows }}</td>
         <td>{{ badge(item.status, 'success' if item.status == 'imported' else 'blue') }}</td>
-        <td>{% if item.status == 'imported' %}<a class="button" href="/comparison?import_batch_id={{ item.import_batch_id }}">Open Comparison</a>{% else %}<a class="button" href="/imports?import_batch_id={{ item.import_batch_id }}">Open File</a>{% endif %}</td>
+        <td><a class="button" href="/imports?import_batch_id={{ item.import_batch_id }}">{% if item.status == 'imported' %}Open Price Check{% else %}Open File{% endif %}</a></td>
       </tr>
     {% endfor %}
   </tbody></table></div>
@@ -77,6 +77,8 @@
 </section>
 {% endif %}
 
+{% include "comparison_section.html" %}
+
 {% if job %}
 <section class="card" data-job-status data-job-id="{{ job.job_id }}">
   <div class="section-title"><h2>Live Price Check</h2>{{ badge(job.status, 'blue') }}</div>
@@ -94,15 +96,15 @@
 <section class="card">
   <div class="section-title"><h2>Next Steps</h2></div>
   <div class="quick-actions">
-    <a class="button" href="/comparison">View Price Comparison</a>
-    <a class="button" href="/comparison">Export Price Updates</a>
+    <a class="button" href="/imports">View Price Comparison</a>
+    <a class="button" href="/imports">Export Price Updates</a>
     <a class="button" href="/quality">Check Data Quality</a>
   </div>
 </section>
 <section class="card">
   <div class="section-title"><h2>Recent Parts Checked</h2><span data-last-part></span></div>
   <div class="table-wrap"><table><thead><tr><th>#</th><th>Competitor</th><th>Manufacturer</th><th>OEM Part</th><th>Price</th><th>Result</th><th>Checked At</th></tr></thead><tbody data-progress-rows></tbody></table></div>
-  <p><a href="/comparison">View Price Comparison</a> | <a href="/runs">View Scan Runs</a></p>
+  <p><a href="/imports">View Price Comparison</a> | <a href="/runs">View Scan Runs</a></p>
 </section>
 {% endif %}
 {% endblock %}

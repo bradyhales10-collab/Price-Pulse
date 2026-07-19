@@ -14,9 +14,11 @@ document.addEventListener("change", (event) => {
   if (event.target.matches("[data-toggle-visible-selection]")) {
     const table = event.target.closest("table");
     (table || document).querySelectorAll(".row-select").forEach((box) => { box.checked = event.target.checked; });
+    (table || document).dataset.selectsAllFiltered = event.target.checked ? "1" : "";
     updateVisibleSelectionToggle(table);
   }
   if (event.target.matches(".row-select")) {
+    event.target.closest("table")?.dataset && (event.target.closest("table").dataset.selectsAllFiltered = "");
     updateVisibleSelectionToggle(event.target.closest("table"));
   }
 });
@@ -50,6 +52,7 @@ document.addEventListener("click", (event) => {
   if (event.target.matches("[data-toggle-visible-selection]")) {
     const table = event.target.closest("[data-comparison-table]");
     (table || document).querySelectorAll("tbody .row-select").forEach((box) => { box.checked = event.target.checked; });
+    if (table) table.dataset.selectsAllFiltered = event.target.checked ? "1" : "";
     updateVisibleSelectionToggle(table);
     event.stopPropagation();
   }
@@ -183,6 +186,8 @@ function syncPriceFromMargin(input) {
 }
 
 function saveSelectedUpdatedPrices(button) {
+  const comparisonTable = document.querySelector("[data-comparison-table]");
+  const selectsAllFiltered = comparisonTable?.dataset.selectsAllFiltered === "1";
   const checkedIds = new Set(Array.from(document.querySelectorAll(".row-select:checked")).map((box) => box.value));
   const rows = Array.from(document.querySelectorAll("[data-price-input]")).filter((input) => checkedIds.has(input.dataset.productId)).map((input) => {
     const productId = input.dataset.productId;
@@ -197,7 +202,7 @@ function saveSelectedUpdatedPrices(button) {
       has_form: Boolean(form)
     };
   }).filter((row) => row.has_form && row.suggested_new_price && row.suggested_new_price.trim());
-  if (!rows.length) {
+  if (!rows.length && !selectsAllFiltered) {
     window.alert("Select at least one row with an Updated Price to save.");
     return;
   }
@@ -207,11 +212,11 @@ function saveSelectedUpdatedPrices(button) {
   fetch("/comparison/bulk-save", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ rows })
+    body: JSON.stringify({ rows, all_matching: selectsAllFiltered, query: window.location.search })
   }).then((response) => response.json()).then((result) => {
     const query = button.dataset.returnQuery || "";
     const joiner = query ? "&" : "";
-    window.location.href = `/comparison?${query}${joiner}message=${encodeURIComponent(`Saved ${result.saved || 0} selected updated prices.`)}`;
+    window.location.href = `/imports?${query}${joiner}message=${encodeURIComponent(`Saved ${result.saved || 0} selected updated prices.`)}`;
   }).catch(() => {
     button.disabled = false;
     button.textContent = originalText;

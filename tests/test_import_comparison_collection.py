@@ -15,7 +15,7 @@ from app.imports import confirm_import, preview_import, save_upload
 from app.input_loader import load_parts_csv
 import app.manufacturer_registry as manufacturer_registry
 from app.manufacturer_registry import competitor_supports_manufacturer, normalize_manufacturer, partzilla_slug_for
-from app.reviews import review_rows
+from app.reviews import comparison_review_rows, review_rows
 from app.web.app import create_app
 from app.xlsx_utils import read_rows, write_workbook
 
@@ -421,7 +421,7 @@ def test_uploaded_file_opens_filtered_price_comparison() -> None:
 
     assert imports.status_code == 200
     assert imports.text.index("newer.xlsx") < imports.text.index("older.xlsx")
-    assert f"/comparison?import_batch_id={second.import_batch_id}" in imports.text
+    assert f"/imports?import_batch_id={second.import_batch_id}" in imports.text
     assert comparison.status_code == 200
     assert "Y-SECOND" in comparison.text
     assert "H-FIRST" not in comparison.text
@@ -495,6 +495,22 @@ def test_comparison_undo_restores_catalog_price_and_reopens_review() -> None:
     row = next(item for item in comparison_rows(db) if item["oem_part_number"] == "K-PRICE")
     assert row["our_current_price"] == "12.34"
     assert row["saved_to_catalog"] is False
+
+
+def test_comparison_bulk_save_all_matching_rows_crosses_pages() -> None:
+    db = _comparison_db("comparison_bulk_save_all_matching.db")
+    client = TestClient(create_app(db), raise_server_exceptions=False)
+    eligible = [row["product_id"] for row in comparison_review_rows(db) if row.get("suggested_new_price")]
+
+    response = client.post(
+        "/comparison/bulk-save",
+        json={"rows": [], "all_matching": True, "query": "?page_size=25"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["saved"] == len(eligible)
+    saved = {row["product_id"] for row in comparison_rows(db) if row["saved_to_catalog"]}
+    assert saved == set(eligible)
 
 
 def test_review_queue_saves_decisions_and_updates_exports() -> None:
@@ -902,7 +918,6 @@ def test_branding_theme_and_navigation_are_present() -> None:
         "Dashboard",
         "Product Catalog",
         "Price Check",
-        "Price Comparison",
         "Scan Runs",
         "Data Quality",
         "Pricing Rules",

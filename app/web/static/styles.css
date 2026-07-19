@@ -75,7 +75,8 @@ p { color: var(--muted); }
 table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; padding: 14px; color: var(--text); }
 th { text-align: left; color: var(--rm-charcoal); background: var(--rm-light-gray); white-space: nowrap; }
-thead th { position: sticky; top: 0; z-index: 2; }
+thead { position: sticky; top: 0; z-index: 3; }
+thead th { position: sticky; top: 0; z-index: 4; box-shadow: 0 1px 0 var(--line); }
 .sortable-heading { cursor: pointer; user-select: none; padding-right: 22px; position: relative; }
 .sortable-heading:after { content: "\2195"; position: absolute; right: 8px; color: var(--muted); font-size: 11px; }
 .sortable-heading.sort-asc:after { content: "\2191"; color: var(--rm-red); }

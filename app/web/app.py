@@ -232,7 +232,7 @@ def create_app(database: Path) -> FastAPI:
     @app.post("/comparison/clear")
     def comparison_clear():
         clear_comparison_results(app.state.database)
-        return RedirectResponse("/comparison", status_code=303)
+        return RedirectResponse("/imports", status_code=303)
 
     @app.post("/comparison/export")
     async def comparison_export(request: Request):
@@ -271,10 +271,10 @@ def create_app(database: Path) -> FastAPI:
                 applied_rule_codes=selected_rule_codes,
             )
         except ValueError as exc:
-            return RedirectResponse(f"/comparison?message={quote(str(exc))}", status_code=303)
+            return RedirectResponse(f"/imports?message={quote(str(exc))}", status_code=303)
         query = form.get("return_query", "")
         suffix = f"&message={quote('Saved updated price.')}" if query else f"?message={quote('Saved updated price.')}"
-        return RedirectResponse(f"/comparison?{query}{suffix}" if query else f"/comparison{suffix}", status_code=303)
+        return RedirectResponse(f"/imports?{query}{suffix}" if query else f"/imports{suffix}", status_code=303)
 
     @app.post("/comparison/{product_id}/undo")
     async def comparison_review_undo(request: Request, product_id: int):
@@ -287,12 +287,36 @@ def create_app(database: Path) -> FastAPI:
             message = quote("Restored the catalog price and reopened this row for review.")
         query = form.get("return_query", "")
         suffix = f"&message={message}" if query else f"?message={message}"
-        return RedirectResponse(f"/comparison?{query}{suffix}" if query else f"/comparison{suffix}", status_code=303)
+        return RedirectResponse(f"/imports?{query}{suffix}" if query else f"/imports{suffix}", status_code=303)
 
     @app.post("/comparison/bulk-save")
     async def comparison_bulk_save(request: Request):
         payload = await request.json()
-        rows = payload.get("rows", []) if isinstance(payload, dict) else []
+        payload = payload if isinstance(payload, dict) else {}
+        rows = payload.get("rows", [])
+        if payload.get("all_matching"):
+            query = parse_qs(str(payload.get("query", "")).lstrip("?"), keep_blank_values=True)
+            filters = ComparisonFilters(
+                search=query.get("search", [""])[-1],
+                manufacturer=query.get("manufacturer", [""])[-1],
+                price_position=query.get("price_position", [""])[-1],
+                competitor_discounted=query.get("competitor_discounted", [""])[-1] == "1",
+                scan_priority=query.get("scan_priority", [""])[-1],
+                missing_competitor_price=query.get("missing_competitor_price", [""])[-1] == "1",
+                hidden_competitor_price=query.get("hidden_competitor_price", [""])[-1] == "1",
+                needs_review=query.get("needs_review", [""])[-1] == "1",
+                import_batch_id=_optional_int_form_value(query.get("import_batch_id", [""])[-1]),
+            )
+            visible_overrides = {str(item.get("product_id")): item for item in rows if isinstance(item, dict)}
+            rows = [
+                {
+                    "product_id": row["product_id"],
+                    "suggested_new_price": visible_overrides.get(str(row["product_id"]), {}).get("suggested_new_price", row.get("suggested_new_price", "")),
+                    "review_status": "Approved",
+                    "rule_codes": visible_overrides.get(str(row["product_id"]), {}).get("rule_codes", []),
+                }
+                for row in comparison_review_rows(app.state.database, filters)
+            ]
         saved = 0
         errors: list[str] = []
         for item in rows:
@@ -510,9 +534,39 @@ def create_app(database: Path) -> FastAPI:
         return RedirectResponse("/settings?message=Coverage%20saved", status_code=303)
 
     @app.get("/imports", response_class=HTMLResponse)
-    def imports(request: Request, import_batch_id: int | None = None, job_id: str = ""):
+    def imports(
+        request: Request,
+        import_batch_id: int | None = None,
+        job_id: str = "",
+        search: str = "",
+        price_position: str = "",
+        competitor_discounted: int = 0,
+        missing_competitor_price: int = 0,
+        page: int = 1,
+        page_size: int = 50,
+        message: str = "",
+    ):
         preview = preview_import(app.state.database, import_batch_id) if import_batch_id else None
         job = job_status(job_id) if job_id else None
+        page_size = page_size if page_size in {25, 50, 100} else 50
+        filters = ComparisonFilters(
+            search=search,
+            price_position=price_position,
+            competitor_discounted=bool(competitor_discounted),
+            missing_competitor_price=bool(missing_competitor_price),
+            import_batch_id=import_batch_id,
+        )
+        comparison_rows_all = comparison_review_rows(app.state.database, filters)
+        total = len(comparison_rows_all)
+        total_pages = max(1, math.ceil(total / page_size))
+        page = min(max(1, page), total_pages)
+        offset = (page - 1) * page_size
+        comparison_summary = {
+            "our_price_higher": sum(1 for row in comparison_rows_all if row.get("price_difference_cents") is not None and row["price_difference_cents"] > 0),
+            "our_price_lower": sum(1 for row in comparison_rows_all if row.get("price_difference_cents") is not None and row["price_difference_cents"] < 0),
+            "missing_competitor_price": sum(1 for row in comparison_rows_all if not row.get("lowest_competitor_name")),
+            "needs_review": sum(1 for row in comparison_rows_all if row.get("review_status") == PENDING_REVIEW),
+        }
         return templates.TemplateResponse(
             request,
             "imports.html",
@@ -524,6 +578,17 @@ def create_app(database: Path) -> FastAPI:
                 "max_upload_mb": 20,
                 "preview": preview,
                 "job": job,
+                "rows": comparison_rows_all[offset : offset + page_size],
+                "filters": filters,
+                "total": total,
+                "summary": comparison_summary,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": total_pages,
+                "message": message,
+                "page_query": _comparison_page_query(filters, page_size),
+                "quick_filter_queries": _comparison_quick_filter_queries(filters, page_size),
+                "selected_import": import_batch_label(app.state.database, import_batch_id),
             },
         )
 
