@@ -365,10 +365,11 @@ def test_comparison_layout_is_compact_and_highlights_lowest_our_price() -> None:
     assert "Show All Prices" in page.text
     assert "Show Hidden Prices" not in page.text
     assert page.text.index("<th>Product</th>") < page.text.index("<th>Partzilla</th>") < page.text.index("<th>MotoSport</th>") < page.text.index("<th>Chaparral</th>") < page.text.index("<th>Lowest Competitor</th>") < page.text.index("<th>Gap vs Lowest</th>") < page.text.index("<th>Original Price</th>") < page.text.index("<th>Our Price</th>") < page.text.index("<th>Calc Cost</th>") < page.text.index("<th>Margin %</th>") < page.text.index("<th>Suggested Price</th>") < page.text.index("<th>Updated Price</th>") < page.text.index("<th>New Margin</th>")
-    assert "Save Visible Updated Prices" in page.text
+    assert "Save Selected" in page.text
     assert "Needs Review" in page.text
     assert "Decision" not in page.text
     assert "data-toggle-visible-selection" in page.text
+    assert "data-save-selected-prices" in page.text
     for removed_heading in ["<th>Reference</th>", "<th>Savings</th>", "<th>Units</th>", "<th>Margin at Partzilla</th>", "<th>Priority</th>"]:
         assert removed_heading not in page.text
 
@@ -475,6 +476,9 @@ def test_comparison_bulk_save_visible_updates_catalog_and_marks_saved() -> None:
     assert row["original_price"] == "12.34"
     assert row["our_current_price"] == "10.99"
     assert row["saved_to_catalog"] is True
+    catalog = client.get("/products?search=K-PRICE").text
+    assert "OK" in catalog
+    assert "Needs Review" not in catalog
 
 
 def test_review_queue_saves_decisions_and_updates_exports() -> None:

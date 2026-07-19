@@ -116,6 +116,7 @@ def _catalog_product_rows(conn: sqlite3.Connection, where: str, params: list[Any
                COALESCE(MAX(s.product_name), p.product_name) product_name,
                ips.our_current_price_cents, ips.current_cost_cents,
                ips.units_sold_12m, ips.inventory_qty, ips.scan_priority,
+               prd.suggested_new_price_cents,
                MIN(CASE WHEN s.selling_price_cents IS NOT NULL THEN s.selling_price_cents END) lowest_competitor_price_cents,
                MAX(s.last_successful_check_at) last_checked_at,
                MAX(CASE WHEN c.competitor_code='partzilla' THEN s.selling_price_cents END) partzilla_selling_price_cents,
@@ -141,13 +142,14 @@ def _catalog_product_rows(conn: sqlite3.Connection, where: str, params: list[Any
         LEFT JOIN competitor_listings l ON l.product_id=p.product_id AND l.is_active=1
         LEFT JOIN competitors c ON c.competitor_id=l.competitor_id
         LEFT JOIN current_listing_state s ON s.listing_id=l.listing_id
+        LEFT JOIN pricing_review_decisions prd ON prd.product_id=p.product_id
         LEFT JOIN scan_events se ON se.scan_event_id=(
             SELECT MAX(se2.scan_event_id) FROM scan_events se2 WHERE se2.listing_id=l.listing_id
         )
         WHERE {where}
         GROUP BY p.product_id, p.manufacturer, p.oem_part_number, p.internal_sku, p.product_name,
                  ips.internal_sku, ips.our_current_price_cents, ips.current_cost_cents,
-                 ips.units_sold_12m, ips.inventory_qty, ips.scan_priority
+                 ips.units_sold_12m, ips.inventory_qty, ips.scan_priority, prd.suggested_new_price_cents
         ORDER BY {sort_column} DESC NULLS LAST, p.oem_part_number COLLATE NOCASE
         LIMIT ? OFFSET ?
     """, params + [filters.page_size, offset]).fetchall()
@@ -569,26 +571,13 @@ def _product_catalog_where(filters: CatalogFilters) -> tuple[str, list[Any]]:
         )""")
         params.append(filters.confidence)
     if filters.needs_review:
-        clauses.append("""(
-            ips.our_current_price_cents IS NULL
-            OR ips.current_cost_cents IS NULL
-            OR EXISTS (
-                SELECT 1 FROM competitor_listings review_l
-                LEFT JOIN current_listing_state review_s ON review_s.listing_id=review_l.listing_id
-                LEFT JOIN scan_events review_se ON review_se.scan_event_id=(
-                    SELECT MAX(review_se2.scan_event_id) FROM scan_events review_se2 WHERE review_se2.listing_id=review_l.listing_id
-                )
-                WHERE review_l.product_id=p.product_id
-                  AND review_l.is_active=1
-                  AND COALESCE(review_se.page_classification, '') <> 'manufacturer_not_carried'
-                  AND (
-                    review_s.selling_price_cents IS NULL
-                    OR COALESCE(review_s.selling_price_confidence, review_s.price_parse_confidence)='low'
-                    OR COALESCE(review_s.consecutive_failure_count, 0) > 0
-                    OR COALESCE(review_se.parse_warning_count, 0) > 0
-                  )
+        clauses.append("""
+            NOT EXISTS (
+                SELECT 1 FROM pricing_review_decisions review_prd
+                WHERE review_prd.product_id=p.product_id
+                  AND review_prd.suggested_new_price_cents=ips.our_current_price_cents
             )
-        )""")
+        """)
     return " AND ".join(clauses), params
 
 
@@ -656,13 +645,8 @@ def _catalog_product_row(row: sqlite3.Row) -> dict[str, Any]:
     data["partzilla"] = _competitor_cell(data, "partzilla")
     data["motosport"] = _competitor_cell(data, "motosport")
     data["chaparral"] = _competitor_cell(data, "chaparral")
-    data["needs_review"] = (
-        our_cents is None
-        or cost_cents is None
-        or data["partzilla"]["needs_review"]
-        or data["motosport"]["needs_review"]
-        or data["chaparral"]["needs_review"]
-    )
+    saved_to_catalog = data.get("suggested_new_price_cents") is not None and data.get("suggested_new_price_cents") == our_cents
+    data["needs_review"] = not saved_to_catalog
     return data
 
 

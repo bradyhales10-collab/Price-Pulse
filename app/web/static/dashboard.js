@@ -12,7 +12,12 @@ document.addEventListener("change", (event) => {
     event.target.closest(".coverage-check")?.classList.toggle("selected", event.target.checked);
   }
   if (event.target.matches("[data-toggle-visible-selection]")) {
-    document.querySelectorAll(".row-select").forEach((box) => { box.checked = event.target.checked; });
+    const table = event.target.closest("table");
+    (table || document).querySelectorAll(".row-select").forEach((box) => { box.checked = event.target.checked; });
+    updateVisibleSelectionToggle(table);
+  }
+  if (event.target.matches(".row-select")) {
+    updateVisibleSelectionToggle(event.target.closest("table"));
   }
 });
 
@@ -41,8 +46,8 @@ document.addEventListener("click", (event) => {
   if (event.target.matches("[data-clear-selection]")) {
     document.querySelectorAll(".row-select").forEach((box) => { box.checked = false; });
   }
-  if (event.target.matches("[data-save-visible-prices]")) {
-    saveVisibleUpdatedPrices(event.target);
+  if (event.target.matches("[data-save-selected-prices]")) {
+    saveSelectedUpdatedPrices(event.target);
   }
 });
 
@@ -158,8 +163,9 @@ function syncPriceFromMargin(input) {
   price.value = formatMoney(cost / (1 - margin / 100));
 }
 
-function saveVisibleUpdatedPrices(button) {
-  const rows = Array.from(document.querySelectorAll("[data-price-input]")).map((input) => {
+function saveSelectedUpdatedPrices(button) {
+  const checkedIds = new Set(Array.from(document.querySelectorAll(".row-select:checked")).map((box) => box.value));
+  const rows = Array.from(document.querySelectorAll("[data-price-input]")).filter((input) => checkedIds.has(input.dataset.productId)).map((input) => {
     const productId = input.dataset.productId;
     const form = document.querySelector(`#comparison-review-${CSS.escape(productId)}`);
     const status = document.querySelector(`select[form="comparison-review-${CSS.escape(productId)}"]`);
@@ -173,7 +179,7 @@ function saveVisibleUpdatedPrices(button) {
     };
   }).filter((row) => row.has_form && row.suggested_new_price && row.suggested_new_price.trim());
   if (!rows.length) {
-    window.alert("No visible rows have an Updated Price to save.");
+    window.alert("Select at least one row with an Updated Price to save.");
     return;
   }
   const originalText = button.textContent;
@@ -186,12 +192,23 @@ function saveVisibleUpdatedPrices(button) {
   }).then((response) => response.json()).then((result) => {
     const query = button.dataset.returnQuery || "";
     const joiner = query ? "&" : "";
-    window.location.href = `/comparison?${query}${joiner}message=${encodeURIComponent(`Saved ${result.saved || 0} visible updated prices.`)}`;
+    window.location.href = `/comparison?${query}${joiner}message=${encodeURIComponent(`Saved ${result.saved || 0} selected updated prices.`)}`;
   }).catch(() => {
     button.disabled = false;
     button.textContent = originalText;
-    window.alert("Visible prices could not be saved.");
+    window.alert("Selected prices could not be saved.");
   });
+}
+
+function updateVisibleSelectionToggle(table) {
+  const root = table || document.querySelector("[data-comparison-table]");
+  if (!root) return;
+  const toggle = root.querySelector("[data-toggle-visible-selection]");
+  const boxes = Array.from(root.querySelectorAll(".row-select"));
+  if (!toggle || !boxes.length) return;
+  const checked = boxes.filter((box) => box.checked).length;
+  toggle.checked = checked === boxes.length;
+  toggle.indeterminate = checked > 0 && checked < boxes.length;
 }
 
 function sortableValue(cell) {
@@ -205,6 +222,7 @@ function applyTableSorting() {
     table.dataset.sortReady = "1";
     const headers = table.querySelectorAll("thead th");
     headers.forEach((header) => {
+      if (header.querySelector("input, button, select")) return;
       if (!header.textContent.trim()) return;
       header.classList.add("sortable-heading");
       header.tabIndex = 0;
