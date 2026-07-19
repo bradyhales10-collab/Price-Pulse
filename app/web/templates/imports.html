@@ -4,7 +4,7 @@
 {% block content %}
 <header class="page-header">
   <div><h1>Price Check</h1><p>Upload OEM parts, choose competitors, collect prices, then open that file in Price Comparison.</p></div>
-  <div class="quick-actions"><a class="button" href="/imports/template">Download Template</a><form method="post" action="/data/reset" onsubmit="return confirm('Start fresh? This will permanently remove uploaded parts, comparison results, review decisions, scan runs, and import history. Login state and configuration will stay saved.');"><button type="submit" class="danger-button">Start Fresh</button></form></div>
+  <div class="quick-actions"><a class="button" href="/imports/template">Download Template</a></div>
 </header>
 
 {% if error %}<section class="card">{{ badge('Error', 'warning') }} {{ error }}</section>{% endif %}

@@ -7,7 +7,6 @@
   <div class="quick-actions">
     <a class="button" href="/imports">Price Check Files</a>
     <form method="post" action="/comparison/clear" onsubmit="return confirm('Clear all stored competitor prices and comparison history? Your products, selling prices, and costs will stay in the catalog.');"><button type="submit" class="danger-button">Clear Comparison Results</button></form>
-    <form method="post" action="/data/reset" onsubmit="return confirm('Start fresh? This will permanently remove uploaded parts, comparison results, review decisions, scan runs, and import history. Login state and configuration will stay saved.');"><button type="submit" class="danger-button">Start Fresh</button></form>
   </div>
 </header>
 {% if message %}<section class="card">{{ message }}</section>{% endif %}
@@ -61,7 +60,6 @@
           <th>Chaparral</th>
           <th>Lowest Competitor</th>
           <th>Gap vs Lowest</th>
-          <th>Original Price</th>
           <th>Our Price</th>
           <th>Calc Cost</th>
           <th>Margin %</th>
@@ -85,8 +83,7 @@
           <td>{% if row.motosport_hidden_price %}<b>Price in cart</b>{% elif row.motosport_selling_price %}{{ money(row.motosport_selling_price, True) }}{% else %}<span class="muted">None</span>{% endif %}</td>
           <td>{% if row.chaparral_selling_price %}{{ money(row.chaparral_selling_price, True) }}{% else %}<span class="muted">None</span>{% endif %}</td>
           <td>{% if row.lowest_competitor_name %}{{ row.lowest_competitor_name }} {{ money(row.lowest_competitor_price, True) }}{% else %}<span class="muted">None</span>{% endif %}</td>
-          <td class="{{ row.price_difference_class }}">{% if row.difference_vs_lowest_competitor %}{{ money(row.difference_vs_lowest_competitor, True) }}{% else %}<span class="muted">None</span>{% endif %}</td>
-          <td>{{ money(row.original_price, True) }}</td>
+          <td>{% if row.difference_vs_lowest_competitor %}{{ money(row.difference_vs_lowest_competitor, True) }}{% else %}<span class="muted">None</span>{% endif %}</td>
           <td class="{{ row.our_price_class }}">{{ money(row.our_current_price, True) }}</td>
           <td>{{ money(row.current_cost) }}</td>
           <td>{% if row.our_gross_margin_pct %}{{ row.our_gross_margin_pct }}%{% else %}<span class="muted">None</span>{% endif %}</td>
@@ -102,7 +99,12 @@
           <td>{% if row.current_cost %}<input class="margin-input" form="comparison-review-{{ row.product_id }}" value="{{ row.updated_margin_pct or '' }}" placeholder="Margin %" data-margin-input data-product-id="{{ row.product_id }}" data-cost="{{ row.current_cost }}">{% else %}<span class="muted">Needs cost</span>{% endif %}</td>
           <td>{{ row.inventory_qty or '' }}</td>
           <td>{% if row.saved_to_catalog %}<span class="badge success">Reviewed</span>{% else %}<span class="badge warning">Needs Review</span>{% endif %}</td>
-          <td><form id="comparison-review-{{ row.product_id }}" method="post" action="/comparison/{{ row.product_id }}/review"><button type="submit">Save</button></form></td>
+          <td>
+            <form id="comparison-review-{{ row.product_id }}" method="post" action="/comparison/{{ row.product_id }}/review"><button type="submit">Save</button></form>
+            {% if row.saved_to_catalog %}
+            <form method="post" action="/comparison/{{ row.product_id }}/undo" class="inline-form"><input type="hidden" name="return_query" value="{{ request.url.query }}"><button type="submit" class="link-button">Undo</button></form>
+            {% endif %}
+          </td>
         </tr>
       {% endfor %}
       </tbody>

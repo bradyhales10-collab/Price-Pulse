@@ -110,7 +110,7 @@ Is_Active
 
 If the preview looks correct, click `Start Checking Prices`. The dashboard confirms the import, starts a controlled authenticated collection, and shows live status with checked count, remaining count, recent part results, and an ETA. The browser opens visibly by default and uses lightweight loading that skips images, fonts, and media while keeping page scripts and product information available. If the login expires, run `auth_bootstrap.py` again to sign in visibly and refresh `data/private/partzilla_auth_state.json`.
 
-Use `Start Fresh` on the Price Check page to remove all uploaded products, competitor results, review decisions, scan runs, and import history before testing a new sheet. Login state, competitor configuration, and pricing rules are preserved.
+Use `Clear Data` in Settings to remove all uploaded products, competitor results, review decisions, scan runs, and import history before testing a new sheet. You must type `CLEAR DATA` to confirm. Login state, competitor configuration, and pricing rules are preserved.
 
 Use `Price Comparison` after collection. It compares our current price to the latest stored Partzilla state, calculates dollar difference, percentage difference, our gross margin, and margin at the Partzilla price. `Export All Results` and `Export Selected Results` create a review workbook under:
 

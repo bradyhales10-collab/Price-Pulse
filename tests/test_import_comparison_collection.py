@@ -364,7 +364,8 @@ def test_comparison_layout_is_compact_and_highlights_lowest_our_price() -> None:
     assert "Show Lower Prices" in page.text
     assert "Show All Prices" in page.text
     assert "Show Hidden Prices" not in page.text
-    assert page.text.index("<th>Product</th>") < page.text.index("<th>Partzilla</th>") < page.text.index("<th>MotoSport</th>") < page.text.index("<th>Chaparral</th>") < page.text.index("<th>Lowest Competitor</th>") < page.text.index("<th>Gap vs Lowest</th>") < page.text.index("<th>Original Price</th>") < page.text.index("<th>Our Price</th>") < page.text.index("<th>Calc Cost</th>") < page.text.index("<th>Margin %</th>") < page.text.index("<th>Suggested Price</th>") < page.text.index("<th>Updated Price</th>") < page.text.index("<th>New Margin</th>")
+    assert page.text.index("<th>Product</th>") < page.text.index("<th>Partzilla</th>") < page.text.index("<th>MotoSport</th>") < page.text.index("<th>Chaparral</th>") < page.text.index("<th>Lowest Competitor</th>") < page.text.index("<th>Gap vs Lowest</th>") < page.text.index("<th>Our Price</th>") < page.text.index("<th>Calc Cost</th>") < page.text.index("<th>Margin %</th>") < page.text.index("<th>Suggested Price</th>") < page.text.index("<th>Updated Price</th>") < page.text.index("<th>New Margin</th>")
+    assert "<th>Original Price</th>" not in page.text
     assert "Save Selected" in page.text
     assert "Needs Review" in page.text
     assert "Decision" not in page.text
@@ -453,9 +454,8 @@ def test_comparison_page_saves_updated_price_decision() -> None:
     assert response.status_code == 303
     row = next(item for item in comparison_rows(db) if item["oem_part_number"] == "K-PRICE")
     assert row["review_status"] == "Approved"
-    assert row["original_price"] == "12.34"
     assert row["suggested_new_price"] == "11.49"
-    assert row["our_current_price"] == "11.49"
+    assert row["our_current_price"] == "12.34"
     assert row["saved_to_catalog"] is True
     assert row["notes"] == "Approved directly from comparison."
 
@@ -473,12 +473,28 @@ def test_comparison_bulk_save_visible_updates_catalog_and_marks_saved() -> None:
     assert response.status_code == 200
     assert response.json()["saved"] == 1
     row = next(item for item in comparison_rows(db) if item["oem_part_number"] == "K-PRICE")
-    assert row["original_price"] == "12.34"
-    assert row["our_current_price"] == "10.99"
+    assert row["our_current_price"] == "12.34"
     assert row["saved_to_catalog"] is True
     catalog = client.get("/products?search=K-PRICE").text
     assert "OK" in catalog
     assert "Needs Review" not in catalog
+
+
+def test_comparison_undo_restores_catalog_price_and_reopens_review() -> None:
+    db = _comparison_db("comparison_undo_save.db")
+    client = TestClient(create_app(db), raise_server_exceptions=False)
+    product_id = _product_id(db, "K-PRICE")
+
+    client.post(
+        "/comparison/bulk-save",
+        json={"rows": [{"product_id": product_id, "suggested_new_price": "10.99", "review_status": "Approved"}]},
+    )
+    response = client.post(f"/comparison/{product_id}/undo", data={"return_query": "page_size=50"}, follow_redirects=False)
+
+    assert response.status_code == 303
+    row = next(item for item in comparison_rows(db) if item["oem_part_number"] == "K-PRICE")
+    assert row["our_current_price"] == "12.34"
+    assert row["saved_to_catalog"] is False
 
 
 def test_review_queue_saves_decisions_and_updates_exports() -> None:

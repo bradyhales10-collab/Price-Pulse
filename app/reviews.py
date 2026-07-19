@@ -154,6 +154,23 @@ def save_review_decision(
             )
 
 
+def undo_saved_review_decision(database: Path, *, product_id: int) -> None:
+    """Restore the catalog price captured before a comparison save."""
+    now = utc_now()
+    with connect_database(database) as conn:
+        decision = conn.execute(
+            "SELECT original_price_cents FROM pricing_review_decisions WHERE product_id=?",
+            (product_id,),
+        ).fetchone()
+        if decision is None or decision["original_price_cents"] is None:
+            raise ValueError("There is no saved price change to undo for this product.")
+        conn.execute(
+            "UPDATE internal_product_state SET our_current_price_cents=?, updated_at=? WHERE product_id=?",
+            (decision["original_price_cents"], now, product_id),
+        )
+        conn.execute("DELETE FROM pricing_review_decisions WHERE product_id=?", (product_id,))
+
+
 def save_bulk_review_decision(
     database: Path,
     *,

@@ -122,11 +122,15 @@ def _where(filters: ComparisonFilters) -> tuple[str, list[Any]]:
 
 
 def _comparison_row(row: dict[str, Any]) -> dict[str, Any]:
-    our = _money(row["our_current_price_cents"])
+    # Keep the comparison baseline stable after a saved catalog price change.
+    comparison_price_cents = row.get("original_price_cents")
+    if comparison_price_cents is None:
+        comparison_price_cents = row["our_current_price_cents"]
+    our = _money(comparison_price_cents)
     competitor = _money(row["partzilla_selling_price_cents"])
     cost = _money(row["current_cost_cents"])
     diff = None if our is None or competitor is None else our - competitor
-    row["our_current_price"] = cents_to_money(row["our_current_price_cents"])
+    row["our_current_price"] = cents_to_money(comparison_price_cents)
     row["current_cost"] = cents_to_money(row["current_cost_cents"])
     row["partzilla_selling_price"] = cents_to_money(row["partzilla_selling_price_cents"])
     row["partzilla_reference_price"] = cents_to_money(row["partzilla_reference_price_cents"])
@@ -174,7 +178,6 @@ def _comparison_row(row: dict[str, Any]) -> dict[str, Any]:
     row["margin_at_partzilla_price"] = _percent((competitor - cost) / competitor) if competitor not in (None, Decimal("0")) and cost is not None else ""
     row["review_status"] = row.get("review_status") or PENDING_REVIEW
     row["notes"] = row.get("notes") or ""
-    row["original_price"] = cents_to_money(row.get("original_price_cents") if row.get("original_price_cents") is not None else row.get("our_current_price_cents"))
     row["suggested_new_price"] = cents_to_money(row.get("suggested_new_price_cents"))
     row["saved_to_catalog"] = row.get("suggested_new_price_cents") is not None and row.get("our_current_price_cents") == row.get("suggested_new_price_cents")
     row["reviewer"] = row.get("reviewer") or ""

@@ -44,7 +44,7 @@ from app.management import management_summary
 from app.manufacturer_registry import manufacturer_coverage_settings, save_manufacturer_coverage_settings
 from app.maintenance import clear_comparison_results, clear_pending_review_queue, clear_scan_runs, reset_all_test_data
 from app.pricing_rules import apply_pricing_rule_preset, list_pricing_rule_presets, list_pricing_rules, update_pricing_rule
-from app.reviews import ALL_BUCKETS, ALL_STATUSES, REVIEW_BUCKETS, REVIEW_STATUSES, PENDING_REVIEW, comparison_review_rows, review_queue, review_rows, save_bulk_review_decision, save_review_decision, suggested_price_for_product
+from app.reviews import ALL_BUCKETS, ALL_STATUSES, REVIEW_BUCKETS, REVIEW_STATUSES, PENDING_REVIEW, comparison_review_rows, review_queue, review_rows, save_bulk_review_decision, save_review_decision, suggested_price_for_product, undo_saved_review_decision
 
 
 LOGGER = logging.getLogger(__name__)
@@ -88,9 +88,13 @@ def create_app(database: Path) -> FastAPI:
         )
 
     @app.post("/data/reset")
-    def data_reset():
+    async def data_reset(request: Request):
+        body = (await request.body()).decode("utf-8", errors="replace")
+        confirmation = parse_qs(body, keep_blank_values=True).get("confirmation", [""])[-1].strip()
+        if confirmation != "CLEAR DATA":
+            return RedirectResponse("/settings?message=Data%20was%20not%20cleared.%20Type%20CLEAR%20DATA%20to%20confirm.", status_code=303)
         reset_all_test_data(app.state.database)
-        return RedirectResponse("/imports", status_code=303)
+        return RedirectResponse("/settings?message=All%20pricing%20data%20was%20cleared.", status_code=303)
 
     @app.get("/price-check")
     def price_check_shortcut():
@@ -270,6 +274,19 @@ def create_app(database: Path) -> FastAPI:
             return RedirectResponse(f"/comparison?message={quote(str(exc))}", status_code=303)
         query = form.get("return_query", "")
         suffix = f"&message={quote('Saved updated price.')}" if query else f"?message={quote('Saved updated price.')}"
+        return RedirectResponse(f"/comparison?{query}{suffix}" if query else f"/comparison{suffix}", status_code=303)
+
+    @app.post("/comparison/{product_id}/undo")
+    async def comparison_review_undo(request: Request, product_id: int):
+        form = await _urlencoded_form(request)
+        try:
+            undo_saved_review_decision(app.state.database, product_id=product_id)
+        except ValueError as exc:
+            message = quote(str(exc))
+        else:
+            message = quote("Restored the catalog price and reopened this row for review.")
+        query = form.get("return_query", "")
+        suffix = f"&message={message}" if query else f"?message={message}"
         return RedirectResponse(f"/comparison?{query}{suffix}" if query else f"/comparison{suffix}", status_code=303)
 
     @app.post("/comparison/bulk-save")

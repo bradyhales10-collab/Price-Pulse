@@ -111,16 +111,28 @@ def test_start_fresh_removes_test_data_but_preserves_configuration() -> None:
     db = _dashboard_db("start_fresh.db")
     client = _client(db)
 
-    response = client.post("/data/reset", follow_redirects=False)
+    response = client.post("/data/reset", data={"confirmation": "CLEAR DATA"}, follow_redirects=False)
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/imports"
+    assert response.headers["location"] == "/settings?message=All%20pricing%20data%20was%20cleared."
     with connect_database(db) as conn:
         assert conn.execute("SELECT COUNT(*) FROM products").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM internal_product_state").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM scan_runs").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM competitors").fetchone()[0] >= 3
         assert conn.execute("SELECT COUNT(*) FROM pricing_rules").fetchone()[0] >= 1
+
+
+def test_clear_data_requires_typed_confirmation() -> None:
+    db = _dashboard_db("clear_data_confirmation.db")
+    client = _client(db)
+
+    response = client.post("/data/reset", data={"confirmation": "clear data"}, follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/settings?message=Data%20was%20not%20cleared")
+    with connect_database(db) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM products").fetchone()[0] > 0
 
 
 def test_dashboard_empty_recent_changes_state() -> None:

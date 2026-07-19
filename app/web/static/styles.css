@@ -71,8 +71,8 @@ p { color: var(--muted); }
 .mini-bars i { position: absolute; left: 0; bottom: 5px; height: 4px; background: var(--teal); border-radius: 99px; }
 .chip-list { display: flex; gap: 8px; flex-wrap: wrap; }
 .chip { background: #eef6ff; border: 1px solid #cfe3ff; color: var(--navy); border-radius: 999px; padding: 7px 10px; }
-.table-wrap { overflow: auto; max-height: 70vh; }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.table-wrap { overflow: auto; max-height: 70vh; position: relative; isolation: isolate; }
+table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; padding: 14px; color: var(--text); }
 th { text-align: left; color: var(--rm-charcoal); background: var(--rm-light-gray); white-space: nowrap; }
 thead th { position: sticky; top: 0; z-index: 2; }
@@ -90,6 +90,14 @@ th, td { padding: 11px 10px; border-bottom: 1px solid var(--line); vertical-alig
 .price-difference-higher .money { color: #9f161b; }
 .price-difference-lower { background: #e7f7ef; }
 .price-difference-lower .money { color: #0b6b3a; }
+.inline-form { display: inline; }
+.link-button { border: 0; background: transparent; color: var(--blue); padding: 6px 0; text-decoration: underline; }
+.danger-zone { border-color: #e9b3b5; }
+dialog { border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 20px 60px rgba(17,17,17,.24); max-width: 440px; width: calc(100% - 32px); }
+dialog::backdrop { background: rgba(17,17,17,.45); }
+.confirmation-dialog { display: grid; gap: 14px; }
+.confirmation-dialog h2, .confirmation-dialog p { margin: 0; }
+.confirmation-dialog label { display: grid; gap: 6px; font-weight: 700; }
 .strike { text-decoration: line-through; color: var(--muted); }
 .badge { display: inline-flex; align-items: center; min-height: 22px; padding: 3px 8px; border-radius: 999px; background: #edf2f7; color: #425466; font-size: 12px; font-weight: 700; white-space: nowrap; }
 .badge.success { background: #e7f7ef; color: var(--green); }

@@ -23,23 +23,42 @@ document.addEventListener("change", (event) => {
 
 document.addEventListener("input", (event) => {
   if (event.target.matches("[data-price-input]")) {
-    syncMarginFromPrice(event.target);
+    event.target.dataset.lastEdited = "price";
   }
   if (event.target.matches("[data-margin-input]")) {
-    syncPriceFromMargin(event.target);
+    event.target.dataset.lastEdited = "margin";
+  }
+  if (event.target.matches("[data-clear-data-input]")) {
+    const dialog = event.target.closest("dialog");
+    const confirm = dialog?.querySelector("[data-confirm-clear-data]");
+    if (confirm) confirm.disabled = event.target.value.trim() !== "CLEAR DATA";
   }
 });
 
 document.addEventListener("focusout", (event) => {
-  if (event.target.matches("[data-price-input]")) {
+  if (event.target.matches("[data-price-input]") && event.target.dataset.lastEdited === "price") {
     syncMarginFromPrice(event.target);
+    delete event.target.dataset.lastEdited;
   }
-  if (event.target.matches("[data-margin-input]")) {
+  if (event.target.matches("[data-margin-input]") && event.target.dataset.lastEdited === "margin") {
     syncPriceFromMargin(event.target);
+    delete event.target.dataset.lastEdited;
   }
 });
 
 document.addEventListener("click", (event) => {
+  if (event.target.matches("[data-toggle-visible-selection]")) {
+    const table = event.target.closest("[data-comparison-table]");
+    (table || document).querySelectorAll("tbody .row-select").forEach((box) => { box.checked = event.target.checked; });
+    updateVisibleSelectionToggle(table);
+    event.stopPropagation();
+  }
+  if (event.target.matches("[data-open-clear-data]")) {
+    document.querySelector("[data-clear-data-dialog]")?.showModal();
+  }
+  if (event.target.matches("[data-close-clear-data]")) {
+    event.target.closest("dialog")?.close();
+  }
   if (event.target.matches("[data-select-visible]")) {
     document.querySelectorAll(".row-select").forEach((box) => { box.checked = true; });
   }
@@ -265,9 +284,7 @@ function applyTableSorting() {
 }
 
 function initializePriceMarginPairs() {
-  document.querySelectorAll("[data-price-input]").forEach((input) => {
-    syncMarginFromPrice(input);
-  });
+  // The server renders matching values. Recalculate only after the user changes a field.
 }
 
 function pollJob() {

@@ -44,4 +44,22 @@
     </div>
   </form>
 </section>
+<section class="card danger-zone">
+  <div class="section-title">
+    <div>
+      <h2>Clear Data</h2>
+      <p>Remove uploaded parts, comparison results, review decisions, and scan runs. Login state, competitor settings, and pricing rules stay saved.</p>
+    </div>
+    <button type="button" class="danger-button" data-open-clear-data>Clear Data</button>
+  </div>
+</section>
+
+<dialog data-clear-data-dialog>
+  <form method="post" action="/data/reset" class="confirmation-dialog">
+    <h2>Clear all pricing data?</h2>
+    <p>This cannot be undone. Type <strong>CLEAR DATA</strong> to continue.</p>
+    <label>Confirmation<input name="confirmation" autocomplete="off" placeholder="CLEAR DATA" data-clear-data-input></label>
+    <div class="quick-actions"><button type="button" data-close-clear-data>Cancel</button><button type="submit" class="danger-button" data-confirm-clear-data disabled>Clear Data</button></div>
+  </form>
+</dialog>
 {% endblock %}
