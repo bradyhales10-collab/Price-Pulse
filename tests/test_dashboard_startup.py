@@ -29,4 +29,4 @@ def test_dashboard_startup_migrates_existing_schema_v1_database() -> None:
     assert response.status_code == 200
     with connect_database(db) as conn:
         version = conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0]
-    assert version == 7
+    assert version == 8

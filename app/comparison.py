@@ -52,7 +52,7 @@ def comparison_rows(database: Path, filters: ComparisonFilters = ComparisonFilte
                    cse.page_classification chaparral_page_classification,
                    cse.price_parse_confidence chaparral_parse_confidence,
                    cs.price_display_type chaparral_price_display_type,
-                   prd.review_status, prd.suggested_new_price_cents, prd.applied_rule_codes_json,
+                   prd.review_status, prd.original_price_cents, prd.suggested_new_price_cents, prd.applied_rule_codes_json,
                    prd.notes, prd.reviewer, prd.reviewed_at
             FROM products p
             JOIN internal_product_state ips ON ips.product_id=p.product_id
@@ -174,7 +174,9 @@ def _comparison_row(row: dict[str, Any]) -> dict[str, Any]:
     row["margin_at_partzilla_price"] = _percent((competitor - cost) / competitor) if competitor not in (None, Decimal("0")) and cost is not None else ""
     row["review_status"] = row.get("review_status") or PENDING_REVIEW
     row["notes"] = row.get("notes") or ""
+    row["original_price"] = cents_to_money(row.get("original_price_cents") if row.get("original_price_cents") is not None else row.get("our_current_price_cents"))
     row["suggested_new_price"] = cents_to_money(row.get("suggested_new_price_cents"))
+    row["saved_to_catalog"] = row.get("suggested_new_price_cents") is not None and row.get("our_current_price_cents") == row.get("suggested_new_price_cents")
     row["reviewer"] = row.get("reviewer") or ""
     row["reviewed_at"] = row.get("reviewed_at") or ""
     row["applied_rule_codes_json"] = row.get("applied_rule_codes_json") or ""

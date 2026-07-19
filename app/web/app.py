@@ -15,6 +15,7 @@ from app.web.queries import (
     DashboardDatabaseError,
     catalog_data,
     dashboard_data,
+    import_batch_label,
     product_detail,
     quality_data,
     scan_run_detail,
@@ -220,6 +221,7 @@ def create_app(database: Path) -> FastAPI:
                 "statuses": REVIEW_STATUSES,
                 "page_query": page_query,
                 "quick_filter_queries": _comparison_quick_filter_queries(filters, page_size),
+                "selected_import": import_batch_label(app.state.database, parsed_import_batch_id),
             },
         )
 
@@ -269,6 +271,32 @@ def create_app(database: Path) -> FastAPI:
         query = form.get("return_query", "")
         suffix = f"&message={quote('Saved updated price.')}" if query else f"?message={quote('Saved updated price.')}"
         return RedirectResponse(f"/comparison?{query}{suffix}" if query else f"/comparison{suffix}", status_code=303)
+
+    @app.post("/comparison/bulk-save")
+    async def comparison_bulk_save(request: Request):
+        payload = await request.json()
+        rows = payload.get("rows", []) if isinstance(payload, dict) else []
+        saved = 0
+        errors: list[str] = []
+        for item in rows:
+            if not isinstance(item, dict):
+                continue
+            try:
+                product_id = int(item.get("product_id"))
+                price = str(item.get("suggested_new_price") or "").strip()
+                if not price:
+                    continue
+                save_review_decision(
+                    app.state.database,
+                    product_id=product_id,
+                    review_status=str(item.get("review_status") or "Approved"),
+                    suggested_new_price=price,
+                    applied_rule_codes=[str(code) for code in item.get("rule_codes", []) if str(code).strip()],
+                )
+                saved += 1
+            except (TypeError, ValueError) as exc:
+                errors.append(str(exc))
+        return JSONResponse({"saved": saved, "errors": errors})
 
     @app.get("/reviews", response_class=HTMLResponse)
     def reviews(request: Request, status: str = PENDING_REVIEW, bucket: str = ALL_BUCKETS, page: int = 1, page_size: int = 50, message: str = ""):

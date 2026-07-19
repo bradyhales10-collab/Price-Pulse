@@ -38,6 +38,9 @@ document.addEventListener("click", (event) => {
   if (event.target.matches("[data-clear-selection]")) {
     document.querySelectorAll(".row-select").forEach((box) => { box.checked = false; });
   }
+  if (event.target.matches("[data-save-visible-prices]")) {
+    saveVisibleUpdatedPrices(event.target);
+  }
 });
 
 document.addEventListener("submit", (event) => {
@@ -150,6 +153,42 @@ function syncPriceFromMargin(input) {
   const cost = moneyNumber(input.dataset.cost);
   if (!Number.isFinite(margin) || margin >= 100 || !Number.isFinite(cost)) return;
   price.value = formatMoney(cost / (1 - margin / 100));
+}
+
+function saveVisibleUpdatedPrices(button) {
+  const rows = Array.from(document.querySelectorAll("[data-price-input]")).map((input) => {
+    const productId = input.dataset.productId;
+    const form = document.querySelector(`#comparison-review-${CSS.escape(productId)}`);
+    const status = document.querySelector(`select[form="comparison-review-${CSS.escape(productId)}"]`);
+    const ruleCodes = Array.from(document.querySelectorAll(`input[name="rule_code"][form="comparison-review-${CSS.escape(productId)}"]`)).map((item) => item.value);
+    return {
+      product_id: productId,
+      suggested_new_price: input.value,
+      review_status: status?.value || "Approved",
+      rule_codes: ruleCodes,
+      has_form: Boolean(form)
+    };
+  }).filter((row) => row.has_form && row.suggested_new_price && row.suggested_new_price.trim());
+  if (!rows.length) {
+    window.alert("No visible rows have an Updated Price to save.");
+    return;
+  }
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "Saving...";
+  fetch("/comparison/bulk-save", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ rows })
+  }).then((response) => response.json()).then((result) => {
+    const query = button.dataset.returnQuery || "";
+    const joiner = query ? "&" : "";
+    window.location.href = `/comparison?${query}${joiner}message=${encodeURIComponent(`Saved ${result.saved || 0} visible updated prices.`)}`;
+  }).catch(() => {
+    button.disabled = false;
+    button.textContent = originalText;
+    window.alert("Visible prices could not be saved.");
+  });
 }
 
 function sortableValue(cell) {

@@ -307,14 +307,15 @@ def test_comparison_formulas_filters_and_review_export() -> None:
     exported = read_rows(export_path, "Pricing Review")
     assert exported[0] == REVIEW_COLUMNS
     assert "Chaparral_Price" in exported[0]
+    assert "Original_Price" in exported[0]
     assert exported[0].index("Updated_Price") > exported[0].index("Suggested_Price")
     assert exported[0][-1] == "New_Margin_Pct"
     assert exported[1][exported[0].index("Updated_Price")] == ""
     with zipfile.ZipFile(export_path) as archive:
         sheet_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
-    for money_cell in ["I2", "J2", "K2", "L2", "O2"]:
+    for money_cell in ["I2", "J2", "K2", "L2", "M2", "P2"]:
         assert f'<c r="{money_cell}" s="2"' in sheet_xml
-    for percent_cell in ["M2", "P2"]:
+    for percent_cell in ["N2", "Q2"]:
         assert f'<c r="{percent_cell}" s="3"' in sheet_xml
 
 
@@ -362,7 +363,9 @@ def test_comparison_layout_is_compact_and_highlights_lowest_our_price() -> None:
     assert "Show Lower Prices" in page.text
     assert "Show All Prices" in page.text
     assert "Show Hidden Prices" not in page.text
-    assert page.text.index("Product") < page.text.index("Partzilla Price") < page.text.index("MotoSport Price") < page.text.index("Chaparral Price") < page.text.index("Lowest Competitor") < page.text.index("Gap vs Lowest") < page.text.index("Our Price") < page.text.index("Calc Cost") < page.text.index("Margin %") < page.text.index("Suggested Price") < page.text.index("Updated Price") < page.text.index("New Margin")
+    assert page.text.index("<th>Product</th>") < page.text.index("<th>Partzilla Price</th>") < page.text.index("<th>MotoSport Price</th>") < page.text.index("<th>Chaparral Price</th>") < page.text.index("<th>Lowest Competitor</th>") < page.text.index("<th>Gap vs Lowest</th>") < page.text.index("<th>Original Price</th>") < page.text.index("<th>Our Price</th>") < page.text.index("<th>Calc Cost</th>") < page.text.index("<th>Margin %</th>") < page.text.index("<th>Suggested Price</th>") < page.text.index("<th>Updated Price</th>") < page.text.index("<th>New Margin</th>")
+    assert "Save Visible Updated Prices" in page.text
+    assert "Needs Save" in page.text
     for removed_heading in ["<th>Reference</th>", "<th>Savings</th>", "<th>Units</th>", "<th>Margin at Partzilla</th>", "<th>Priority</th>"]:
         assert removed_heading not in page.text
 
@@ -378,6 +381,15 @@ def test_comparison_quick_filters_work_without_selected_import_file() -> None:
     assert client.get("/comparison?import_batch_id=&page_size=50").status_code == 200
     assert client.get("/comparison?page_size=50").status_code == 200
     assert client.get("/comparison?price_position=above&page_size=50").status_code == 200
+
+
+def test_product_catalog_order_and_highlighting_matches_comparison() -> None:
+    db = _comparison_db("product_catalog_highlighting.db")
+    catalog = TestClient(create_app(db), raise_server_exceptions=False).get("/products").text
+
+    assert catalog.index("<th>Product</th>") < catalog.index("<th>Partzilla</th>") < catalog.index("<th>MotoSport</th>") < catalog.index("<th>Chaparral</th>") < catalog.index("<th>Lowest Competitor</th>") < catalog.index("<th>Gap vs Lowest</th>") < catalog.index("<th>Our Price</th>") < catalog.index("<th>Calc Cost</th>") < catalog.index("<th>Our Margin</th>")
+    assert 'class="price-above-competitor"' in catalog
+    assert 'class="price-difference-higher"' in catalog
 
 
 def test_comparison_export_route_can_export_selected_rows_without_multipart() -> None:
@@ -409,6 +421,8 @@ def test_uploaded_file_opens_filtered_price_comparison() -> None:
     assert "Y-SECOND" in comparison.text
     assert "H-FIRST" not in comparison.text
     assert "From Selected File" in comparison.text
+    assert "Viewing uploaded file:" in comparison.text
+    assert "newer.xlsx" in comparison.text
 
 
 def test_comparison_page_saves_updated_price_decision() -> None:
@@ -435,9 +449,29 @@ def test_comparison_page_saves_updated_price_decision() -> None:
     assert response.status_code == 303
     row = next(item for item in comparison_rows(db) if item["oem_part_number"] == "K-PRICE")
     assert row["review_status"] == "Approved"
+    assert row["original_price"] == "12.34"
     assert row["suggested_new_price"] == "11.49"
     assert row["our_current_price"] == "11.49"
+    assert row["saved_to_catalog"] is True
     assert row["notes"] == "Approved directly from comparison."
+
+
+def test_comparison_bulk_save_visible_updates_catalog_and_marks_saved() -> None:
+    db = _comparison_db("comparison_bulk_save.db")
+    client = TestClient(create_app(db), raise_server_exceptions=False)
+    product_id = _product_id(db, "K-PRICE")
+
+    response = client.post(
+        "/comparison/bulk-save",
+        json={"rows": [{"product_id": product_id, "suggested_new_price": "10.99", "review_status": "Approved"}]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["saved"] == 1
+    row = next(item for item in comparison_rows(db) if item["oem_part_number"] == "K-PRICE")
+    assert row["original_price"] == "12.34"
+    assert row["our_current_price"] == "10.99"
+    assert row["saved_to_catalog"] is True
 
 
 def test_review_queue_saves_decisions_and_updates_exports() -> None:

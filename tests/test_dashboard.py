@@ -63,6 +63,50 @@ def test_dashboard_counts_products_once_across_multiple_competitors() -> None:
     assert sum(item["count"] for item in data["manufacturers"]) == 7
 
 
+def test_competitor_snapshot_our_margin_uses_only_priced_competitor_rows() -> None:
+    db = _empty_db("competitor_snapshot_margin.db")
+    with connect_database(db) as conn:
+        competitor_id = seed_motosport(conn)
+        run_id = create_scan_run(conn, competitor_id=competitor_id, requested_part_count=1)
+        priced_id, _, _, _ = upsert_product_and_listing(
+            conn,
+            PartRecord(test_case_id="", manufacturer="Honda", oem_part_number="PRICED", search_observed_product_name="Priced"),
+        )
+        unpriced_id, _, _, _ = upsert_product_and_listing(
+            conn,
+            PartRecord(test_case_id="", manufacturer="Honda", oem_part_number="UNPRICED", search_observed_product_name="Unpriced"),
+        )
+        for product_id, sku, price, cost in [(priced_id, "SKU-P", 10000, 5000), (unpriced_id, "SKU-U", 10000, 9000)]:
+            conn.execute(
+                """
+                INSERT INTO internal_product_state(product_id, internal_sku, our_current_price_cents, current_cost_cents, is_active, updated_at)
+                VALUES (?, ?, ?, ?, 1, '2026-07-09T00:00:00Z')
+                """,
+                (product_id, sku, price, cost),
+            )
+        listing_id, _ = upsert_competitor_listing(
+            conn,
+            product_id=priced_id,
+            competitor_id=competitor_id,
+            competitor_part_number="PRICED",
+            canonical_url="https://www.motosport.com/oem-parts/part-number/PRICED",
+        )
+        upsert_competitor_listing(
+            conn,
+            product_id=unpriced_id,
+            competitor_id=competitor_id,
+            competitor_part_number="UNPRICED",
+            canonical_url="https://www.motosport.com/oem-parts/part-number/UNPRICED",
+        )
+        persist_observation(conn, scan_run_id=run_id, listing_id=listing_id, observation=_obs("Honda", "PRICED", "Priced", "95.00", None, None, PriceDisplayType.REGULAR, AvailabilityStatus.IN_STOCK, ParseConfidence.HIGH, False), observation_json_path="observation.json")
+
+    motosport = next(item for item in dashboard_data(db)["competitor_snapshots"] if item["competitor_name"] == "MotoSport")
+
+    assert motosport["product_count"] == 2
+    assert motosport["priced_product_count"] == 1
+    assert motosport["avg_our_margin"] == "50.00%"
+
+
 def test_start_fresh_removes_test_data_but_preserves_configuration() -> None:
     db = _dashboard_db("start_fresh.db")
     client = _client(db)
@@ -93,6 +137,8 @@ def test_product_search_and_filters() -> None:
     client = _client(db)
 
     assert "41080-1514" in client.get("/products?search=41080").text
+    catalog = client.get("/products").text
+    assert catalog.index("Product") < catalog.index("Partzilla") < catalog.index("MotoSport") < catalog.index("Chaparral") < catalog.index("Lowest Competitor") < catalog.index("Gap vs Lowest") < catalog.index("Our Price") < catalog.index("Calc Cost") < catalog.index("Our Margin")
     manufacturer_page = client.get("/products?manufacturer=Honda").text
     assert "Honda" in manufacturer_page
     assert "Y-100" not in manufacturer_page

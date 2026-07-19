@@ -15,7 +15,7 @@ from app.url_builder import build_partzilla_product_url
 from app.url_builder import UnsupportedManufacturerError
 
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 PARTZILLA_CODE = "partzilla"
 MOTOSPORT_CODE = "motosport"
 CHAPARRAL_CODE = "chaparral"
@@ -99,11 +99,18 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
             "INSERT INTO schema_migrations(version, description, applied_at) VALUES (?, ?, ?)",
             (7, "add Chaparral resolution cache", utc_now()),
         )
+    if 8 not in applied_versions:
+        _ensure_column(conn, "pricing_review_decisions", "original_price_cents", "INTEGER")
+        conn.execute(
+            "INSERT INTO schema_migrations(version, description, applied_at) VALUES (?, ?, ?)",
+            (8, "track original price before review updates", utc_now()),
+        )
     _ensure_column(conn, "competitor_probe_results", "price_visibility", "TEXT")
     _ensure_column(conn, "competitor_probe_results", "price_display_type", "TEXT")
     _ensure_column(conn, "competitor_probe_results", "result_type", "TEXT")
     _ensure_column(conn, "competitors", "cart_price_probe_status", "TEXT DEFAULT 'not_reviewed'")
     _ensure_column(conn, "pricing_review_decisions", "applied_rule_codes_json", "TEXT")
+    _ensure_column(conn, "pricing_review_decisions", "original_price_cents", "INTEGER")
     conn.executescript(CART_PROBE_SCHEMA_SQL)
     conn.executescript(CHAPARRAL_CACHE_SCHEMA_SQL)
     conn.executescript(PRICING_REVIEW_SCHEMA_SQL)
@@ -956,6 +963,7 @@ CREATE TABLE IF NOT EXISTS pricing_review_decisions (
     review_decision_id INTEGER PRIMARY KEY,
     product_id INTEGER NOT NULL REFERENCES products(product_id),
     review_status TEXT NOT NULL DEFAULT 'Pending Review',
+    original_price_cents INTEGER,
     suggested_new_price_cents INTEGER,
     notes TEXT,
     reviewer TEXT,

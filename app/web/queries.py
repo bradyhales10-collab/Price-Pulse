@@ -71,6 +71,21 @@ def dashboard_data(database: Path) -> dict[str, Any]:
         }
 
 
+def import_batch_label(database: Path, import_batch_id: int | None) -> dict[str, Any] | None:
+    if not import_batch_id:
+        return None
+    with connect_readonly(database) as conn:
+        row = conn.execute(
+            """
+            SELECT import_batch_id, original_filename, worksheet_name, uploaded_at, valid_rows, inserted_rows, updated_rows
+            FROM import_batches
+            WHERE import_batch_id=?
+            """,
+            (import_batch_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def catalog_data(database: Path, filters: CatalogFilters) -> dict[str, Any]:
     filters = _normalized_filters(filters)
     with connect_readonly(database) as conn:
@@ -397,7 +412,7 @@ def _competitor_snapshots(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         SELECT c.competitor_code, c.competitor_name,
                COUNT(DISTINCT l.product_id) product_count,
                COUNT(DISTINCT CASE WHEN s.selling_price_cents IS NOT NULL THEN l.product_id END) priced_product_count,
-               AVG(CASE WHEN ips.our_current_price_cents IS NOT NULL AND ips.our_current_price_cents > 0 AND ips.current_cost_cents IS NOT NULL THEN (ips.our_current_price_cents - ips.current_cost_cents) * 1.0 / ips.our_current_price_cents END) avg_our_margin,
+               AVG(CASE WHEN s.selling_price_cents IS NOT NULL AND ips.our_current_price_cents IS NOT NULL AND ips.our_current_price_cents > 0 AND ips.current_cost_cents IS NOT NULL THEN (ips.our_current_price_cents - ips.current_cost_cents) * 1.0 / ips.our_current_price_cents END) avg_our_margin,
                AVG(CASE WHEN s.selling_price_cents IS NOT NULL AND s.selling_price_cents > 0 AND ips.current_cost_cents IS NOT NULL THEN (s.selling_price_cents - ips.current_cost_cents) * 1.0 / s.selling_price_cents END) avg_competitor_margin,
                AVG(CASE WHEN ips.our_current_price_cents IS NOT NULL AND s.selling_price_cents IS NOT NULL THEN (ips.our_current_price_cents - s.selling_price_cents) / 100.0 END) avg_gap,
                SUM(CASE WHEN ips.our_current_price_cents IS NOT NULL AND s.selling_price_cents IS NOT NULL AND ips.our_current_price_cents > s.selling_price_cents THEN 1 ELSE 0 END) our_higher_count,
@@ -636,6 +651,8 @@ def _catalog_product_row(row: sqlite3.Row) -> dict[str, Any]:
     data["lowest_competitor_price"] = cents_to_money(lowest_cents)
     data["difference_vs_lowest_competitor"] = _fixed_money(our_cents - lowest_cents) if our_cents is not None and lowest_cents is not None else ""
     data["our_margin_pct"] = _percent_cents(our_cents - cost_cents, our_cents) if our_cents not in (None, 0) and cost_cents is not None else ""
+    data["price_difference_class"] = _price_difference_class(our_cents, lowest_cents)
+    data["our_price_class"] = _our_price_class(our_cents, [data.get(f"{key}_selling_price_cents") for key in ("partzilla", "motosport", "chaparral")])
     data["partzilla"] = _competitor_cell(data, "partzilla")
     data["motosport"] = _competitor_cell(data, "motosport")
     data["chaparral"] = _competitor_cell(data, "chaparral")
@@ -685,6 +702,27 @@ def _catalog_row(row: sqlite3.Row) -> dict[str, Any]:
 
 def _percent_cents(numerator: int, denominator: int) -> str:
     return f"{(Decimal(numerator) / Decimal(denominator) * Decimal('100')).quantize(Decimal('0.01'))}"
+
+
+def _price_difference_class(our_cents: int | None, competitor_cents: int | None) -> str:
+    if our_cents is None or competitor_cents is None:
+        return ""
+    if our_cents > competitor_cents:
+        return "price-difference-higher"
+    if our_cents < competitor_cents:
+        return "price-difference-lower"
+    return ""
+
+
+def _our_price_class(our_cents: int | None, competitor_prices: list[int | None]) -> str:
+    available = [price for price in competitor_prices if price is not None]
+    if our_cents is None or not available:
+        return ""
+    if any(our_cents > price for price in available):
+        return "price-above-competitor"
+    if all(our_cents < price for price in available):
+        return "price-below-competitors"
+    return ""
 
 
 def _ratio_percent(value: Any) -> str:

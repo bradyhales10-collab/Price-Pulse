@@ -45,7 +45,7 @@ def test_database_initializes_and_is_rerunnable() -> None:
         counts = table_counts(conn)
         migrations = conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0]
     assert counts["competitors"] == 3
-    assert migrations == 7
+    assert migrations == 8
 
 
 def test_partzilla_seed_competitor_not_duplicated() -> None:

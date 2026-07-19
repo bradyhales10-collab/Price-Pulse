@@ -116,16 +116,24 @@ def save_review_decision(
     now = utc_now()
     reviewed_at = None if review_status == PENDING_REVIEW else now
     with connect_database(database) as conn:
-        product = conn.execute("SELECT product_id FROM products WHERE product_id=?", (product_id,)).fetchone()
+        product = conn.execute("""
+            SELECT p.product_id, ips.our_current_price_cents, prd.original_price_cents
+            FROM products p
+            LEFT JOIN internal_product_state ips ON ips.product_id=p.product_id
+            LEFT JOIN pricing_review_decisions prd ON prd.product_id=p.product_id
+            WHERE p.product_id=?
+        """, (product_id,)).fetchone()
         if product is None:
             raise ValueError("Product not found.")
+        original_price_cents = product["original_price_cents"] if product["original_price_cents"] is not None else product["our_current_price_cents"]
         conn.execute(
             """
-            INSERT INTO pricing_review_decisions(product_id, review_status, suggested_new_price_cents,
+            INSERT INTO pricing_review_decisions(product_id, review_status, original_price_cents, suggested_new_price_cents,
                 applied_rule_codes_json, notes, reviewer, reviewed_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(product_id) DO UPDATE SET
                 review_status=excluded.review_status,
+                original_price_cents=COALESCE(pricing_review_decisions.original_price_cents, excluded.original_price_cents),
                 suggested_new_price_cents=excluded.suggested_new_price_cents,
                 applied_rule_codes_json=excluded.applied_rule_codes_json,
                 notes=excluded.notes,
@@ -133,7 +141,7 @@ def save_review_decision(
                 reviewed_at=excluded.reviewed_at,
                 updated_at=excluded.updated_at
             """,
-            (product_id, review_status, suggested_new_price_cents, applied_rule_codes_json, notes.strip(), reviewer.strip(), reviewed_at, now, now),
+            (product_id, review_status, original_price_cents, suggested_new_price_cents, applied_rule_codes_json, notes.strip(), reviewer.strip(), reviewed_at, now, now),
         )
         if suggested_new_price_cents is not None:
             conn.execute(
