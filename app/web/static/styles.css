@@ -77,7 +77,8 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f8fafc; borde
 th { text-align: left; color: var(--rm-charcoal); background: var(--rm-light-gray); white-space: nowrap; }
 thead { position: sticky; top: 0; z-index: 3; }
 thead th { position: sticky; top: 0; z-index: 4; box-shadow: 0 1px 0 var(--line); }
-.sortable-heading { cursor: pointer; user-select: none; padding-right: 22px; position: relative; }
+.sortable-heading { cursor: pointer; user-select: none; padding-right: 22px; }
+thead th.sortable-heading { position: sticky; top: 0; }
 .sortable-heading:after { content: "\2195"; position: absolute; right: 8px; color: var(--muted); font-size: 11px; }
 .sortable-heading.sort-asc:after { content: "\2191"; color: var(--rm-red); }
 .sortable-heading.sort-desc:after { content: "\2193"; color: var(--rm-red); }
@@ -127,6 +128,8 @@ dialog::backdrop { background: rgba(17,17,17,.45); }
 .bulk-action, .quick-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 12px 0 16px; }
 .bulk-action { background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
 .quick-actions .button { display: inline-flex; align-items: center; }
+.selection-summary { margin: 0 0 12px; padding: 10px 12px; background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; color: var(--text); font-weight: 700; }
+.selection-summary[hidden] { display: none; }
 .rule-toggle { display: block; margin-bottom: 4px; white-space: nowrap; }
 .rule-toggle + small { display: block; color: var(--muted); margin-bottom: 8px; max-width: 260px; }
 .rule-cell { min-width: 130px; max-width: 180px; }

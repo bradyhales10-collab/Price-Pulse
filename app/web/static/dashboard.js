@@ -13,8 +13,8 @@ document.addEventListener("change", (event) => {
   }
   if (event.target.matches("[data-toggle-visible-selection]")) {
     const table = event.target.closest("table");
-    (table || document).querySelectorAll(".row-select").forEach((box) => { box.checked = event.target.checked; });
-    (table || document).dataset.selectsAllFiltered = event.target.checked ? "1" : "";
+    setAllVisibleRowsChecked(table, event.target.checked);
+    if (table) table.dataset.selectsAllFiltered = event.target.checked ? "1" : "";
     updateVisibleSelectionToggle(table);
   }
   if (event.target.matches(".row-select")) {
@@ -49,13 +49,6 @@ document.addEventListener("focusout", (event) => {
 });
 
 document.addEventListener("click", (event) => {
-  if (event.target.matches("[data-toggle-visible-selection]")) {
-    const table = event.target.closest("[data-comparison-table]");
-    (table || document).querySelectorAll("tbody .row-select").forEach((box) => { box.checked = event.target.checked; });
-    if (table) table.dataset.selectsAllFiltered = event.target.checked ? "1" : "";
-    updateVisibleSelectionToggle(table);
-    event.stopPropagation();
-  }
   if (event.target.matches("[data-open-clear-data]")) {
     document.querySelector("[data-clear-data-dialog]")?.showModal();
   }
@@ -97,6 +90,15 @@ document.addEventListener("submit", (event) => {
   if (event.target.matches("#comparison-export")) {
     const ids = Array.from(document.querySelectorAll(".row-select:checked")).map((box) => box.value);
     document.querySelector("#selected-ids").value = ids.join(",");
+    const comparisonTable = document.querySelector("[data-comparison-table]");
+    const allMatching = comparisonTable?.dataset.selectsAllFiltered === "1";
+    const selectedAll = document.querySelector("#selected-all-matching");
+    const selectedQuery = document.querySelector("#selected-query");
+    if (selectedAll) selectedAll.value = allMatching ? "1" : "0";
+    if (selectedQuery) selectedQuery.value = window.location.search;
+  }
+  if (event.target.matches("[data-preserve-scroll]")) {
+    rememberScrollPosition();
   }
 });
 
@@ -209,6 +211,7 @@ function saveSelectedUpdatedPrices(button) {
   const originalText = button.textContent;
   button.disabled = true;
   button.textContent = "Saving...";
+  rememberScrollPosition();
   fetch("/comparison/bulk-save", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -233,6 +236,61 @@ function updateVisibleSelectionToggle(table) {
   const checked = boxes.filter((box) => box.checked).length;
   toggle.checked = checked === boxes.length;
   toggle.indeterminate = checked > 0 && checked < boxes.length;
+  updateSelectionSummary(root, checked);
+}
+
+function setAllVisibleRowsChecked(table, checked) {
+  const root = table || document;
+  root.querySelectorAll("tbody .row-select").forEach((box) => { box.checked = checked; });
+}
+
+function updateSelectionSummary(table, checkedCount) {
+  const summary = document.querySelector("[data-selection-summary]");
+  if (!summary) return;
+  const selectsAllFiltered = table?.dataset.selectsAllFiltered === "1";
+  const total = Number.parseInt(table?.dataset.totalRows || "0", 10);
+  if (selectsAllFiltered && total > 0) {
+    summary.hidden = false;
+    summary.textContent = `All ${total} matching rows are selected. Save Selected will save every matching row, including rows on other pages.`;
+  } else if (checkedCount > 0) {
+    summary.hidden = false;
+    summary.textContent = `${checkedCount} visible row${checkedCount === 1 ? "" : "s"} selected.`;
+  } else {
+    summary.hidden = true;
+    summary.textContent = "";
+  }
+}
+
+function rememberScrollPosition() {
+  const wrap = document.querySelector("[data-comparison-table]")?.closest(".table-wrap");
+  const position = {
+    path: window.location.pathname,
+    pageX: window.scrollX,
+    pageY: window.scrollY,
+    tableTop: wrap?.scrollTop || 0,
+    tableLeft: wrap?.scrollLeft || 0
+  };
+  sessionStorage.setItem("partPulseScrollPosition", JSON.stringify(position));
+}
+
+function restoreScrollPosition() {
+  const raw = sessionStorage.getItem("partPulseScrollPosition");
+  if (!raw) return;
+  sessionStorage.removeItem("partPulseScrollPosition");
+  let position;
+  try {
+    position = JSON.parse(raw);
+  } catch {
+    return;
+  }
+  const wrap = document.querySelector("[data-comparison-table]")?.closest(".table-wrap");
+  window.requestAnimationFrame(() => {
+    if (wrap) {
+      wrap.scrollTop = position.tableTop || 0;
+      wrap.scrollLeft = position.tableLeft || 0;
+    }
+    window.scrollTo(position.pageX || 0, position.pageY || 0);
+  });
 }
 
 function sortableValue(cell) {
@@ -311,3 +369,4 @@ function pollJob() {
 pollJob();
 applyTableSorting();
 initializePriceMarginPairs();
+restoreScrollPosition();

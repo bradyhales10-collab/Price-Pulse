@@ -513,6 +513,33 @@ def test_comparison_bulk_save_all_matching_rows_crosses_pages() -> None:
     assert saved == set(eligible)
 
 
+def test_comparison_selected_export_can_use_all_matching_filter() -> None:
+    db = _comparison_db("comparison_export_all_matching.db")
+    client = TestClient(create_app(db), raise_server_exceptions=False)
+
+    response = client.post(
+        "/comparison/export",
+        data={
+            "scope": "selected",
+            "selected": "",
+            "all_matching": "1",
+            "query": "?missing_competitor_price=1&page_size=25",
+        },
+    )
+
+    assert response.status_code == 200
+    export_path = TEST_OUTPUT_DIR / "comparison_export_all_matching.xlsx"
+    export_path.write_bytes(response.content)
+    exported = read_rows(export_path, "Pricing Review")
+    assert [row[2] for row in exported[1:]] == ["H-MISSING"]
+
+
+def test_sortable_table_headers_keep_sticky_position() -> None:
+    css = Path("app/web/static/styles.css").read_text(encoding="utf-8")
+
+    assert "thead th.sortable-heading { position: sticky; top: 0; }" in css
+
+
 def test_review_queue_saves_decisions_and_updates_exports() -> None:
     db = _comparison_db("review_queue.db")
     client = TestClient(create_app(db), raise_server_exceptions=False)

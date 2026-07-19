@@ -240,8 +240,21 @@ def create_app(database: Path) -> FastAPI:
         selected = form.get("selected", "")
         scope = form.get("scope", "all")
         export_filters = ComparisonFilters(import_batch_id=_optional_int_form_value(form.get("import_batch_id")))
+        if scope == "selected" and form.get("all_matching") == "1":
+            query = parse_qs(str(form.get("query", "")).lstrip("?"), keep_blank_values=True)
+            export_filters = ComparisonFilters(
+                search=query.get("search", [""])[-1],
+                manufacturer=query.get("manufacturer", [""])[-1],
+                price_position=query.get("price_position", [""])[-1],
+                competitor_discounted=query.get("competitor_discounted", [""])[-1] == "1",
+                scan_priority=query.get("scan_priority", [""])[-1],
+                missing_competitor_price=query.get("missing_competitor_price", [""])[-1] == "1",
+                hidden_competitor_price=query.get("hidden_competitor_price", [""])[-1] == "1",
+                needs_review=query.get("needs_review", [""])[-1] == "1",
+                import_batch_id=_optional_int_form_value(query.get("import_batch_id", [""])[-1]),
+            )
         rows = comparison_review_rows(app.state.database, export_filters)
-        if scope == "selected" and selected.strip():
+        if scope == "selected" and form.get("all_matching") != "1" and selected.strip():
             ids = {int(value) for value in selected.split(",") if value.strip().isdigit()}
             rows = [row for row in rows if row["product_id"] in ids]
         path = export_review(rows, OUTPUT_DIR / "exports")
