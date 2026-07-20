@@ -44,7 +44,7 @@ from app.imports import ALL_FIELDS, REQUIRED_FIELDS
 from app.management import management_summary
 from app.manufacturer_registry import manufacturer_coverage_settings, save_manufacturer_coverage_settings
 from app.maintenance import clear_comparison_results, clear_pending_review_queue, clear_scan_runs, reset_all_test_data
-from app.pricing_rules import apply_pricing_rule_preset, list_pricing_rule_presets, list_pricing_rules, update_pricing_rule
+from app.pricing_rules import apply_pricing_rule_preset, list_manufacturer_rule_overrides, list_pricing_rule_presets, list_pricing_rules, update_manufacturer_rule_override, update_pricing_rule
 from app.reviews import ALL_BUCKETS, ALL_STATUSES, REVIEW_BUCKETS, REVIEW_STATUSES, PENDING_REVIEW, comparison_review_rows, review_queue, review_rows, save_bulk_review_decision, save_review_decision, suggested_price_for_product, undo_saved_review_decision
 
 
@@ -462,7 +462,7 @@ def create_app(database: Path) -> FastAPI:
         return FileResponse(path, filename=path.name)
 
     @app.get("/rules", response_class=HTMLResponse)
-    def rules(request: Request, message: str = ""):
+    def rules(request: Request, message: str = "", error: str = ""):
         return templates.TemplateResponse(
             request,
             "rules.html",
@@ -470,9 +470,10 @@ def create_app(database: Path) -> FastAPI:
                 "active": "rules",
                 "database": app.state.database,
                 "rules": list_pricing_rules(app.state.database),
+                "manufacturer_overrides": list_manufacturer_rule_overrides(app.state.database),
                 "presets": list_pricing_rule_presets(),
                 "message": message,
-                "error": "",
+                "error": error,
             },
         )
 
@@ -488,6 +489,7 @@ def create_app(database: Path) -> FastAPI:
                     "active": "rules",
                     "database": app.state.database,
                     "rules": list_pricing_rules(app.state.database),
+                    "manufacturer_overrides": list_manufacturer_rule_overrides(app.state.database),
                     "presets": list_pricing_rule_presets(),
                     "message": "",
                     "error": str(exc),
@@ -514,6 +516,7 @@ def create_app(database: Path) -> FastAPI:
                     "active": "rules",
                     "database": app.state.database,
                     "rules": list_pricing_rules(app.state.database),
+                    "manufacturer_overrides": list_manufacturer_rule_overrides(app.state.database),
                     "presets": list_pricing_rule_presets(),
                     "message": "",
                     "error": str(exc),
@@ -521,6 +524,22 @@ def create_app(database: Path) -> FastAPI:
                 status_code=400,
             )
         return RedirectResponse("/rules?message=Rule%20saved", status_code=303)
+
+    @app.post("/rules/manufacturers/{manufacturer}", response_class=HTMLResponse)
+    async def manufacturer_rule_override_update(request: Request, manufacturer: str):
+        form = await _urlencoded_form(request)
+        try:
+            update_manufacturer_rule_override(
+                app.state.database,
+                manufacturer=manufacturer,
+                is_enabled=form.get("is_enabled") == "1",
+                adjustment_cents=form.get("adjustment_cents", "0"),
+                ending_cents=form.get("ending_cents", "99"),
+                minimum_margin_pct=form.get("minimum_margin_pct", "20"),
+            )
+        except ValueError as exc:
+            return RedirectResponse(f"/rules?error={quote(str(exc))}", status_code=303)
+        return RedirectResponse("/rules?message=OEM%20rule%20override%20saved", status_code=303)
 
     @app.get("/settings", response_class=HTMLResponse)
     def settings(request: Request, message: str = ""):

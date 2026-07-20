@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 
 from app.database import connect_database, utc_now
+from app.manufacturer_registry import all_manufacturers, normalize_manufacturer
 
 
 @dataclass(frozen=True)
@@ -18,6 +19,16 @@ class PricingRule:
     priority: int
     settings: dict[str, Any]
     description: str
+
+
+@dataclass(frozen=True)
+class ManufacturerRuleOverride:
+    manufacturer: str
+    is_enabled: bool
+    adjustment_cents: int
+    ending_cents: int
+    minimum_margin_pct: Decimal
+    updated_at: str
 
 
 PRICING_RULE_PRESETS: dict[str, dict[str, Any]] = {
@@ -91,6 +102,82 @@ def list_pricing_rules(database: Path, *, enabled_only: bool = False) -> list[Pr
 
 def list_pricing_rule_presets() -> list[dict[str, Any]]:
     return [{"preset_code": code, **preset} for code, preset in PRICING_RULE_PRESETS.items()]
+
+
+def list_manufacturer_rule_overrides(database: Path) -> list[ManufacturerRuleOverride]:
+    manufacturers = [item.display_name for item in all_manufacturers()]
+    with connect_database(database) as conn:
+        rows = {
+            row["manufacturer"]: row
+            for row in conn.execute(
+                """
+                SELECT manufacturer, is_enabled, adjustment_cents, ending_cents, minimum_margin_pct, updated_at
+                FROM pricing_rule_manufacturer_overrides
+                """
+            ).fetchall()
+        }
+    return [_override_from_row(manufacturer, rows.get(manufacturer)) for manufacturer in manufacturers]
+
+
+def update_manufacturer_rule_override(
+    database: Path,
+    *,
+    manufacturer: str,
+    is_enabled: bool,
+    adjustment_cents: str = "0",
+    ending_cents: str = "99",
+    minimum_margin_pct: str = "20",
+) -> None:
+    normalized = normalize_manufacturer(manufacturer)
+    known = {item.display_name for item in all_manufacturers()}
+    if normalized not in known:
+        raise ValueError("Choose a valid OEM manufacturer.")
+    adjustment = int(_decimal_setting(adjustment_cents, "Adjustment cents"))
+    ending = int(_decimal_setting(ending_cents, "Ending cents"))
+    if ending < 0 or ending > 99:
+        raise ValueError("Ending cents must be between 0 and 99.")
+    margin = _decimal_setting(minimum_margin_pct, "Minimum margin")
+    if margin < 0 or margin >= 100:
+        raise ValueError("Minimum margin must be between 0 and 99.99.")
+    now = utc_now()
+    with connect_database(database) as conn:
+        conn.execute(
+            """
+            INSERT INTO pricing_rule_manufacturer_overrides(
+                manufacturer, is_enabled, adjustment_cents, ending_cents, minimum_margin_pct, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(manufacturer) DO UPDATE SET
+                is_enabled=excluded.is_enabled,
+                adjustment_cents=excluded.adjustment_cents,
+                ending_cents=excluded.ending_cents,
+                minimum_margin_pct=excluded.minimum_margin_pct,
+                updated_at=excluded.updated_at
+            """,
+            (normalized, 1 if is_enabled else 0, adjustment, ending, _json_number(margin), now, now),
+        )
+
+
+def rules_for_manufacturer(
+    rules: list[PricingRule],
+    overrides: list[ManufacturerRuleOverride],
+    manufacturer: str,
+) -> list[PricingRule]:
+    normalized = normalize_manufacturer(manufacturer)
+    override = next((item for item in overrides if item.manufacturer == normalized and item.is_enabled), None)
+    if override is None:
+        return rules
+    adjusted: list[PricingRule] = []
+    for rule in rules:
+        settings = dict(rule.settings)
+        if rule.rule_type == "anchor":
+            settings["adjustment_cents"] = override.adjustment_cents
+        elif rule.rule_type == "rounding":
+            settings["ending_cents"] = override.ending_cents
+        elif rule.rule_type == "margin_floor":
+            settings["minimum_margin_pct"] = _json_number(override.minimum_margin_pct)
+        adjusted.append(replace(rule, settings=settings))
+    return adjusted
 
 
 def apply_pricing_rule_preset(database: Path, preset_code: str) -> None:
@@ -186,6 +273,19 @@ def _settings(value: str) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _override_from_row(manufacturer: str, row: Any | None) -> ManufacturerRuleOverride:
+    if row is None:
+        return ManufacturerRuleOverride(manufacturer, False, 0, 99, Decimal("20"), "")
+    return ManufacturerRuleOverride(
+        manufacturer=manufacturer,
+        is_enabled=bool(row["is_enabled"]),
+        adjustment_cents=int(row["adjustment_cents"] if row["adjustment_cents"] is not None else 0),
+        ending_cents=int(row["ending_cents"] if row["ending_cents"] is not None else 99),
+        minimum_margin_pct=Decimal(str(row["minimum_margin_pct"] if row["minimum_margin_pct"] is not None else 20)),
+        updated_at=row["updated_at"] or "",
+    )
 
 
 def _decimal_setting(value: str, label: str) -> Decimal:

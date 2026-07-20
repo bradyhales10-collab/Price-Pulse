@@ -69,6 +69,46 @@
 </section>
 
 <section class="card">
+  <div class="section-title">
+    <div>
+      <h2>OEM-Specific Overrides</h2>
+      <p>Use these when an OEM needs a different margin, price ending, or competitor adjustment than the global rules above.</p>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table class="sortable-table">
+      <thead>
+        <tr>
+          <th>OEM</th>
+          <th>Use Override</th>
+          <th>Lowest Competitor Adjustment</th>
+          <th>Price Ending</th>
+          <th>Minimum Margin</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for override in manufacturer_overrides %}
+        <tr>
+          <td><strong>{{ override.manufacturer }}</strong></td>
+          <td>
+            <label class="check"><input type="checkbox" name="is_enabled" value="1" form="oem-rule-{{ loop.index }}" {{ 'checked' if override.is_enabled else '' }}> Enabled</label>
+          </td>
+          <td><input name="adjustment_cents" form="oem-rule-{{ loop.index }}" value="{{ override.adjustment_cents }}" aria-label="{{ override.manufacturer }} competitor adjustment cents"> cents</td>
+          <td><input name="ending_cents" form="oem-rule-{{ loop.index }}" value="{{ override.ending_cents }}" aria-label="{{ override.manufacturer }} price ending cents"> cents</td>
+          <td><input name="minimum_margin_pct" form="oem-rule-{{ loop.index }}" value="{{ override.minimum_margin_pct }}" aria-label="{{ override.manufacturer }} minimum margin percent"> %</td>
+          <td>
+            <form id="oem-rule-{{ loop.index }}" method="post" action="/rules/manufacturers/{{ override.manufacturer|urlencode }}"></form>
+            <button type="submit" form="oem-rule-{{ loop.index }}">Save</button>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card">
   <div class="section-title"><h2>Suggested Workflow</h2></div>
   <div class="metrics">
     <span>1. Price Check <b>Collect competitor prices</b></span>

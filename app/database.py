@@ -15,7 +15,7 @@ from app.url_builder import build_partzilla_product_url
 from app.url_builder import UnsupportedManufacturerError
 
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 PARTZILLA_CODE = "partzilla"
 MOTOSPORT_CODE = "motosport"
 CHAPARRAL_CODE = "chaparral"
@@ -105,6 +105,12 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
             "INSERT INTO schema_migrations(version, description, applied_at) VALUES (?, ?, ?)",
             (8, "track original price before review updates", utc_now()),
         )
+    if 9 not in applied_versions:
+        conn.executescript(PRICING_RULE_MANUFACTURER_OVERRIDE_SCHEMA_SQL)
+        conn.execute(
+            "INSERT INTO schema_migrations(version, description, applied_at) VALUES (?, ?, ?)",
+            (9, "add manufacturer-specific pricing rule overrides", utc_now()),
+        )
     _ensure_column(conn, "competitor_probe_results", "price_visibility", "TEXT")
     _ensure_column(conn, "competitor_probe_results", "price_display_type", "TEXT")
     _ensure_column(conn, "competitor_probe_results", "result_type", "TEXT")
@@ -115,6 +121,7 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
     conn.executescript(CHAPARRAL_CACHE_SCHEMA_SQL)
     conn.executescript(PRICING_REVIEW_SCHEMA_SQL)
     conn.executescript(PRICING_RULES_SCHEMA_SQL)
+    conn.executescript(PRICING_RULE_MANUFACTURER_OVERRIDE_SCHEMA_SQL)
     seed_pricing_rules(conn)
 
 
@@ -990,4 +997,19 @@ CREATE TABLE IF NOT EXISTS pricing_rules (
     updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_pricing_rules_enabled_priority ON pricing_rules(is_enabled, priority);
+"""
+
+
+PRICING_RULE_MANUFACTURER_OVERRIDE_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS pricing_rule_manufacturer_overrides (
+    override_id INTEGER PRIMARY KEY,
+    manufacturer TEXT NOT NULL UNIQUE,
+    is_enabled INTEGER NOT NULL DEFAULT 0,
+    adjustment_cents INTEGER,
+    ending_cents INTEGER,
+    minimum_margin_pct REAL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pricing_rule_oem_overrides_enabled ON pricing_rule_manufacturer_overrides(is_enabled, manufacturer);
 """

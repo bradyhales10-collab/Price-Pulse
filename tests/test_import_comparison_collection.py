@@ -636,6 +636,44 @@ def test_review_queue_saves_decisions_and_updates_exports() -> None:
     assert "Notes" not in headers
 
 
+def test_manufacturer_specific_pricing_rule_override_changes_suggestion() -> None:
+    db = _comparison_db("pricing_rule_oem_override.db")
+    client = TestClient(create_app(db), raise_server_exceptions=False)
+
+    rules = client.get("/rules")
+    assert rules.status_code == 200
+    assert "OEM-Specific Overrides" in rules.text
+    assert "Kawasaki" in rules.text
+
+    updated = client.post(
+        "/rules/manufacturers/Kawasaki",
+        data={
+            "is_enabled": "1",
+            "adjustment_cents": "-50",
+            "ending_cents": "49",
+            "minimum_margin_pct": "20",
+        },
+        follow_redirects=False,
+    )
+
+    assert updated.status_code == 303
+    review = client.get("/reviews")
+    assert review.status_code == 200
+    assert "Rules suggest $9.49" in review.text
+    with connect_database(db) as conn:
+        row = conn.execute(
+            """
+            SELECT is_enabled, adjustment_cents, ending_cents, minimum_margin_pct
+            FROM pricing_rule_manufacturer_overrides
+            WHERE manufacturer='Kawasaki'
+            """
+        ).fetchone()
+    assert row["is_enabled"] == 1
+    assert row["adjustment_cents"] == -50
+    assert row["ending_cents"] == 49
+    assert row["minimum_margin_pct"] == 20
+
+
 def test_pricing_rules_page_and_review_queue_rule_selection() -> None:
     db = _comparison_db("pricing_rules.db")
     client = TestClient(create_app(db), raise_server_exceptions=False)

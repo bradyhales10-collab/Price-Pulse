@@ -9,7 +9,7 @@ from typing import Any
 
 from app.comparison import ComparisonFilters, comparison_rows
 from app.database import connect_database, utc_now
-from app.pricing_rules import list_pricing_rules, suggest_price
+from app.pricing_rules import list_manufacturer_rule_overrides, list_pricing_rules, rules_for_manufacturer, suggest_price
 
 
 PENDING_REVIEW = "Pending Review"
@@ -197,12 +197,18 @@ def pending_review_count(database: Path) -> int:
 def _annotated_rows(database: Path, filters: ComparisonFilters = ComparisonFilters()) -> list[dict[str, Any]]:
     rows = comparison_rows(database, filters)
     rules = list_pricing_rules(database, enabled_only=True)
+    overrides = list_manufacturer_rule_overrides(database)
     for row in rows:
         bucket, reason = _classify_row(row)
         row["review_bucket"] = bucket
         row["review_reason"] = reason
         saved_codes = _saved_rule_codes(row.get("applied_rule_codes_json"))
-        suggestion = suggest_price(row, rules, selected_rule_codes=saved_codes if saved_codes else None)
+        effective_rules = rules_for_manufacturer(rules, overrides, row.get("manufacturer", ""))
+        row["manufacturer_rule_override"] = next(
+            (override for override in overrides if override.manufacturer == row.get("manufacturer") and override.is_enabled),
+            None,
+        )
+        suggestion = suggest_price(row, effective_rules, selected_rule_codes=saved_codes if saved_codes else None)
         row["rule_suggestion"] = suggestion
         row["rule_flags"] = {item["rule_code"]: item for item in suggestion["applied_rules"]}
         if not row.get("suggested_new_price"):
@@ -218,10 +224,11 @@ def _annotated_rows(database: Path, filters: ComparisonFilters = ComparisonFilte
 
 def suggested_price_for_product(database: Path, product_id: int, selected_rule_codes: list[str]) -> dict[str, Any]:
     rules = list_pricing_rules(database, enabled_only=True)
+    overrides = list_manufacturer_rule_overrides(database)
     row = next((item for item in comparison_rows(database) if item["product_id"] == product_id), None)
     if row is None:
         raise ValueError("Product not found.")
-    return suggest_price(row, rules, selected_rule_codes=set(selected_rule_codes))
+    return suggest_price(row, rules_for_manufacturer(rules, overrides, row.get("manufacturer", "")), selected_rule_codes=set(selected_rule_codes))
 
 
 def _selected_status(status: str) -> str:
