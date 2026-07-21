@@ -108,6 +108,27 @@ document.addEventListener("submit", (event) => {
       }
     }).catch(() => { status.textContent = "Upload failed."; });
   }
+  if (event.target.matches("[data-collector-upload-form]")) {
+    event.preventDefault();
+    const file = event.target.querySelector("input[type=file]").files[0];
+    const status = event.target.querySelector("[data-collector-upload-status]");
+    const competitor = event.target.querySelector("select[name=competitor]")?.value || "";
+    if (!file) return;
+    status.textContent = "Importing local results...";
+    file.arrayBuffer().then((buffer) => fetch(`/collector/results/upload?competitor=${encodeURIComponent(competitor)}&filename=${encodeURIComponent(file.name)}`, {
+      method: "POST",
+      body: buffer,
+      headers: { "content-type": "text/csv", "x-filename": file.name }
+    })).then((response) => {
+      if (response.ok) {
+        return response.json();
+      }
+      throw new Error("Upload failed");
+    }).then((result) => {
+      status.textContent = `Imported ${result.rows_imported} rows for ${result.competitor}. Refreshing...`;
+      window.setTimeout(() => window.location.reload(), 800);
+    }).catch(() => { status.textContent = "Upload failed."; });
+  }
   if (event.target.matches("#comparison-export")) {
     const ids = Array.from(document.querySelectorAll(".row-select:checked")).map((box) => box.value);
     document.querySelector("#selected-ids").value = ids.join(",");

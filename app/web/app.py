@@ -24,6 +24,7 @@ from app.web.queries import (
 from app.web.formatters import format_timestamp, humanize_status
 from app.auth_session import InvalidAuthStateError, auth_state_exists, auth_state_status, delete_auth_state, save_uploaded_auth_state
 from app.collection_jobs import job_status, plan_import_collection, plan_ui_collection, start_price_collection_job, validate_collection_request
+from app.collector_bridge import import_collection_summary, selected_parts_csv
 from app.competitors.registry import list_competitors, select_competitors
 from app.comparison import ComparisonFilters, comparison_rows
 from app.config import OUTPUT_DIR
@@ -776,6 +777,36 @@ def create_app(database: Path) -> FastAPI:
     def import_errors(import_batch_id: int):
         preview = preview_import(app.state.database, import_batch_id)
         return Response(validation_errors_csv(preview), media_type="text/csv")
+
+    @app.get("/collector/imports/{import_batch_id}/input.csv")
+    def collector_import_input(import_batch_id: int):
+        content = selected_parts_csv(app.state.database, import_batch_id)
+        return Response(
+            content,
+            media_type="text/csv",
+            headers={"content-disposition": f'attachment; filename="part-pulse-import-{import_batch_id}-collector-input.csv"'},
+        )
+
+    @app.post("/collector/results/upload")
+    async def collector_results_upload(request: Request, competitor: str = "", filename: str = ""):
+        content = await request.body()
+        upload_dir = OUTPUT_DIR / "collector_uploads"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        safe_name = "".join(char for char in (filename or request.headers.get("x-filename") or "collection_summary.csv") if char.isalnum() or char in ("-", "_", "."))
+        saved_path = upload_dir / f"{Path(safe_name).stem}-{quote(competitor or 'unknown', safe='')}.csv"
+        saved_path.write_bytes(content)
+        result = import_collection_summary(app.state.database, summary_csv=content, fallback_competitor=competitor or None)
+        return JSONResponse(
+            {
+                "status": "imported",
+                "scan_run_id": result.scan_run_id,
+                "competitor": result.competitor,
+                "rows_received": result.rows_received,
+                "rows_imported": result.rows_imported,
+                "rows_skipped": result.rows_skipped,
+                "successful_rows": result.successful_rows,
+            }
+        )
 
     @app.get("/collections/test", response_class=HTMLResponse)
     def collection_test(request: Request, manufacturer: str = "", limit: int = 25):

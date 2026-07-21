@@ -57,6 +57,23 @@
   </details>
   {% endif %}
   {% if preview.invalid_rows == 0 %}
+  <details class="preview-details local-collector-panel">
+    <summary>Use Local Collector When Cloud Is Blocked</summary>
+    <p class="muted">Download this file, run the local collector on your Windows computer, then upload the finished collection summary here. This keeps the dashboard on Oracle while price checks run from your normal connection.</p>
+    <div class="quick-actions">
+      <a class="button" href="/collector/imports/{{ preview.import_batch_id }}/input.csv">Download Local Collector File</a>
+    </div>
+    <form data-collector-upload-form class="upload-box" data-import-batch-id="{{ preview.import_batch_id }}">
+      <select name="competitor" aria-label="Competitor">
+        {% for competitor in competitors %}
+          <option value="{{ competitor.competitor_key }}">{{ competitor.display_name }}</option>
+        {% endfor %}
+      </select>
+      <input type="file" name="collection_summary" accept=".csv" required>
+      <button type="submit">Upload Local Results</button>
+      <p data-collector-upload-status>Upload the collection_summary.csv created by the local collector.</p>
+    </form>
+  </details>
   <form action="/imports/{{ preview.import_batch_id }}/start-price-check" method="post" class="primary-action">
     <div class="competitor-picker">
       <strong>Competitors</strong>
