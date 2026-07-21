@@ -22,7 +22,7 @@ from app.web.queries import (
     scan_runs,
 )
 from app.web.formatters import format_timestamp, humanize_status
-from app.auth_session import auth_state_exists
+from app.auth_session import InvalidAuthStateError, auth_state_exists, auth_state_status, delete_auth_state, save_uploaded_auth_state
 from app.collection_jobs import job_status, plan_import_collection, plan_ui_collection, start_price_collection_job, validate_collection_request
 from app.competitors.registry import list_competitors, select_competitors
 from app.comparison import ComparisonFilters, comparison_rows
@@ -567,6 +567,44 @@ def create_app(database: Path) -> FastAPI:
         save_manufacturer_coverage_settings(selected)
         return RedirectResponse("/settings?message=Coverage%20saved", status_code=303)
 
+    @app.get("/sessions", response_class=HTMLResponse)
+    def login_sessions(request: Request, message: str = "", error: str = ""):
+        return templates.TemplateResponse(
+            request,
+            "sessions.html",
+            {
+                "active": "sessions",
+                "database": app.state.database,
+                "sessions": _login_session_rows(),
+                "message": message,
+                "error": error,
+            },
+        )
+
+    @app.post("/sessions/{competitor_key}/upload")
+    async def login_session_upload(request: Request, competitor_key: str, filename: str = ""):
+        try:
+            competitor = select_competitors([competitor_key], allow_experimental=True)[0]
+        except ValueError as exc:
+            return RedirectResponse(f"/sessions?error={quote(str(exc))}", status_code=303)
+        content = await request.body()
+        if not filename.lower().endswith(".json"):
+            return RedirectResponse("/sessions?error=Upload%20a%20JSON%20login%20session%20file.", status_code=303)
+        try:
+            save_uploaded_auth_state(competitor.competitor_key, content)
+        except InvalidAuthStateError as exc:
+            return RedirectResponse(f"/sessions?error={quote(str(exc))}", status_code=303)
+        return RedirectResponse(f"/sessions?message={quote(competitor.display_name + ' login session saved.')}", status_code=303)
+
+    @app.post("/sessions/{competitor_key}/delete")
+    def login_session_delete(competitor_key: str):
+        try:
+            competitor = select_competitors([competitor_key], allow_experimental=True)[0]
+        except ValueError as exc:
+            return RedirectResponse(f"/sessions?error={quote(str(exc))}", status_code=303)
+        delete_auth_state(competitor.competitor_key)
+        return RedirectResponse(f"/sessions?message={quote(competitor.display_name + ' login session removed.')}", status_code=303)
+
     @app.get("/imports", response_class=HTMLResponse)
     def imports(
         request: Request,
@@ -843,6 +881,34 @@ def _competitor_form_options():
             }
         )
     return options
+
+
+def _login_session_rows() -> list[dict[str, object]]:
+    rows = []
+    for competitor in list_competitors():
+        status = auth_state_status(competitor.competitor_key)
+        rows.append(
+            {
+                "competitor_key": competitor.competitor_key,
+                "display_name": competitor.display_name,
+                "requires_login": competitor.requires_login,
+                "auth_state_saved": bool(status["exists"]),
+                "updated_at": _timestamp_from_epoch(status["updated_at"]),
+                "ready": not competitor.requires_login or bool(status["exists"]),
+            }
+        )
+    return rows
+
+
+def _timestamp_from_epoch(value: object) -> str:
+    if value is None:
+        return ""
+    try:
+        from datetime import datetime, timezone
+
+        return datetime.fromtimestamp(float(value), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (TypeError, ValueError, OSError):
+        return ""
 
 
 def _comparison_page_query(filters: ComparisonFilters, page_size: int) -> str:

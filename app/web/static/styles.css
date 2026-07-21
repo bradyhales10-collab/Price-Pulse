@@ -115,6 +115,9 @@ dialog::backdrop { background: rgba(17,17,17,.45); }
 .competitor-picker { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
 .competitor-option { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .disabled-option { opacity: 0.72; }
+.compact-upload { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.compact-upload input { min-height: auto; max-width: 260px; }
+.compact-upload span { color: var(--muted); font-size: 12px; }
 .progress-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
 .progress-card { background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
 .progress-card span { display: block; color: var(--muted); text-transform: capitalize; }

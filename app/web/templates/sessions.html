@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% from "components.html" import badge %}
+{% block title %}Login Sessions{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1>Login Sessions</h1>
+    <p>Manage saved browser sessions used by competitors that require sign-in before prices can be checked.</p>
+  </div>
+</header>
+
+{% if message %}<section class="card">{{ badge('Saved', 'success') }} {{ message }}</section>{% endif %}
+{% if error %}<section class="card">{{ badge('Error', 'warning') }} {{ error }}</section>{% endif %}
+
+<section class="card">
+  <div class="section-title">
+    <h2>Competitor Readiness</h2>
+    <span class="muted">A saved session lets the server check login-only prices without opening a browser on your computer.</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Competitor</th>
+          <th>Login Needed</th>
+          <th>Status</th>
+          <th>Last Saved</th>
+          <th>Session File</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in sessions %}
+          <tr>
+            <td>{{ item.display_name }}</td>
+            <td>{{ 'Yes' if item.requires_login else 'No' }}</td>
+            <td>
+              {% if item.ready %}
+                {{ badge('Ready', 'success') }}
+              {% elif item.requires_login %}
+                {{ badge('Needs saved login', 'warning') }}
+              {% else %}
+                {{ badge('Ready', 'success') }}
+              {% endif %}
+            </td>
+            <td>{{ item.updated_at|datetime or 'Not saved' }}</td>
+            <td>
+              {% if item.requires_login %}
+                <form data-auth-upload-form data-competitor="{{ item.competitor_key }}" class="compact-upload">
+                  <input type="file" name="auth_file" accept=".json" required>
+                  <button type="submit">Upload Session</button>
+                  <span data-auth-upload-status></span>
+                </form>
+              {% else %}
+                <span class="muted">Not required</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if item.auth_state_saved %}
+                <form method="post" action="/sessions/{{ item.competitor_key }}/delete" onsubmit="return confirm('Remove this saved login session? Price checks for this competitor may require login again.');">
+                  <button type="submit" class="link-button">Remove</button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card">
+  <div class="section-title"><h2>How To Create A Session File</h2></div>
+  <p>Run the login capture on a computer where a browser can open, sign in to the competitor site, then upload the generated JSON file here. Treat that file like a password.</p>
+  <pre><code>.\.venv\Scripts\python.exe auth_bootstrap.py --competitor partzilla</code></pre>
+  <p class="muted">The file will be created under <strong>data/private</strong>. Upload the matching competitor JSON file here, then Part Pulse can reuse that saved sign-in on the server.</p>
+</section>
+{% endblock %}

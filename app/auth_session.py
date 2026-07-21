@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from app.config import PARTZILLA_AUTH_STATE_PATH, PRIVATE_DIR
 from app.schemas.product_observation import (
@@ -29,6 +30,10 @@ class MissingAuthStateError(FileNotFoundError):
     """Raised when authenticated inspection is requested before bootstrap."""
 
 
+class InvalidAuthStateError(ValueError):
+    """Raised when an uploaded browser session is not a Playwright storage state."""
+
+
 def auth_state_path_for(competitor_key: str) -> Path:
     normalized = _safe_competitor_key(competitor_key)
     if normalized == "partzilla":
@@ -53,8 +58,52 @@ def auth_state_exists(competitor_key: str) -> bool:
     return auth_state_path_for(competitor_key).exists()
 
 
+def auth_state_status(competitor_key: str) -> dict[str, object]:
+    path = auth_state_path_for(competitor_key)
+    return {
+        "exists": path.exists(),
+        "updated_at": path.stat().st_mtime if path.exists() else None,
+        "path": path,
+    }
+
+
+def save_uploaded_auth_state(competitor_key: str, content: bytes) -> Path:
+    parsed = _parse_auth_state(content)
+    path = auth_state_path_for(competitor_key)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(parsed, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def delete_auth_state(competitor_key: str) -> bool:
+    path = auth_state_path_for(competitor_key)
+    if not path.exists():
+        return False
+    path.unlink()
+    return True
+
+
 def _safe_competitor_key(value: str) -> str:
     return "".join(char for char in value.strip().lower() if char.isalnum() or char in ("_", "-")) or "competitor"
+
+
+def _parse_auth_state(content: bytes) -> dict[str, Any]:
+    if len(content) > 2_000_000:
+        raise InvalidAuthStateError("Login session file is too large.")
+    try:
+        parsed = json.loads(content.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise InvalidAuthStateError("Upload a valid Playwright login session JSON file.") from exc
+    if not isinstance(parsed, dict):
+        raise InvalidAuthStateError("Login session file must contain a JSON object.")
+    cookies = parsed.get("cookies")
+    origins = parsed.get("origins", [])
+    if not isinstance(cookies, list) or not isinstance(origins, list):
+        raise InvalidAuthStateError("Login session file is missing Playwright cookies/origins.")
+    for cookie in cookies:
+        if not isinstance(cookie, dict) or not isinstance(cookie.get("name"), str) or not isinstance(cookie.get("domain"), str):
+            raise InvalidAuthStateError("Login session file has an invalid cookie entry.")
+    return parsed
 
 
 def mark_authenticated_context(

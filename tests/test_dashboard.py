@@ -308,6 +308,45 @@ def test_no_auth_secrets_rendered() -> None:
     assert "partzilla_auth_state" not in text
 
 
+def test_login_sessions_page_shows_competitor_readiness(monkeypatch) -> None:
+    db = _dashboard_db("sessions.db")
+    monkeypatch.setattr("app.web.app.auth_state_exists", lambda _competitor_key: False)
+    monkeypatch.setattr("app.web.app.auth_state_status", lambda _competitor_key: {"exists": False, "updated_at": None, "path": ""})
+
+    response = _client(db).get("/sessions")
+
+    assert response.status_code == 200
+    assert "Login Sessions" in response.text
+    assert "Partzilla" in response.text
+    assert "Needs Saved Login" in response.text
+    assert "MotoSport" in response.text
+    assert "Not required" in response.text
+    assert "cookie" not in response.text.lower()
+    assert "token" not in response.text.lower()
+
+
+def test_login_session_upload_saves_valid_state(monkeypatch) -> None:
+    db = _dashboard_db("session-upload.db")
+    saved: dict[str, object] = {}
+
+    def fake_save(competitor_key, content):
+        saved["competitor_key"] = competitor_key
+        saved["content"] = content
+        return Path("data/private/partzilla_auth_state.json")
+
+    monkeypatch.setattr("app.web.app.save_uploaded_auth_state", fake_save)
+
+    response = _client(db).post(
+        "/sessions/partzilla/upload?filename=session.json",
+        content=b'{"cookies":[{"name":"session","domain":".partzilla.com"}],"origins":[]}',
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert saved["competitor_key"] == "partzilla"
+    assert "Partzilla%20login%20session%20saved" in response.headers["location"]
+
+
 def test_multi_oem_manufacturer_rendering() -> None:
     db = _dashboard_db("multi_oem.db")
     text = _client(db).get("/").text

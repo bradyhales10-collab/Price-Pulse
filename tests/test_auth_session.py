@@ -3,10 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.auth_session import (
+    InvalidAuthStateError,
     MissingAuthStateError,
     auth_state_path_for,
+    delete_auth_state,
     determine_session_status,
     require_auth_state,
+    save_uploaded_auth_state,
     serialized_observation_has_sensitive_fields,
     write_sanitized_authenticated_diagnostics,
 )
@@ -108,6 +111,29 @@ def test_data_private_is_gitignored() -> None:
     gitignore = Path(".gitignore").read_text(encoding="utf-8")
 
     assert "data/private/" in gitignore
+
+
+def test_uploaded_auth_state_is_validated_and_saved() -> None:
+    path = auth_state_path_for("testauth")
+    delete_auth_state("testauth")
+
+    saved = save_uploaded_auth_state(
+        "testauth",
+        b'{"cookies":[{"name":"session","domain":".example.com"}],"origins":[]}',
+    )
+
+    assert saved == path
+    assert path.exists()
+    delete_auth_state("testauth")
+
+
+def test_uploaded_auth_state_rejects_invalid_json() -> None:
+    try:
+        save_uploaded_auth_state("testauth", b"not json")
+    except InvalidAuthStateError as exc:
+        assert "valid Playwright login session" in str(exc)
+    else:
+        raise AssertionError("invalid auth state should raise")
 
 
 def _normal_html(extra: str) -> str:
