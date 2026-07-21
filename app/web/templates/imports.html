@@ -61,7 +61,7 @@
     <div class="competitor-picker">
       <strong>Competitors</strong>
       {% for competitor in competitors %}
-        <label class="check"><input type="checkbox" name="competitor" value="{{ competitor.competitor_key }}" {{ 'checked' if competitor.capabilities.status == 'active' else '' }}> {{ competitor.display_name }} {% if competitor.capabilities.status == 'active' %}{{ badge('Active', 'success') }}{% else %}{{ badge('Experimental Probe', 'warning') }}{% endif %}</label>
+        <label class="check competitor-option {{ 'disabled-option' if not competitor.can_run_now else '' }}"><input type="checkbox" name="competitor" value="{{ competitor.competitor_key }}" {{ 'checked' if competitor.default_checked else '' }} {{ 'disabled' if not competitor.can_run_now else '' }}> {{ competitor.display_name }} {% if competitor.capabilities.status == 'active' %}{{ badge('Active', 'success') }}{% else %}{{ badge('Experimental Probe', 'warning') }}{% endif %}{% if competitor.requires_login and not competitor.auth_state_saved %}{{ badge('Needs server login', 'warning') }}{% elif competitor.requires_login %}{{ badge('Login saved', 'success') }}{% endif %}</label>
       {% endfor %}
     </div>
     <p class="muted">Selected competitors will be checked against the uploaded parts list and saved to production price history.</p>

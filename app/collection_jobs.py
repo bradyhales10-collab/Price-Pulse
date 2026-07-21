@@ -112,8 +112,11 @@ def validate_collection_request(
     competitor_keys: list[str] | None = None,
     max_parts: int | None = MAX_UI_COLLECTION_PARTS,
 ) -> list[str]:
-    competitor_keys = competitor_keys or ["partzilla"]
+    if competitor_keys is None:
+        competitor_keys = ["partzilla"]
     errors: list[str] = []
+    if not competitor_keys:
+        errors.append("Select at least one competitor to check.")
     if confirmation != "RUN":
         errors.append("Type RUN to confirm the test collection.")
     if not parts:

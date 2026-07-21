@@ -862,6 +862,30 @@ def test_price_check_page_combines_upload_summary_and_start_action() -> None:
     assert "Show Missing Prices" not in upload.text
 
 
+def test_price_check_page_only_preselects_runnable_competitors(monkeypatch) -> None:
+    db = _empty_db("price_check_runnable_competitors.db")
+    upload_path = TEST_OUTPUT_DIR / "price_check_runnable_competitors.xlsx"
+    write_workbook(
+        upload_path,
+        {
+            "Upload Data": [
+                ["Internal_SKU", "Manufacturer", "OEM_Part_Number", "Our_Current_Price"],
+                ["SKU-ONE", "Honda", "18327-MEN-A30", "44.99"],
+            ],
+        },
+    )
+    monkeypatch.setattr("app.web.app.auth_state_exists", lambda _competitor_key: False)
+    client = TestClient(create_app(db), raise_server_exceptions=False)
+
+    upload = client.post("/imports/upload?filename=price_check_runnable_competitors.xlsx", content=upload_path.read_bytes())
+
+    assert upload.status_code == 200
+    assert 'value="partzilla"  disabled' in upload.text
+    assert "Needs Server Login" in upload.text
+    assert 'value="motosport" checked' in upload.text
+    assert 'value="chaparral" checked' in upload.text
+
+
 def test_price_check_start_validation_error_renders_combined_page() -> None:
     db = _empty_db("price_check_validation_error.db")
     result = _upload_simple_batch(db, "price-check-validation.xlsx", "SKU-ERR", "Honda", "H-ERR")
@@ -876,6 +900,20 @@ def test_price_check_start_validation_error_renders_combined_page() -> None:
     assert "Delay must be at least 1 second." in response.text
     assert "Price Comparison" in response.text
     assert "price-check-validation.xlsx" in response.text
+
+
+def test_price_check_start_requires_a_selected_competitor() -> None:
+    db = _empty_db("price_check_requires_competitor.db")
+    result = _upload_simple_batch(db, "price-check-no-competitor.xlsx", "SKU-NONE", "Honda", "H-NONE")
+    client = TestClient(create_app(db), raise_server_exceptions=False)
+
+    response = client.post(
+        f"/imports/{result.import_batch_id}/start-price-check",
+        data={"delay_seconds": "1"},
+    )
+
+    assert response.status_code == 400
+    assert "Select at least one competitor to check." in response.text
 
 
 def test_recent_files_can_be_cleared_without_deleting_imported_products() -> None:

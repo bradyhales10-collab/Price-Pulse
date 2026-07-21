@@ -22,6 +22,7 @@ from app.web.queries import (
     scan_runs,
 )
 from app.web.formatters import format_timestamp, humanize_status
+from app.auth_session import auth_state_exists
 from app.collection_jobs import job_status, plan_import_collection, plan_ui_collection, start_price_collection_job, validate_collection_request
 from app.competitors.registry import list_competitors, select_competitors
 from app.comparison import ComparisonFilters, comparison_rows
@@ -607,7 +608,7 @@ def create_app(database: Path) -> FastAPI:
                 "active": "imports",
                 "database": app.state.database,
                 "history": import_history(app.state.database),
-                "competitors": list_competitors(),
+                "competitors": _competitor_form_options(),
                 "max_upload_mb": 20,
                 "preview": preview,
                 "job": job,
@@ -634,7 +635,7 @@ def create_app(database: Path) -> FastAPI:
             return templates.TemplateResponse(
                 request,
                 "imports.html",
-                {"active": "imports", "database": app.state.database, "history": import_history(app.state.database), "competitors": list_competitors(), "error": str(exc), "max_upload_mb": 20},
+                {"active": "imports", "database": app.state.database, "history": import_history(app.state.database), "competitors": _competitor_form_options(), "error": str(exc), "max_upload_mb": 20},
                 status_code=400,
             )
         if all(field in result.auto_mapping.values() for field in REQUIRED_FIELDS):
@@ -714,11 +715,13 @@ def create_app(database: Path) -> FastAPI:
         body = (await request.body()).decode("utf-8", errors="replace")
         parsed = parse_qs(body, keep_blank_values=True)
         form = {key: values[-1] if values else "" for key, values in parsed.items()}
-        selected_competitors = parsed.get("competitor", ["partzilla"])
+        selected_competitors = parsed.get("competitor", [])
         delay_seconds = _int_form_value(form.get("delay_seconds"), 1)
         preview = confirm_import(app.state.database, import_batch_id)
         if preview.invalid_rows:
             return _imports_response(request, app.state.database, preview=preview, errors=["Fix invalid rows before starting price checks."], status_code=400)
+        if not selected_competitors:
+            return _imports_response(request, app.state.database, preview=preview, errors=["Select at least one competitor to check."], status_code=400)
         try:
             adapters = select_competitors(selected_competitors)
         except ValueError as exc:
@@ -823,6 +826,25 @@ def _optional_int_form_value(value: str | None) -> int | None:
         return None
 
 
+def _competitor_form_options():
+    options = []
+    for competitor in list_competitors():
+        auth_saved = auth_state_exists(competitor.competitor_key)
+        can_run_now = not competitor.requires_login or auth_saved
+        options.append(
+            {
+                "competitor_key": competitor.competitor_key,
+                "display_name": competitor.display_name,
+                "capabilities": competitor.capabilities,
+                "requires_login": competitor.requires_login,
+                "auth_state_saved": auth_saved,
+                "can_run_now": can_run_now,
+                "default_checked": competitor.capabilities.status == "active" and can_run_now,
+            }
+        )
+    return options
+
+
 def _comparison_page_query(filters: ComparisonFilters, page_size: int) -> str:
     params: dict[str, str | int] = {"page_size": page_size}
     if filters.search:
@@ -886,7 +908,7 @@ def _imports_response(
             "active": "imports",
             "database": database,
             "history": import_history(database),
-            "competitors": list_competitors(),
+            "competitors": _competitor_form_options(),
             "max_upload_mb": 20,
             "preview": preview,
             "job": job,
