@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.collector_bridge import import_collection_summary, selected_parts_csv
 from app.database import connect_database, initialize_database, seed_motosport, upsert_product_and_listing
 from app.models import PartRecord
+from local_collector import prepare_local_database
 
 
 def test_selected_parts_csv_exports_import_batch_parts(tmp_path):
@@ -98,3 +99,24 @@ def test_unsupported_manufacturer_summary_does_not_create_current_price(tmp_path
         event = conn.execute("SELECT page_classification FROM scan_events").fetchone()
     assert current_count == 0
     assert event["page_classification"] == "manufacturer_not_carried"
+
+
+def test_local_collector_prepares_temporary_database(tmp_path):
+    input_path = tmp_path / "input.csv"
+    input_path.write_text(
+        "\n".join(
+            [
+                "Test_Case_ID,Manufacturer,OEM_Part_Number,Search_Observed_Product_Name,Search_Observed_MSRP,Expected_Partzilla_URL,Test_Purpose,Verified_Date,Source_URL",
+                "1,Honda,ABC-123,,,,,,",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    db = tmp_path / "local.db"
+
+    prepare_local_database(input_path, db, ["partzilla", "motosport", "chaparral"])
+
+    with connect_database(db) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM products").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM competitor_listings").fetchone()[0] == 3

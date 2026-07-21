@@ -12,6 +12,11 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from app.competitors.registry import get_competitor
+from app.database import connect_database, initialize_database, seed_competitor, upsert_competitor_listing, upsert_product_and_listing
+from app.input_loader import load_parts_csv
+from app.manufacturer_registry import competitor_supports_manufacturer
+
 
 ROOT = Path(__file__).resolve().parent
 BRIDGE_DIR = ROOT / "data" / "output" / "local_bridge"
@@ -47,6 +52,7 @@ def main() -> int:
         return 1
     print(f"Downloaded {max_parts} parts.")
     local_db = BRIDGE_DIR / f"collector-{args.import_batch_id}-{int(time.time())}.db"
+    prepare_local_database(input_path, local_db, args.competitor)
     for competitor in args.competitor:
         print(f"Checking {competitor} locally...")
         summary = _run_competitor(input_path, local_db, max_parts, competitor, args)
@@ -96,6 +102,27 @@ def _upload(url: str, path: Path, auth_header: str | None) -> str:
 def _count_csv_rows(path: Path) -> int:
     with path.open("r", newline="", encoding="utf-8-sig") as file:
         return sum(1 for _ in csv.DictReader(file))
+
+
+def prepare_local_database(input_path: Path, local_db: Path, competitors: list[str]) -> None:
+    load_result = load_parts_csv(input_path)
+    initialize_database(local_db)
+    with connect_database(local_db) as conn:
+        for record in load_result.records:
+            product_id, _, _, _ = upsert_product_and_listing(conn, record)
+            for competitor in competitors:
+                competitor_id = seed_competitor(conn, competitor)
+                try:
+                    canonical_url = get_competitor(competitor).build_product_url(record) if competitor_supports_manufacturer(competitor, record.manufacturer) else ""
+                except Exception:
+                    canonical_url = ""
+                upsert_competitor_listing(
+                    conn,
+                    product_id=product_id,
+                    competitor_id=competitor_id,
+                    competitor_part_number=record.oem_part_number,
+                    canonical_url=canonical_url,
+                )
 
 
 def _run_competitor(input_path: Path, local_db: Path, max_parts: int, competitor: str, args: argparse.Namespace) -> Path:
