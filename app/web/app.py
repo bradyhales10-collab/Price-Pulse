@@ -780,7 +780,18 @@ def create_app(database: Path) -> FastAPI:
 
     @app.get("/collector/imports/{import_batch_id}/input.csv")
     def collector_import_input(import_batch_id: int):
+        preview = confirm_import(app.state.database, import_batch_id)
+        if preview.invalid_rows:
+            return JSONResponse(
+                {"status": "invalid_import", "message": "Fix invalid rows before downloading a local collector file."},
+                status_code=400,
+            )
         content = selected_parts_csv(app.state.database, import_batch_id)
+        if not content.strip() or content.count("\n") <= 1:
+            return JSONResponse(
+                {"status": "empty_import", "message": "No active products were found for this uploaded file."},
+                status_code=404,
+            )
         return Response(
             content,
             media_type="text/csv",

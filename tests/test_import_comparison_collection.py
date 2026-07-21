@@ -965,6 +965,18 @@ def test_collection_plan_uses_current_import_batch() -> None:
     assert [(part.manufacturer, part.oem_part_number) for part in parts] == [("Yamaha", "1MC-2835V-00-P4")]
 
 
+def test_local_collector_download_confirms_valid_import() -> None:
+    db = _empty_db("collector_download_confirms.db")
+    upload = _upload_simple_batch(db, "collector.xlsx", "SKU-L", "Honda", "LOCAL-1")
+
+    response = TestClient(create_app(db)).get(f"/collector/imports/{upload.import_batch_id}/input.csv")
+
+    assert response.status_code == 200
+    assert "LOCAL-1" in response.text
+    with connect_database(db) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM internal_product_state").fetchone()[0] == 1
+
+
 def test_import_collection_plan_can_include_more_than_test_collection_limit() -> None:
     db = _empty_db("large_import_collection_plan.db")
     upload_path = TEST_OUTPUT_DIR / "large_import_collection_plan.xlsx"
