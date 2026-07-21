@@ -862,6 +862,22 @@ def test_price_check_page_combines_upload_summary_and_start_action() -> None:
     assert "Show Missing Prices" not in upload.text
 
 
+def test_price_check_start_validation_error_renders_combined_page() -> None:
+    db = _empty_db("price_check_validation_error.db")
+    result = _upload_simple_batch(db, "price-check-validation.xlsx", "SKU-ERR", "Honda", "H-ERR")
+    client = TestClient(create_app(db), raise_server_exceptions=False)
+
+    response = client.post(
+        f"/imports/{result.import_batch_id}/start-price-check",
+        data={"competitor": "partzilla", "delay_seconds": "0"},
+    )
+
+    assert response.status_code == 400
+    assert "Delay must be at least 1 second." in response.text
+    assert "Price Comparison" in response.text
+    assert "price-check-validation.xlsx" in response.text
+
+
 def test_recent_files_can_be_cleared_without_deleting_imported_products() -> None:
     db = _empty_db("clear_recent_files.db")
     result = _upload_simple_batch(db, "clear-recent.xlsx", "SKU-CLEAR", "Honda", "18327-MEN-A30")

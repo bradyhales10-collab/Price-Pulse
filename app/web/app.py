@@ -867,6 +867,18 @@ def _imports_response(
     errors: list[str] | None = None,
     status_code: int = 200,
 ):
+    page_size = 50
+    import_batch_id = preview.import_batch_id if preview else None
+    filters = ComparisonFilters(import_batch_id=import_batch_id)
+    comparison_rows_all = comparison_review_rows(database, filters)
+    total = len(comparison_rows_all)
+    total_pages = max(1, math.ceil(total / page_size))
+    comparison_summary = {
+        "our_price_higher": sum(1 for row in comparison_rows_all if row.get("price_difference_cents") is not None and row["price_difference_cents"] > 0),
+        "our_price_lower": sum(1 for row in comparison_rows_all if row.get("price_difference_cents") is not None and row["price_difference_cents"] < 0),
+        "missing_competitor_price": sum(1 for row in comparison_rows_all if not row.get("lowest_competitor_name")),
+        "needs_review": sum(1 for row in comparison_rows_all if not row.get("saved_to_catalog")),
+    }
     return templates.TemplateResponse(
         request,
         "imports.html",
@@ -879,6 +891,17 @@ def _imports_response(
             "preview": preview,
             "job": job,
             "errors": errors or [],
+            "rows": comparison_rows_all[:page_size],
+            "filters": filters,
+            "total": total,
+            "summary": comparison_summary,
+            "page": 1,
+            "page_size": page_size,
+            "total_pages": total_pages,
+            "message": "",
+            "page_query": _comparison_page_query(filters, page_size),
+            "quick_filter_queries": _comparison_quick_filter_queries(filters, page_size),
+            "selected_import": import_batch_label(database, import_batch_id),
         },
         status_code=status_code,
     )
