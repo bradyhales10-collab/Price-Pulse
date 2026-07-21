@@ -24,7 +24,7 @@ JOB_DIR = DATA_DIR / "output" / "ui_collection_jobs"
 MAX_UI_COLLECTION_PARTS = 50
 MIN_UI_DELAY_SECONDS = 1
 DEFAULT_PRICE_COLLECTION_MODE = "lightweight_browser"
-DEFAULT_PRICE_HEADLESS = False
+DEFAULT_PRICE_HEADLESS = True
 
 
 @dataclass(frozen=True)
@@ -406,7 +406,7 @@ def _run_collection_thread(
                     progress_file=progress_file,
                     competitor_key=competitor_key,
                 )
-                if headless and competitor_key == "partzilla" and _should_retry_visible(progress):
+                if headless and competitor_key == "partzilla" and _can_launch_visible_browser() and _should_retry_visible(progress):
                     return_code, progress = _run_collection_once(
                         run_collection=run_collection,
                         input_path=input_path,
@@ -543,6 +543,12 @@ def _aggregate_progress(progress_by_competitor: dict[str, dict[str, object]], me
         "last_attempted_part": next((str(progress.get("last_attempted_part")) for progress in reversed(progresses) if progress.get("last_attempted_part")), None),
         "rows": rows,
     }
+
+
+def _can_launch_visible_browser() -> bool:
+    if os.name == "nt":
+        return True
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
 def _should_retry_visible(progress: dict[str, object]) -> bool:

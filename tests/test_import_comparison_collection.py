@@ -1004,8 +1004,8 @@ def test_collection_validation_and_launcher_use_existing_collector_safely(monkey
     assert "--collection-mode full_browser" in job
 
 
-def test_dashboard_price_check_starts_visible_lightweight_browser(monkeypatch) -> None:
-    db = _comparison_db("visible_lightweight_price_check.db")
+def test_dashboard_price_check_starts_headless_lightweight_browser(monkeypatch) -> None:
+    db = _comparison_db("headless_lightweight_price_check.db")
     monkeypatch.setattr("app.collection_jobs.utc_now", lambda: "2026-07-09T00:10:00Z")
     captured: dict[str, object] = {}
 
@@ -1024,11 +1024,11 @@ def test_dashboard_price_check_starts_visible_lightweight_browser(monkeypatch) -
     job_id = start_price_collection_job(db, parts, delay_seconds=1)
     job = job_status(job_id)
 
-    assert job["mode"] == "visible"
+    assert job["mode"] == "headless"
     assert job["collection_mode"] == "lightweight_browser"
     assert "--collection-mode lightweight_browser" in job["manual_command"]
     assert captured["started"] is True
-    assert captured["kwargs"]["headless"] is False
+    assert captured["kwargs"]["headless"] is True
     assert captured["kwargs"]["collection_mode"] == "lightweight_browser"
 
 
@@ -1065,6 +1065,16 @@ def test_parallel_competitor_job_status_aggregates_progress(monkeypatch) -> None
     assert job["progress"]["completed"] == 3
     assert job["progress"]["remaining"] == 1
     assert all("competitor" in row for row in job["progress"]["rows"])
+
+
+def test_visible_retry_requires_a_display(monkeypatch) -> None:
+    import app.collection_jobs as collection_jobs
+
+    monkeypatch.setattr(collection_jobs.os, "name", "posix")
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+
+    assert collection_jobs._can_launch_visible_browser() is False
 
 
 def test_branding_theme_and_navigation_are_present() -> None:
