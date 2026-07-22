@@ -112,6 +112,11 @@ dialog::backdrop { background: rgba(17,17,17,.45); }
 .comparison-workspace .filters { grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(140px, 1fr)) auto; }
 .inline-action { display: flex; gap: 10px; align-items: end; margin-top: 18px; flex-wrap: wrap; }
 .primary-action { background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+.collector-connection { display: flex; align-items: center; gap: 10px; margin: 18px 0 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: #f8fafc; }
+.collector-connection p { margin: 3px 0 0; }
+.status-dot { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 11px; background: #9aa5b1; }
+.status-dot.online { background: #16844a; box-shadow: 0 0 0 4px #dff4e8; }
+.status-dot.offline { background: #b7791f; box-shadow: 0 0 0 4px #fff2cf; }
 .competitor-picker { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
 .competitor-option { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .disabled-option { opacity: 0.72; }

@@ -862,7 +862,7 @@ def test_price_check_page_combines_upload_summary_and_start_action() -> None:
     assert "Show Missing Prices" not in upload.text
 
 
-def test_price_check_page_only_preselects_runnable_competitors(monkeypatch) -> None:
+def test_price_check_page_preselects_active_local_competitors(monkeypatch) -> None:
     db = _empty_db("price_check_runnable_competitors.db")
     upload_path = TEST_OUTPUT_DIR / "price_check_runnable_competitors.xlsx"
     write_workbook(
@@ -880,10 +880,59 @@ def test_price_check_page_only_preselects_runnable_competitors(monkeypatch) -> N
     upload = client.post("/imports/upload?filename=price_check_runnable_competitors.xlsx", content=upload_path.read_bytes())
 
     assert upload.status_code == 200
-    assert 'value="partzilla"  disabled' in upload.text
-    assert "Needs Server Login" in upload.text
+    assert 'value="partzilla" checked' in upload.text
+    assert "Needs Server Login" not in upload.text
     assert 'value="motosport" checked' in upload.text
     assert 'value="chaparral" checked' in upload.text
+
+
+def test_web_price_check_queues_local_agent_and_reports_live_progress(monkeypatch, tmp_path) -> None:
+    import app.collection_jobs as collection_jobs
+
+    monkeypatch.setattr(collection_jobs, "JOB_DIR", tmp_path / "jobs")
+    monkeypatch.setattr(collection_jobs, "LOCAL_AGENT_STATUS_FILE", tmp_path / "jobs" / "local_agent_status.json")
+    db = _empty_db("local_agent_web_queue.db")
+    result = _upload_simple_batch(db, "local-agent.xlsx", "SKU-AGENT", "Honda", "H-AGENT")
+    client = TestClient(create_app(db), raise_server_exceptions=False)
+
+    queued = client.post(
+        f"/imports/{result.import_batch_id}/start-price-check",
+        data={"competitor": ["partzilla", "motosport", "chaparral"], "delay_seconds": "1"},
+        follow_redirects=False,
+    )
+
+    assert queued.status_code == 303
+    job_id = queued.headers["location"].split("job_id=")[-1]
+    claimed = client.post("/collector/agent/jobs/next?agent_id=test-desktop")
+    assert claimed.status_code == 200
+    assert claimed.json()["job_id"] == job_id
+    assert claimed.json()["competitors"] == ["partzilla", "motosport", "chaparral"]
+
+    progress = {
+        "status": "running",
+        "run_status": "running",
+        "total": 1,
+        "completed": 1,
+        "remaining": 0,
+        "eta_seconds": 0,
+        "last_attempted_part": "H-AGENT",
+        "rows": [{"run_order": 1, "manufacturer": "Honda", "oem_part_number": "H-AGENT", "result_type": "first_observation"}],
+    }
+    updated = client.post(
+        f"/collector/agent/jobs/{job_id}/progress/partzilla?agent_id=test-desktop",
+        json=progress,
+    )
+    assert updated.status_code == 200
+    status = client.get(f"/collections/jobs/{job_id}/status").json()
+    assert status["progress_by_competitor"]["partzilla"]["completed"] == 1
+    assert status["progress"]["last_attempted_part"] == "H-AGENT"
+
+    completed = client.post(
+        f"/collector/agent/jobs/{job_id}/complete?agent_id=test-desktop",
+        json={"status": "completed", "message": "Finished."},
+    )
+    assert completed.status_code == 200
+    assert client.get(f"/collections/jobs/{job_id}/status").json()["status"] == "completed"
 
 
 def test_price_check_start_validation_error_renders_combined_page() -> None:

@@ -115,8 +115,15 @@ def test_local_collector_prepares_temporary_database(tmp_path):
     )
     db = tmp_path / "local.db"
 
-    prepare_local_database(input_path, db, ["partzilla", "motosport", "chaparral"])
+    next_run_id = prepare_local_database(
+        input_path,
+        db,
+        ["partzilla", "motosport", "chaparral"],
+        run_id_floor=9000,
+    )
 
     with connect_database(db) as conn:
         assert conn.execute("SELECT COUNT(*) FROM products").fetchone()[0] == 1
         assert conn.execute("SELECT COUNT(*) FROM competitor_listings").fetchone()[0] == 3
+        assert conn.execute("SELECT MAX(scan_run_id) FROM scan_runs").fetchone()[0] == 9000
+    assert next_run_id == 9001

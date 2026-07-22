@@ -21,10 +21,13 @@ from app.input_loader import FIELDNAMES
 
 
 JOB_DIR = DATA_DIR / "output" / "ui_collection_jobs"
+LOCAL_AGENT_STATUS_FILE = JOB_DIR / "local_agent_status.json"
 MAX_UI_COLLECTION_PARTS = 50
 MIN_UI_DELAY_SECONDS = 1
 DEFAULT_PRICE_COLLECTION_MODE = "lightweight_browser"
 DEFAULT_PRICE_HEADLESS = True
+ACTIVE_JOB_STATUSES = {"queued_local", "running"}
+_LOCAL_JOB_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -111,6 +114,7 @@ def validate_collection_request(
     delay_seconds: int,
     competitor_keys: list[str] | None = None,
     max_parts: int | None = MAX_UI_COLLECTION_PARTS,
+    require_saved_auth: bool = True,
 ) -> list[str]:
     if competitor_keys is None:
         competitor_keys = ["partzilla"]
@@ -125,7 +129,7 @@ def validate_collection_request(
         errors.append("Database not found.")
     for competitor_key in competitor_keys:
         adapter = get_competitor(competitor_key)
-        if adapter.requires_login and not auth_state_exists(adapter.competitor_key):
+        if require_saved_auth and adapter.requires_login and not auth_state_exists(adapter.competitor_key):
             errors.append(f"Saved {adapter.display_name} authentication state was not found. Run auth_bootstrap.py --competitor {adapter.competitor_key} first.")
     if max_parts is not None and len(parts) > max_parts:
         errors.append(f"Interface-launched test collections are limited to {max_parts} products.")
@@ -144,7 +148,10 @@ def active_job_exists() -> bool:
             metadata = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             continue
-        if metadata.get("status") == "running" and _running_job_is_active(path, metadata):
+        status = str(metadata.get("status") or "")
+        if status == "queued_local":
+            return True
+        if status == "running" and _running_job_is_active(path, metadata):
             return True
     return False
 
@@ -202,6 +209,7 @@ def start_collection_job(
         "database": str(database),
         "input_file": str(input_path),
         "competitors": competitor_keys,
+        "delay_seconds": delay_seconds,
         "manual_command": _manual_command(input_path=input_path, database=database, max_parts=len(parts), delay_seconds=delay_seconds, collection_mode=collection_mode, competitor_keys=competitor_keys),
     }
     (job_path / "job.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
@@ -287,6 +295,126 @@ def start_price_collection_job(
     )
     thread.start()
     return job_id
+
+
+def queue_local_collection_job(
+    database: Path,
+    parts: list[PlannedCollectionPart],
+    *,
+    import_batch_id: int,
+    delay_seconds: int = 1,
+    competitor_keys: list[str] | None = None,
+) -> str:
+    competitor_keys = competitor_keys or ["partzilla"]
+    job_id = start_collection_job(
+        database,
+        parts,
+        delay_seconds=delay_seconds,
+        collection_mode="full_browser",
+        competitor_keys=competitor_keys,
+        launch_background=False,
+    )
+    job_path = JOB_DIR / job_id
+    job_json = job_path / "job.json"
+    metadata = json.loads(job_json.read_text(encoding="utf-8"))
+    metadata.update(
+        {
+            "status": "queued_local",
+            "execution_target": "local_agent",
+            "import_batch_id": import_batch_id,
+            "collection_mode": "full_browser",
+            "delay_seconds": delay_seconds,
+            "mode": "visible",
+            "competitors": competitor_keys,
+            "parallel_competitors": len(competitor_keys) > 1,
+            "progress_files": {key: str(_competitor_progress_file(job_path, key)) for key in competitor_keys},
+            "message": "Waiting for the Part Pulse collector on your computer.",
+            "updated_at": utc_now(),
+        }
+    )
+    metadata.pop("manual_command", None)
+    _write_json(job_json, metadata)
+    return job_id
+
+
+def claim_next_local_job(agent_id: str) -> dict[str, object] | None:
+    register_local_agent(agent_id)
+    with _LOCAL_JOB_LOCK:
+        if not JOB_DIR.exists():
+            return None
+        for job_json in sorted(JOB_DIR.glob("*/job.json"), key=lambda path: path.stat().st_mtime):
+            metadata = _read_json(job_json)
+            if metadata.get("status") != "queued_local":
+                continue
+            metadata["status"] = "running"
+            metadata["agent_id"] = agent_id
+            metadata["claimed_at"] = utc_now()
+            metadata["updated_at"] = utc_now()
+            metadata["message"] = "Local collector connected. Opening competitor browsers."
+            _write_json(job_json, metadata)
+            return metadata
+    return None
+
+
+def register_local_agent(agent_id: str) -> dict[str, object]:
+    status = {"agent_id": agent_id, "last_seen": utc_now(), "connected": True}
+    JOB_DIR.mkdir(parents=True, exist_ok=True)
+    _write_json(LOCAL_AGENT_STATUS_FILE, status)
+    return status
+
+
+def local_agent_status() -> dict[str, object]:
+    status = _read_json(LOCAL_AGENT_STATUS_FILE)
+    last_seen = str(status.get("last_seen") or "")
+    connected = False
+    try:
+        seen_at = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
+        connected = datetime.now(timezone.utc) - seen_at.astimezone(timezone.utc) <= timedelta(seconds=15)
+    except ValueError:
+        pass
+    status["connected"] = connected
+    return status
+
+
+def local_job_input_path(job_id: str) -> Path | None:
+    path = JOB_DIR / job_id / "selected_parts.csv"
+    return path if path.exists() else None
+
+
+def update_local_job_progress(job_id: str, competitor_key: str, progress: dict[str, object], agent_id: str) -> dict[str, object]:
+    job_path = JOB_DIR / job_id
+    job_json = job_path / "job.json"
+    metadata = _read_json(job_json)
+    if not metadata:
+        raise FileNotFoundError(f"Collection job {job_id} was not found.")
+    competitors = [str(item) for item in metadata.get("competitors", [])]
+    if competitor_key not in competitors:
+        raise ValueError(f"{competitor_key} is not part of collection job {job_id}.")
+    progress["competitor"] = competitor_key
+    _write_json(_competitor_progress_file(job_path, competitor_key), progress)
+    metadata["status"] = "running"
+    metadata["agent_id"] = agent_id
+    metadata["updated_at"] = utc_now()
+    metadata["message"] = f"Checking prices locally. Latest update: {competitor_key}."
+    _write_json(job_json, metadata)
+    register_local_agent(agent_id)
+    return metadata
+
+
+def complete_local_job(job_id: str, *, status: str, message: str, agent_id: str) -> dict[str, object]:
+    job_json = JOB_DIR / job_id / "job.json"
+    metadata = _read_json(job_json)
+    if not metadata:
+        raise FileNotFoundError(f"Collection job {job_id} was not found.")
+    allowed = {"completed", "completed_with_warnings", "failed", "stopped_blocked", "stopped_challenge"}
+    metadata["status"] = status if status in allowed else "failed"
+    metadata["message"] = message
+    metadata["agent_id"] = agent_id
+    metadata["updated_at"] = utc_now()
+    metadata["finished_at"] = utc_now()
+    _write_json(job_json, metadata)
+    register_local_agent(agent_id)
+    return metadata
 
 
 def job_status(job_id: str) -> dict[str, object]:
@@ -506,6 +634,22 @@ def _read_progress(progress_file: Path) -> dict[str, object]:
         return json.loads(progress_file.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return {}
+
+
+def _read_json(path: Path) -> dict[str, object]:
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _write_json(path: Path, value: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(value, indent=2), encoding="utf-8")
+    temporary.replace(path)
 
 
 def _aggregate_progress(progress_by_competitor: dict[str, dict[str, object]], metadata: dict[str, object]) -> dict[str, object]:

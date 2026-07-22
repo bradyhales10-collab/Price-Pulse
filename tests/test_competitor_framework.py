@@ -1779,7 +1779,7 @@ def test_dashboard_competitor_selection_and_warning_render() -> None:
     assert "Partzilla" in page.text
     assert "MotoSport" in page.text
     assert "Active" in page.text
-    assert "Selected competitors will be checked" in page.text
+    assert "Selected competitors run together on your computer" in page.text
 
 
 def test_future_api_source_placeholder_and_file_sources() -> None:

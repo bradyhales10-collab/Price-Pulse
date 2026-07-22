@@ -69,6 +69,7 @@ from probe_cart_price import (
 
 HEAVY_RESOURCE_TYPES = {"image", "font", "media"}
 COMPETITOR_RENDER_SETTLE_MS = 1000
+PARTZILLA_RENDER_SETTLE_MS = 1000
 CHAPARRAL_SEARCH_SETTLE_MS = 500
 CHAPARRAL_LOOKUP_POLL_MS = 250
 
@@ -268,7 +269,7 @@ def collect_one_part(database_path: Path, page, planned, scan_run_id: int, setti
         response = page.goto(requested_url, wait_until="domcontentloaded", timeout=settings.timeout)
         navigation_succeeded = True
         status = response.status if response is not None else None
-        page.wait_for_timeout(settings.render_settle_ms)
+        page.wait_for_timeout(min(settings.render_settle_ms, PARTZILLA_RENDER_SETTLE_MS))
         final_url = page.url
         title = page.title()
         html = page.content()

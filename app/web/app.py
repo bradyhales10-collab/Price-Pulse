@@ -23,7 +23,20 @@ from app.web.queries import (
 )
 from app.web.formatters import format_timestamp, humanize_status
 from app.auth_session import InvalidAuthStateError, auth_state_exists, auth_state_status, delete_auth_state, save_uploaded_auth_state
-from app.collection_jobs import job_status, plan_import_collection, plan_ui_collection, start_price_collection_job, validate_collection_request
+from app.collection_jobs import (
+    claim_next_local_job,
+    complete_local_job,
+    job_status,
+    local_agent_status,
+    local_job_input_path,
+    plan_import_collection,
+    plan_ui_collection,
+    queue_local_collection_job,
+    register_local_agent,
+    start_price_collection_job,
+    update_local_job_progress,
+    validate_collection_request,
+)
 from app.collector_bridge import import_collection_summary, selected_parts_csv
 from app.competitors.registry import list_competitors, select_competitors
 from app.comparison import ComparisonFilters, comparison_rows
@@ -648,6 +661,7 @@ def create_app(database: Path) -> FastAPI:
                 "database": app.state.database,
                 "history": import_history(app.state.database),
                 "competitors": _competitor_form_options(),
+                "local_agent": local_agent_status(),
                 "max_upload_mb": 20,
                 "preview": preview,
                 "job": job,
@@ -767,10 +781,24 @@ def create_app(database: Path) -> FastAPI:
             return _imports_response(request, app.state.database, preview=preview, errors=[str(exc)], status_code=400)
         competitor_keys = [adapter.competitor_key for adapter in adapters]
         parts = plan_import_collection(app.state.database, import_batch_id=import_batch_id)
-        errors = validate_collection_request(app.state.database, parts, confirmation="RUN", delay_seconds=delay_seconds, competitor_keys=competitor_keys, max_parts=None)
+        errors = validate_collection_request(
+            app.state.database,
+            parts,
+            confirmation="RUN",
+            delay_seconds=delay_seconds,
+            competitor_keys=competitor_keys,
+            max_parts=None,
+            require_saved_auth=False,
+        )
         if errors:
             return _imports_response(request, app.state.database, preview=preview, errors=errors, status_code=400)
-        job_id = start_price_collection_job(app.state.database, parts, delay_seconds=delay_seconds, competitor_keys=competitor_keys)
+        job_id = queue_local_collection_job(
+            app.state.database,
+            parts,
+            import_batch_id=import_batch_id,
+            delay_seconds=delay_seconds,
+            competitor_keys=competitor_keys,
+        )
         return RedirectResponse(f"/imports?job_id={job_id}", status_code=303)
 
     @app.get("/imports/{import_batch_id}/validation-errors.csv")
@@ -799,7 +827,7 @@ def create_app(database: Path) -> FastAPI:
         )
 
     @app.post("/collector/results/upload")
-    async def collector_results_upload(request: Request, competitor: str = "", filename: str = ""):
+    async def collector_results_upload(request: Request, competitor: str = "", filename: str = "", job_id: str = ""):
         content = await request.body()
         upload_dir = OUTPUT_DIR / "collector_uploads"
         upload_dir.mkdir(parents=True, exist_ok=True)
@@ -807,6 +835,10 @@ def create_app(database: Path) -> FastAPI:
         saved_path = upload_dir / f"{Path(safe_name).stem}-{quote(competitor or 'unknown', safe='')}.csv"
         saved_path.write_bytes(content)
         result = import_collection_summary(app.state.database, summary_csv=content, fallback_competitor=competitor or None)
+        if job_id:
+            current = job_status(job_id)
+            if current.get("status") != "not_found":
+                current["message"] = f"Imported {result.rows_imported} {result.competitor} results."
         return JSONResponse(
             {
                 "status": "imported",
@@ -818,6 +850,64 @@ def create_app(database: Path) -> FastAPI:
                 "successful_rows": result.successful_rows,
             }
         )
+
+    @app.post("/collector/agent/jobs/next")
+    def collector_agent_next(agent_id: str):
+        job = claim_next_local_job(agent_id)
+        if job is None:
+            return Response(status_code=204)
+        job_id = str(job["job_id"])
+        return JSONResponse(
+            {
+                "job_id": job_id,
+                "import_batch_id": job.get("import_batch_id"),
+                "competitors": job.get("competitors", []),
+                "planned_count": job.get("planned_count", 0),
+                "collection_mode": job.get("collection_mode", "full_browser"),
+                "delay_seconds": int(job.get("delay_seconds") or 1),
+                "input_url": f"/collector/agent/jobs/{job_id}/input.csv",
+            }
+        )
+
+    @app.post("/collector/agent/heartbeat")
+    def collector_agent_heartbeat(agent_id: str):
+        return JSONResponse(register_local_agent(agent_id))
+
+    @app.get("/collector/agent/status")
+    def collector_agent_status():
+        return JSONResponse(local_agent_status())
+
+    @app.get("/collector/agent/jobs/{job_id}/input.csv")
+    def collector_agent_job_input(job_id: str):
+        path = local_job_input_path(job_id)
+        if path is None:
+            return JSONResponse({"status": "not_found", "message": "Collector input was not found."}, status_code=404)
+        return FileResponse(path, media_type="text/csv", filename=f"part-pulse-job-{job_id}.csv")
+
+    @app.post("/collector/agent/jobs/{job_id}/progress/{competitor_key}")
+    async def collector_agent_job_progress(request: Request, job_id: str, competitor_key: str, agent_id: str):
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            return JSONResponse({"status": "invalid", "message": "Progress must be a JSON object."}, status_code=400)
+        try:
+            update_local_job_progress(job_id, competitor_key, payload, agent_id)
+        except (FileNotFoundError, ValueError) as exc:
+            return JSONResponse({"status": "invalid", "message": str(exc)}, status_code=404)
+        return JSONResponse({"status": "updated"})
+
+    @app.post("/collector/agent/jobs/{job_id}/complete")
+    async def collector_agent_job_complete(request: Request, job_id: str, agent_id: str):
+        payload = await request.json()
+        try:
+            metadata = complete_local_job(
+                job_id,
+                status=str(payload.get("status") or "failed"),
+                message=str(payload.get("message") or "Local collection finished."),
+                agent_id=agent_id,
+            )
+        except FileNotFoundError as exc:
+            return JSONResponse({"status": "not_found", "message": str(exc)}, status_code=404)
+        return JSONResponse({"status": metadata["status"]})
 
     @app.get("/collections/test", response_class=HTMLResponse)
     def collection_test(request: Request, manufacturer: str = "", limit: int = 25):
@@ -910,7 +1000,7 @@ def _competitor_form_options():
     options = []
     for competitor in list_competitors():
         auth_saved = auth_state_exists(competitor.competitor_key)
-        can_run_now = not competitor.requires_login or auth_saved
+        can_run_now = competitor.capabilities.status == "active"
         options.append(
             {
                 "competitor_key": competitor.competitor_key,
@@ -919,7 +1009,7 @@ def _competitor_form_options():
                 "requires_login": competitor.requires_login,
                 "auth_state_saved": auth_saved,
                 "can_run_now": can_run_now,
-                "default_checked": competitor.capabilities.status == "active" and can_run_now,
+                "default_checked": can_run_now,
             }
         )
     return options
@@ -1017,6 +1107,7 @@ def _imports_response(
             "database": database,
             "history": import_history(database),
             "competitors": _competitor_form_options(),
+            "local_agent": local_agent_status(),
             "max_upload_mb": 20,
             "preview": preview,
             "job": job,

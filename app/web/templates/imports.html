@@ -57,31 +57,21 @@
   </details>
   {% endif %}
   {% if preview.invalid_rows == 0 %}
-  <details class="preview-details local-collector-panel">
-    <summary>Use Local Collector When Cloud Is Blocked</summary>
-    <p class="muted">Download this file, run the local collector on your Windows computer, then upload the finished collection summary here. This keeps the dashboard on Oracle while price checks run from your normal connection.</p>
-    <div class="quick-actions">
-      <a class="button" href="/collector/imports/{{ preview.import_batch_id }}/input.csv">Download Local Collector File</a>
+  <div class="collector-connection" data-local-agent-status>
+    <span class="status-dot {{ 'online' if local_agent.connected else 'offline' }}" data-agent-dot></span>
+    <div>
+      <strong data-agent-label>{{ 'Desktop collector connected' if local_agent.connected else 'Desktop collector offline' }}</strong>
+      <p class="muted" data-agent-message>{{ 'Price checks will open and run on your computer.' if local_agent.connected else 'Start the Part Pulse Collector on your computer before checking prices.' }}</p>
     </div>
-    <form data-collector-upload-form class="upload-box" data-import-batch-id="{{ preview.import_batch_id }}">
-      <select name="competitor" aria-label="Competitor">
-        {% for competitor in competitors %}
-          <option value="{{ competitor.competitor_key }}">{{ competitor.display_name }}</option>
-        {% endfor %}
-      </select>
-      <input type="file" name="collection_summary" accept=".csv" required>
-      <button type="submit">Upload Local Results</button>
-      <p data-collector-upload-status>Upload the collection_summary.csv created by the local collector.</p>
-    </form>
-  </details>
+  </div>
   <form action="/imports/{{ preview.import_batch_id }}/start-price-check" method="post" class="primary-action">
     <div class="competitor-picker">
       <strong>Competitors</strong>
       {% for competitor in competitors %}
-        <label class="check competitor-option {{ 'disabled-option' if not competitor.can_run_now else '' }}"><input type="checkbox" name="competitor" value="{{ competitor.competitor_key }}" {{ 'checked' if competitor.default_checked else '' }} {{ 'disabled' if not competitor.can_run_now else '' }}> {{ competitor.display_name }} {% if competitor.capabilities.status == 'active' %}{{ badge('Active', 'success') }}{% else %}{{ badge('Experimental Probe', 'warning') }}{% endif %}{% if competitor.requires_login and not competitor.auth_state_saved %}{{ badge('Needs server login', 'warning') }}{% elif competitor.requires_login %}{{ badge('Login saved', 'success') }}{% endif %}</label>
+        <label class="check competitor-option {{ 'disabled-option' if not competitor.can_run_now else '' }}"><input type="checkbox" name="competitor" value="{{ competitor.competitor_key }}" {{ 'checked' if competitor.default_checked else '' }} {{ 'disabled' if not competitor.can_run_now else '' }}> {{ competitor.display_name }} {% if competitor.capabilities.status == 'active' %}{{ badge('Active', 'success') }}{% else %}{{ badge('Experimental Probe', 'warning') }}{% endif %}</label>
       {% endfor %}
     </div>
-    <p class="muted">Selected competitors will be checked against the uploaded parts list and saved to production price history.</p>
+    <p class="muted">Selected competitors run together on your computer. Results and live progress are sent back to Part Pulse automatically.</p>
     <div class="inline-action"><label>Delay seconds</label><input name="delay_seconds" type="number" min="1" value="1"><button type="submit">Start Checking Prices</button></div>
   </form>
   {% else %}
@@ -98,7 +88,7 @@
 
 {% if job %}
 <section class="card" data-job-status data-job-id="{{ job.job_id }}">
-  <div class="section-title"><h2>Live Price Check</h2>{{ badge(job.status, 'blue') }}</div>
+  <div class="section-title"><h2>Live Price Check</h2>{{ badge(job.status|humanize, 'blue') }}</div>
   <div class="metrics">
     <span>Status <b data-status>{{ job.status }}</b></span>
     <span>Competitor <b data-competitor>{{ job.progress.competitor if job.progress else '' }}</b></span>

@@ -70,6 +70,26 @@ Ctrl+C
 
 The current phase includes dashboard, product catalog, price check, price comparison, scan runs, and data-quality pages. Review queue, pricing rules, and settings are shown as future navigation items.
 
+## Desktop Collector
+
+The production dashboard can stay on Oracle while browser price checks run from a Windows computer. This avoids competitor blocks against cloud data-center addresses while keeping uploads, progress, and results centralized in Part Pulse.
+
+One-time Windows setup:
+
+1. Pull the current project and confirm the virtual environment and Chromium are installed.
+2. Double-click `Setup Part Pulse Collector.cmd`.
+3. Enter the Part Pulse web address, username, and password.
+
+The password is protected with the current Windows user's credential encryption and is not committed to Git. Setup adds the collector to the current user's Windows Startup folder and starts it immediately.
+
+After setup, the Price Check page shows whether the desktop collector is connected. Clicking **Start Checking Prices** queues the selected competitors, opens their browser windows together on the collector computer, and displays per-competitor progress and ETA on the webpage. Results are uploaded automatically.
+
+The background agent log is stored at:
+
+```text
+data/output/local_bridge/local_collector_agent.log
+```
+
 ### Dashboard Workflow
 
 Start the local dashboard:

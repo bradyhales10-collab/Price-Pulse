@@ -193,7 +193,7 @@ function renderProgress(job) {
       <div class="progress-card">
         <span>${key}</span>
         <b>${item.completed ?? 0} / ${item.total ?? 0}</b>
-        <small>${item.run_status || item.status || "waiting"}${item.last_attempted_part ? ` · Last: ${item.last_attempted_part}` : ""}</small>
+        <small>${item.run_status || item.status || "waiting"}${item.last_attempted_part ? ` | Last: ${item.last_attempted_part}` : ""}</small>
       </div>
     `).join("");
   }
@@ -408,7 +408,29 @@ function pollJob() {
     .catch(() => window.setTimeout(pollJob, 5000));
 }
 
+function pollLocalAgent() {
+  const root = document.querySelector("[data-local-agent-status]");
+  if (!root) return;
+  fetch("/collector/agent/status")
+    .then((response) => response.json())
+    .then((status) => {
+      const connected = Boolean(status.connected);
+      const dot = root.querySelector("[data-agent-dot]");
+      const label = root.querySelector("[data-agent-label]");
+      const message = root.querySelector("[data-agent-message]");
+      dot?.classList.toggle("online", connected);
+      dot?.classList.toggle("offline", !connected);
+      if (label) label.textContent = connected ? "Desktop collector connected" : "Desktop collector offline";
+      if (message) message.textContent = connected
+        ? "Price checks will open and run on your computer."
+        : "Start the Part Pulse Collector on your computer before checking prices.";
+      window.setTimeout(pollLocalAgent, 5000);
+    })
+    .catch(() => window.setTimeout(pollLocalAgent, 10000));
+}
+
 pollJob();
+pollLocalAgent();
 applyTableSorting();
 initializePriceMarginPairs();
 restoreScrollPosition();
