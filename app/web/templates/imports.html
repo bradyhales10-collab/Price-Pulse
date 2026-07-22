@@ -18,6 +18,8 @@
   </form>
 </section>
 
+{% include "collector_status.html" %}
+
 {% if history %}
 <section class="card">
   <div class="section-title"><h2>Uploaded Files</h2><form method="post" action="/imports/history/clear" onsubmit="return confirm('Clear recent upload history? Imported products and prices will stay in the catalog.');"><button type="submit">Clear Recent Files</button></form></div>
@@ -57,13 +59,6 @@
   </details>
   {% endif %}
   {% if preview.invalid_rows == 0 %}
-  <div class="collector-connection" data-local-agent-status>
-    <span class="status-dot {{ 'online' if local_agent.connected else 'offline' }}" data-agent-dot></span>
-    <div>
-      <strong data-agent-label>{{ 'Desktop collector connected' if local_agent.connected else 'Desktop collector offline' }}</strong>
-      <p class="muted" data-agent-message>{{ 'Price checks will open and run on your computer.' if local_agent.connected else 'Start the Part Pulse Collector on your computer before checking prices.' }}</p>
-    </div>
-  </div>
   <form action="/imports/{{ preview.import_batch_id }}/start-price-check" method="post" class="primary-action">
     <div class="competitor-picker">
       <strong>Competitors</strong>
@@ -85,33 +80,4 @@
 {% endif %}
 
 {% include "comparison_section.html" %}
-
-{% if job %}
-<section class="card" data-job-status data-job-id="{{ job.job_id }}">
-  <div class="section-title"><h2>Live Price Check</h2>{{ badge(job.status|humanize, 'blue') }}</div>
-  <div class="metrics">
-    <span>Status <b data-status>{{ job.status }}</b></span>
-    <span>Competitor <b data-competitor>{{ job.progress.competitor if job.progress else '' }}</b></span>
-    <span>Checked <b class="checked-count"><span data-completed>{{ job.progress.completed if job.progress else 0 }}</span><i>/</i><span data-total>{{ job.progress.total if job.progress else job.planned_count or 0 }}</span></b></span>
-    <span>Remaining <b data-remaining>{{ job.progress.remaining if job.progress else job.planned_count or 0 }}</b></span>
-    <span>ETA <b data-eta>Calculating</b></span>
-  </div>
-  {% if job.message %}<p>{{ badge('Message', 'warning') }} <span data-message>{{ job.message }}</span></p>{% else %}<p data-message></p>{% endif %}
-  {% if job.manual_command %}<details><summary>PowerShell fallback</summary><pre><code>{{ job.manual_command }}</code></pre></details>{% endif %}
-  <div class="progress-grid" data-competitor-progress></div>
-</section>
-<section class="card">
-  <div class="section-title"><h2>Next Steps</h2></div>
-  <div class="quick-actions">
-    <a class="button" href="/imports">View Price Comparison</a>
-    <a class="button" href="/imports">Export Price Updates</a>
-    <a class="button" href="/quality">Check Data Quality</a>
-  </div>
-</section>
-<section class="card">
-  <div class="section-title"><h2>Recent Parts Checked</h2><span data-last-part></span></div>
-  <div class="table-wrap"><table><thead><tr><th>#</th><th>Competitor</th><th>Manufacturer</th><th>OEM Part</th><th>Price</th><th>Result</th><th>Checked At</th></tr></thead><tbody data-progress-rows></tbody></table></div>
-  <p><a href="/imports">View Price Comparison</a> | <a href="/runs">View Scan Runs</a></p>
-</section>
-{% endif %}
 {% endblock %}

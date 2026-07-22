@@ -1157,6 +1157,16 @@ def test_branding_theme_and_navigation_are_present() -> None:
     assert "Review Queue" not in base
 
 
+def test_price_check_keeps_collector_and_live_status_above_large_tables() -> None:
+    imports = Path("app/web/templates/imports.html").read_text(encoding="utf-8")
+    status = Path("app/web/templates/collector_status.html").read_text(encoding="utf-8")
+
+    assert imports.index('{% include "collector_status.html" %}') < imports.index("{% if history %}")
+    assert imports.index('{% include "collector_status.html" %}') < imports.index('{% include "comparison_section.html" %}')
+    assert "Desktop collector connected" in status
+    assert "Live Price Check" in status
+
+
 def _comparison_db(name: str = "comparison.db") -> Path:
     db = _empty_db(name)
     upload_path = TEST_OUTPUT_DIR / f"{name}.xlsx"
