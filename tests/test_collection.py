@@ -26,6 +26,7 @@ from app.database import (
     create_scan_run,
     initialize_database,
     persist_observation,
+    seed_competitor,
     seed_motosport,
     seed_partzilla,
     table_counts,
@@ -287,6 +288,34 @@ def test_transaction_failure_one_product_does_not_rollback_earlier_product() -> 
             pass
         assert conn.execute("SELECT COUNT(*) FROM current_listing_state").fetchone()[0] == 1
         assert conn.execute("SELECT COUNT(*) FROM scan_events").fetchone()[0] == 1
+
+
+def test_collection_error_row_records_failed_part_without_crashing() -> None:
+    db = _prepared_db("collection_error_row.db", ["41080-1514"])
+    with connect_database(db) as conn:
+        product_id = conn.execute("SELECT product_id FROM products WHERE oem_part_number='41080-1514'").fetchone()[0]
+        competitor_id = seed_competitor(conn, "chaparral")
+        listing_id, _ = upsert_competitor_listing(
+            conn,
+            product_id=int(product_id),
+            competitor_id=competitor_id,
+            competitor_part_number="41080-1514",
+            canonical_url="https://www.chapmoto.com/search/?q=41080-1514&type=oem",
+        )
+        run_id = create_scan_run(conn, competitor_id=competitor_id, requested_part_count=1)
+    planned = PlannedPart(1, "Kawasaki", "41080-1514", int(product_id), listing_id, None, None, False)
+
+    row = collect_parts.collection_error_row(db, planned, run_id, "chaparral", RuntimeError("bad page state"))
+
+    assert row.result_type == "error"
+    assert row.lookup_status == "collection_error"
+    assert row.competitor == "chaparral"
+    assert "bad page state" in row.status_reason
+    assert stop_status_for(row) is None
+    with connect_database(db) as conn:
+        event = conn.execute("SELECT page_classification, error_message FROM scan_events WHERE scan_run_id=?", (run_id,)).fetchone()
+    assert event["page_classification"] == "navigation_error"
+    assert "bad page state" in event["error_message"]
 
 
 def _prepared_db(name: str, parts: list[str]) -> Path:

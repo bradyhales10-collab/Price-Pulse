@@ -176,12 +176,15 @@ def run_collection(args, plan) -> int:
             for planned in plan.planned_parts:
                 if result.rows:
                     time.sleep(args.delay_seconds)
-                if competitor_key == "motosport":
-                    row = collect_one_motosport_part(args.database, page, planned, scan_run_id, settings)
-                elif competitor_key == "chaparral":
-                    row = collect_one_chaparral_part(args.database, page, planned, scan_run_id, settings)
-                else:
-                    row = collect_one_part(args.database, page, planned, scan_run_id, settings)
+                try:
+                    if competitor_key == "motosport":
+                        row = collect_one_motosport_part(args.database, page, planned, scan_run_id, settings)
+                    elif competitor_key == "chaparral":
+                        row = collect_one_chaparral_part(args.database, page, planned, scan_run_id, settings)
+                    else:
+                        row = collect_one_part(args.database, page, planned, scan_run_id, settings)
+                except Exception as exc:
+                    row = collection_error_row(args.database, planned, scan_run_id, competitor_key, exc)
                 result.rows.append(row)
                 result.last_attempted_part = planned.oem_part_number
                 print(f"[{planned.run_order}/{len(plan.planned_parts)}] {planned.oem_part_number} | {row.selling_price or ''} | {row.result_type.upper()}")
@@ -814,6 +817,40 @@ def manufacturer_not_carried_row(database_path: Path, planned, scan_run_id: int,
         result_type="manufacturer_not_carried",
         warning_count=0,
         warnings="",
+    )
+
+
+def collection_error_row(database_path: Path, planned, scan_run_id: int, competitor_key: str, exc: Exception) -> CollectionRow:
+    checked_at = utc_now()
+    reason = f"{type(exc).__name__}: {exc}"
+    with connect_database(database_path) as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO scan_events(scan_run_id, listing_id, checked_at, http_status, page_classification, session_status,
+                navigation_succeeded, price_found, price_parse_confidence, parse_warning_count, parse_warnings,
+                observation_json_path, error_message)
+            VALUES (?, ?, ?, NULL, 'navigation_error', 'unknown', 0, 0, 'low', 1, ?, NULL, ?)
+            """,
+            (scan_run_id, planned.listing_id, checked_at, reason, reason),
+        )
+        scan_event_id = int(cur.lastrowid)
+    return CollectionRow(
+        run_order=planned.run_order,
+        scan_run_id=scan_run_id,
+        scan_event_id=scan_event_id,
+        manufacturer=planned.manufacturer,
+        normalized_manufacturer=normalize_manufacturer(planned.manufacturer),
+        competitor=competitor_key,
+        manufacturer_supported=competitor_supports_manufacturer(competitor_key, planned.manufacturer),
+        lookup_status="collection_error",
+        status_reason=reason,
+        oem_part_number=planned.oem_part_number,
+        checked_at=checked_at,
+        page_classification="navigation_error",
+        session_status="unknown",
+        result_type="error",
+        warning_count=1,
+        warnings=reason,
     )
 
 
