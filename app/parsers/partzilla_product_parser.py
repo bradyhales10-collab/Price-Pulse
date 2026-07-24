@@ -299,17 +299,26 @@ def _extract_availability_raw(html: str, visible_text: str) -> str | None:
 
 
 def _extract_public_selling_price_raw(visible_text: str, html: str = "") -> str | None:
+    visible_lines = _main_product_lines(visible_text)
+    visible_region = " ".join(visible_lines)
+    discounted = re.search(
+        r"(?P<price>\$[\d,]+(?:\.\d{2})?)\s*SAVE\s+\d{1,3}%",
+        visible_region,
+        re.IGNORECASE,
+    )
+    if discounted:
+        return discounted.group("price")
+
     raw = _extract_html_main_product_selling_price_raw(html)
     if raw:
         return raw
 
-    lines = _main_product_lines(visible_text)
-    for index, line in enumerate(lines):
+    for index, line in enumerate(visible_lines):
         lowered = line.lower()
         if "msrp" in lowered or "sign in to see price" in lowered:
             continue
         if "price" in lowered:
-            window = " ".join(lines[index : index + 3])
+            window = " ".join(visible_lines[index : index + 3])
             match = re.search(r"\$[\d,]+(?:\.\d{2})?", window)
             if match:
                 return match.group(0)

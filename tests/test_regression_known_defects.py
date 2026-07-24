@@ -68,6 +68,58 @@ def test_discounted_34028_fixture_selects_customer_payable_price() -> None:
     assert "secondary_price_specification_differs" in observation.parse_warnings
 
 
+def test_partzilla_visible_discount_overrides_stale_structured_offer_price() -> None:
+    html = """
+    <html><body><main>
+    <h1>KAWASAKI OEM FORK CLAMP | 99969-3880</h1>
+    <span data-testid="productDetailPartNumber">Part #: 99969-3880</span>
+    <span data-testid="productFilterValueManufacturer-KAWASAKI">KAWASAKI</span>
+    <script type="application/ld+json">{
+      "@context":"https://schema.org","@type":"Product","mpn":"99969-3880",
+      "name":"KAWASAKI OEM FORK CLAMP | 99969-3880",
+      "offers":{"@type":"Offer","price":681.41,"priceCurrency":"USD",
+        "priceSpecification":{"@type":"UnitPriceSpecification","price":681.41}}
+    }</script>
+    <button data-testid="stockInfoText">In Stock</button>
+    <button>Add to Cart</button>
+    </main></body></html>
+    """
+    visible_text = (
+        "KAWASAKI OEM FORK CLAMP | 99969-3880\n"
+        "Part #: 99969-3880\n"
+        "$633.74 SAVE 7%\n"
+        "In Stock\nQuantity\nAdd to Cart"
+    )
+    record = PartRecord("", "Kawasaki", "99969-3880")
+    observation = parse_partzilla_product_page(
+        ProductParseInput(
+            record=record,
+            requested_url="https://www.partzilla.com/product/kawasaki/99969-3880",
+            final_url="https://www.partzilla.com/product/kawasaki/99969-3880",
+            http_status=200,
+            page_title="KAWASAKI OEM FORK CLAMP - 99969-3880 | partzilla.com",
+            navigation_succeeded=True,
+            exception_message=None,
+            visible_text=visible_text,
+            html=html,
+            detected_signals=[],
+        )
+    )
+    signals = discover_raw_price_signals(html=html, visible_text=visible_text, observation=observation)
+    evidence = build_price_evidence(
+        html=html,
+        visible_text=visible_text,
+        observation=observation,
+        raw_price_signals=signals,
+    )
+    apply_price_evidence_to_observation(observation, evidence)
+
+    assert observation.selling_price == Decimal("633.74")
+    assert observation.reference_price == Decimal("681.41")
+    assert observation.savings_percent == 7
+    assert observation.price_display_type == PriceDisplayType.DISCOUNTED
+
+
 def test_audit_detects_scan_run_supersession_carry_forward() -> None:
     db = Path("data/output/test-artifacts/audit_regression.db")
     if db.exists():

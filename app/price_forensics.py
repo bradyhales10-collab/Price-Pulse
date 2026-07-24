@@ -186,7 +186,12 @@ def build_price_evidence(
         product_name=observation.product_name,
     )
     structured_candidates = _structured_candidates(raw_price_signals or [])
-    first_region_candidates = structured_candidates + _discover_candidates(container_html, container_text, in_first_region=True)
+    rendered_text_candidates = _discover_visible_discount_candidates(visible_text)
+    first_region_candidates = (
+        structured_candidates
+        + _discover_candidates(container_html, container_text, in_first_region=True)
+        + rendered_text_candidates
+    )
     discovery_methods = [
         "product-associated structured offer/list price",
         "visible element inner text",
@@ -560,6 +565,31 @@ def _discover_candidates(
                     found_through_sibling_fallback=found_through_sibling_fallback,
                 )
             )
+    return candidates
+
+
+def _discover_visible_discount_candidates(visible_text: str) -> list[PriceCandidate]:
+    product_text = _main_product_visible_text(visible_text)
+    candidates: list[PriceCandidate] = []
+    pattern = re.compile(
+        r"(?P<price>\$[\d,]+(?:\.\d{2})?)\s*SAVE\s+(?P<percent>\d{1,3})%",
+        re.IGNORECASE,
+    )
+    for index, match in enumerate(pattern.finditer(product_text)):
+        context = _sanitize_context(product_text, match.start(), match.end())
+        candidates.append(
+            _candidate_from_context(
+                raw_text=match.group("price"),
+                context=context,
+                tag=None,
+                attrs={},
+                relative_location=f"rendered_product_discount_{index}",
+                element_visible_text=match.group(0),
+                source_type=PriceCandidateSourceType.FALLBACK,
+                in_first_region=True,
+                found_through_sibling_fallback=False,
+            )
+        )
     return candidates
 
 
