@@ -347,6 +347,25 @@ def test_login_session_upload_saves_valid_state(monkeypatch) -> None:
     assert "Partzilla%20login%20session%20saved" in response.headers["location"]
 
 
+def test_login_session_page_queues_desktop_login_refresh(monkeypatch, tmp_path) -> None:
+    db = _dashboard_db("session-refresh.db")
+    monkeypatch.setattr("app.collection_jobs.LOCAL_LOGIN_REQUEST_DIR", tmp_path / "login_requests")
+    client = _client(db)
+
+    page = client.get("/sessions")
+    assert page.status_code == 200
+    assert "Refresh Login On This Computer" in page.text
+
+    queued = client.post("/sessions/partzilla/refresh-local", follow_redirects=False)
+    assert queued.status_code == 303
+    assert "Desktop%20Collector%20will%20open%20Partzilla%20login%20refresh%20shortly" in queued.headers["location"]
+
+    claimed = client.post("/collector/agent/login/next?agent_id=test-desktop")
+    assert claimed.status_code == 200
+    assert claimed.json()["competitor_key"] == "partzilla"
+    assert client.post("/collector/agent/login/next?agent_id=test-desktop").status_code == 204
+
+
 def test_multi_oem_manufacturer_rendering() -> None:
     db = _dashboard_db("multi_oem.db")
     text = _client(db).get("/").text

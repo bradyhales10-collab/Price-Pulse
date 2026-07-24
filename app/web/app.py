@@ -25,6 +25,7 @@ from app.web.formatters import format_timestamp, humanize_status
 from app.auth_session import InvalidAuthStateError, auth_state_exists, auth_state_status, delete_auth_state, save_uploaded_auth_state
 from app.collection_jobs import (
     claim_next_local_job,
+    claim_next_local_login_refresh,
     complete_local_job,
     job_status,
     local_agent_status,
@@ -32,6 +33,7 @@ from app.collection_jobs import (
     plan_import_collection,
     plan_ui_collection,
     queue_local_collection_job,
+    queue_local_login_refresh,
     register_local_agent,
     start_price_collection_job,
     update_local_job_progress,
@@ -619,6 +621,15 @@ def create_app(database: Path) -> FastAPI:
         delete_auth_state(competitor.competitor_key)
         return RedirectResponse(f"/sessions?message={quote(competitor.display_name + ' login session removed.')}", status_code=303)
 
+    @app.post("/sessions/{competitor_key}/refresh-local")
+    def login_session_refresh_local(competitor_key: str):
+        try:
+            competitor = select_competitors([competitor_key], allow_experimental=True)[0]
+            queue_local_login_refresh(competitor.competitor_key)
+        except ValueError as exc:
+            return RedirectResponse(f"/sessions?error={quote(str(exc))}", status_code=303)
+        return RedirectResponse(f"/sessions?message={quote('Desktop Collector will open ' + competitor.display_name + ' login refresh shortly.')}", status_code=303)
+
     @app.get("/imports", response_class=HTMLResponse)
     def imports(
         request: Request,
@@ -866,6 +877,19 @@ def create_app(database: Path) -> FastAPI:
                 "collection_mode": job.get("collection_mode", "full_browser"),
                 "delay_seconds": int(job.get("delay_seconds") or 1),
                 "input_url": f"/collector/agent/jobs/{job_id}/input.csv",
+            }
+        )
+
+    @app.post("/collector/agent/login/next")
+    def collector_agent_login_next(agent_id: str):
+        request = claim_next_local_login_refresh(agent_id)
+        if request is None:
+            return Response(status_code=204)
+        return JSONResponse(
+            {
+                "request_id": request.get("request_id"),
+                "competitor_key": request.get("competitor_key"),
+                "display_name": request.get("display_name"),
             }
         )
 

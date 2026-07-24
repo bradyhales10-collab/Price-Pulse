@@ -5,8 +5,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import logging
 from logging.handlers import RotatingFileHandler
+import os
 from pathlib import Path
+import subprocess
 import socket
+import sys
 from types import SimpleNamespace
 import time
 import urllib.error
@@ -44,6 +47,18 @@ def main() -> int:
 
     while True:
         try:
+            login_request = _request_json(
+                f"{server_url}/collector/agent/login/next?{urllib.parse.urlencode({'agent_id': agent_id})}",
+                auth_header,
+                method="POST",
+                allow_empty=True,
+            )
+            if login_request:
+                _open_login_refresh(login_request)
+                if args.once:
+                    return 0
+                time.sleep(poll_seconds)
+                continue
             job = _request_json(
                 f"{server_url}/collector/agent/jobs/next?{urllib.parse.urlencode({'agent_id': agent_id})}",
                 auth_header,
@@ -61,6 +76,27 @@ def main() -> int:
             if args.once:
                 return 1
         time.sleep(poll_seconds)
+
+
+def _open_login_refresh(request: dict[str, object]) -> None:
+    competitor = str(request.get("competitor_key") or "").strip().lower()
+    scripts = {
+        "partzilla": ROOT / "Refresh Partzilla Login.cmd",
+        "chaparral": ROOT / "Refresh Chaparral Login.cmd",
+    }
+    urls = {
+        "partzilla": "https://www.partzilla.com/product/kawasaki/41080-1514",
+        "chaparral": "https://www.chapmoto.com/search/?q=41080-1514&type=oem",
+    }
+    script = scripts.get(competitor)
+    if script is None or not script.exists():
+        LOGGER.warning("No login refresh helper is available for %s", competitor)
+        return
+    LOGGER.info("Opening %s login refresh helper", competitor)
+    if os.name == "nt":
+        subprocess.Popen(["cmd.exe", "/c", "start", "", str(script)], cwd=ROOT)
+    else:
+        subprocess.Popen([sys.executable, str(ROOT / "auth_bootstrap.py"), "--competitor", competitor, "--url", urls[competitor]], cwd=ROOT)
 
 
 def _run_job(job: dict[str, object], config: dict[str, object], server_url: str, auth_header: str | None, agent_id: str) -> None:

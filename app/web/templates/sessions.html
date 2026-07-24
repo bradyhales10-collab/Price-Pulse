@@ -56,6 +56,11 @@
               {% endif %}
             </td>
             <td>
+              {% if item.competitor_key in ['partzilla', 'chaparral'] %}
+                <form method="post" action="/sessions/{{ item.competitor_key }}/refresh-local">
+                  <button type="submit">Refresh Login On This Computer</button>
+                </form>
+              {% endif %}
               {% if item.auth_state_saved %}
                 <form method="post" action="/sessions/{{ item.competitor_key }}/delete" onsubmit="return confirm('Remove this saved login session? Price checks for this competitor may require login again.');">
                   <button type="submit" class="link-button">Remove</button>

@@ -22,6 +22,7 @@ from app.input_loader import FIELDNAMES
 
 JOB_DIR = DATA_DIR / "output" / "ui_collection_jobs"
 LOCAL_AGENT_STATUS_FILE = JOB_DIR / "local_agent_status.json"
+LOCAL_LOGIN_REQUEST_DIR = JOB_DIR / "local_login_requests"
 MAX_UI_COLLECTION_PARTS = 50
 MIN_UI_DELAY_SECONDS = 1
 DEFAULT_PRICE_COLLECTION_MODE = "lightweight_browser"
@@ -353,6 +354,44 @@ def claim_next_local_job(agent_id: str) -> dict[str, object] | None:
             metadata["message"] = "Local collector connected. Opening competitor browsers."
             _write_json(job_json, metadata)
             return metadata
+    return None
+
+
+def queue_local_login_refresh(competitor_key: str) -> str:
+    adapter = get_competitor(competitor_key)
+    LOCAL_LOGIN_REQUEST_DIR.mkdir(parents=True, exist_ok=True)
+    request_id = utc_now().replace(":", "").replace("-", "")
+    request_path = LOCAL_LOGIN_REQUEST_DIR / f"{request_id}_{adapter.competitor_key}.json"
+    _write_json(
+        request_path,
+        {
+            "request_id": request_id,
+            "competitor_key": adapter.competitor_key,
+            "display_name": adapter.display_name,
+            "status": "queued",
+            "message": f"Waiting for Desktop Collector to open {adapter.display_name} login.",
+            "created_at": utc_now(),
+            "updated_at": utc_now(),
+        },
+    )
+    return request_id
+
+
+def claim_next_local_login_refresh(agent_id: str) -> dict[str, object] | None:
+    register_local_agent(agent_id)
+    LOCAL_LOGIN_REQUEST_DIR.mkdir(parents=True, exist_ok=True)
+    with _LOCAL_JOB_LOCK:
+        for request_json in sorted(LOCAL_LOGIN_REQUEST_DIR.glob("*.json"), key=lambda path: path.stat().st_mtime):
+            request = _read_json(request_json)
+            if request.get("status") != "queued":
+                continue
+            request["status"] = "opened"
+            request["agent_id"] = agent_id
+            request["claimed_at"] = utc_now()
+            request["updated_at"] = utc_now()
+            request["message"] = "Desktop Collector opened the login refresh helper."
+            _write_json(request_json, request)
+            return request
     return None
 
 
