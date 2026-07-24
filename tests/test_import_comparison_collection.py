@@ -1128,6 +1128,36 @@ def test_parallel_competitor_job_status_aggregates_progress(monkeypatch) -> None
     assert all("competitor" in row for row in job["progress"]["rows"])
 
 
+def test_parallel_status_keeps_polling_when_one_competitor_failed_and_another_runs(monkeypatch) -> None:
+    db = _comparison_db("parallel_progress_mixed.db")
+    monkeypatch.setattr("app.collection_jobs.utc_now", lambda: "2026-07-09T00:20:00Z")
+    monkeypatch.setattr("app.collection_jobs.active_job_exists", lambda: False)
+
+    class FakeThread:
+        def __init__(self, *, target, kwargs, daemon):
+            self.kwargs = kwargs
+
+        def start(self) -> None:
+            job_path = self.kwargs["job_path"]
+            (job_path / "progress_partzilla.json").write_text(
+                json.dumps({"status": "failed", "run_status": "failed", "competitor": "partzilla", "total": 2, "completed": 1, "remaining": 1}),
+                encoding="utf-8",
+            )
+            (job_path / "progress_motosport.json").write_text(
+                json.dumps({"status": "running", "run_status": "running", "competitor": "motosport", "total": 2, "completed": 1, "remaining": 1}),
+                encoding="utf-8",
+            )
+
+    monkeypatch.setattr("app.collection_jobs.threading.Thread", FakeThread)
+    parts = [PlannedCollectionPart("Kawasaki", "K-PRICE", "12.34", "10.00", None), PlannedCollectionPart("Honda", "H-MISSING", "20.00", "", None)]
+
+    job_id = start_price_collection_job(db, parts, delay_seconds=1, competitor_keys=["partzilla", "motosport"])
+    job = job_status(job_id)
+
+    assert job["progress"]["status"] == "running"
+    assert job["progress"]["completed"] == 2
+
+
 def test_visible_retry_requires_a_display(monkeypatch) -> None:
     import app.collection_jobs as collection_jobs
 

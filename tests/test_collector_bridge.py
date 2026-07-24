@@ -4,6 +4,7 @@ from app.collector_bridge import import_collection_summary, selected_parts_csv
 from app.database import connect_database, initialize_database, seed_motosport, upsert_product_and_listing
 from app.models import PartRecord
 from local_collector import prepare_local_database
+from setup_local_collector_agent import normalize_server_url
 
 
 def test_selected_parts_csv_exports_import_batch_parts(tmp_path):
@@ -127,3 +128,8 @@ def test_local_collector_prepares_temporary_database(tmp_path):
         assert conn.execute("SELECT COUNT(*) FROM competitor_listings").fetchone()[0] == 3
         assert conn.execute("SELECT MAX(scan_run_id) FROM scan_runs").fetchone()[0] == 9000
     assert next_run_id == 9001
+
+
+def test_desktop_collector_setup_normalizes_duckdns_url() -> None:
+    assert normalize_server_url("partpulse.duckdns.org") == "https://partpulse.duckdns.org"
+    assert normalize_server_url("https://partpulse.duckdns.org/") == "https://partpulse.duckdns.org"

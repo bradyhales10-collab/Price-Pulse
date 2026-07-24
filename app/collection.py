@@ -113,7 +113,7 @@ def stop_status_for(row: CollectionRow) -> str | None:
         return "stopped_blocked"
     if row.page_classification == "challenge":
         return "stopped_challenge"
-    if row.session_status in {"expired_or_invalid", "authentication_required"} and not row.selling_price:
+    if row.session_status in {"expired_or_invalid", "authentication_required"}:
         return "failed"
     return None
 

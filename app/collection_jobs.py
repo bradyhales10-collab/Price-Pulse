@@ -669,9 +669,12 @@ def _aggregate_progress(progress_by_competitor: dict[str, dict[str, object]], me
     rows = rows[-50:]
     statuses = {str(progress.get("run_status") or progress.get("status") or "") for progress in progresses if progress}
     has_all_progress = len([progress for progress in progresses if progress]) == len(competitors)
-    if any(status in {"failed", "stopped_blocked", "stopped_challenge"} for status in statuses):
+    terminal_statuses = {"completed", "completed_with_warnings", "failed", "stopped_blocked", "stopped_challenge"}
+    if not has_all_progress or any(status not in terminal_statuses for status in statuses):
+        status = "running"
+    elif any(status in {"failed", "stopped_blocked", "stopped_challenge"} for status in statuses):
         status = "failed" if "failed" in statuses else sorted(statuses)[0]
-    elif has_all_progress and all(str(progress.get("run_status") or progress.get("status") or "") in {"completed", "completed_with_warnings"} for progress in progresses):
+    elif all(str(progress.get("run_status") or progress.get("status") or "") in {"completed", "completed_with_warnings"} for progress in progresses):
         status = "completed_with_warnings" if "completed_with_warnings" in statuses else "completed"
     else:
         status = "running"

@@ -96,14 +96,14 @@ def test_stop_statuses_for_block_challenge_429_and_auth_loss() -> None:
     assert stop_status_for(CollectionRow(1, 1, None, "Kawasaki", "A", page_classification="challenge")) == "stopped_challenge"
     assert stop_status_for(CollectionRow(1, 1, None, "Kawasaki", "A", http_status=429)) == "stopped_blocked"
     assert stop_status_for(CollectionRow(1, 1, None, "Kawasaki", "A", session_status="expired_or_invalid")) == "failed"
-    assert stop_status_for(CollectionRow(1, 1, None, "Kawasaki", "A", session_status="expired_or_invalid", selling_price="72.99")) is None
+    assert stop_status_for(CollectionRow(1, 1, None, "Kawasaki", "A", session_status="expired_or_invalid", selling_price="72.99")) == "failed"
 
 
-def test_auth_signal_with_visible_price_does_not_override_success() -> None:
+def test_auth_signal_with_visible_price_still_requires_login_refresh() -> None:
     observation = _obs("72.99")
     observation.session_status = SessionStatus.EXPIRED_OR_INVALID
 
-    assert collect_parts.collection_result_type(observation, 200, "first_observation") == "first_observation"
+    assert collect_parts.collection_result_type(observation, 200, "first_observation") == "authentication_lost"
 
 
 def test_not_found_result_is_logged_without_stopping_collection() -> None:

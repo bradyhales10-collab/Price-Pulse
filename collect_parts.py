@@ -306,6 +306,14 @@ def collect_one_part(database_path: Path, page, planned, scan_run_id: int, setti
     write_sanitized_authenticated_diagnostics(output_dir / "sanitized_diagnostics.txt", observation, exception_message=exception_message)
     write_price_evidence(output_dir / "price_evidence.json", price_evidence)
     write_raw_price_signals(output_dir / "raw_price_signals.json", observation=observation, signals=raw_signals)
+    if observation.session_status.value in {"expired_or_invalid", "authentication_required"}:
+        return authentication_required_row_from_observation(
+            database_path,
+            planned,
+            scan_run_id,
+            observation,
+            observation_path,
+        )
     previous_price = planned.current_price_cents
     with connect_database(database_path) as conn:
         previous = conn.execute("SELECT * FROM current_listing_state WHERE listing_id=?", (planned.listing_id,)).fetchone()
@@ -854,6 +862,57 @@ def collection_error_row(database_path: Path, planned, scan_run_id: int, competi
     )
 
 
+def authentication_required_row_from_observation(database_path: Path, planned, scan_run_id: int, observation, observation_path: Path) -> CollectionRow:
+    checked_at = observation.checked_at or utc_now()
+    reason = "Saved Partzilla login is expired or missing. Refresh the desktop login session before using Partzilla prices."
+    with connect_database(database_path) as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO scan_events(scan_run_id, listing_id, checked_at, http_status, page_classification, session_status,
+                navigation_succeeded, price_found, price_parse_confidence, parse_warning_count, parse_warnings,
+                observation_json_path, error_message)
+            VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, 1, ?, ?, ?)
+            """,
+            (
+                scan_run_id,
+                planned.listing_id,
+                checked_at,
+                observation.http_status,
+                observation.page_classification.value,
+                observation.session_status.value,
+                observation.price_parse_confidence.value,
+                reason,
+                str(observation_path),
+                reason,
+            ),
+        )
+        scan_event_id = int(cur.lastrowid)
+    return CollectionRow(
+        run_order=planned.run_order,
+        scan_run_id=scan_run_id,
+        scan_event_id=scan_event_id,
+        manufacturer=planned.manufacturer,
+        normalized_manufacturer=normalize_manufacturer(planned.manufacturer),
+        competitor="partzilla",
+        manufacturer_supported=True,
+        lookup_status="authentication_lost",
+        status_reason=reason,
+        oem_part_number=planned.oem_part_number,
+        observed_part_number=observation.observed_part_number,
+        product_name=observation.product_name,
+        checked_at=checked_at,
+        http_status=observation.http_status,
+        page_classification=observation.page_classification.value,
+        session_status=observation.session_status.value,
+        result_type="authentication_lost",
+        price_parse_confidence=observation.price_parse_confidence.value,
+        parse_confidence=observation.parse_confidence.value,
+        warning_count=1,
+        warnings=reason,
+        observation_json_path=str(observation_path),
+    )
+
+
 def _product_observation_from_competitor(observation, *, requested_url: str, checked_at: str) -> ProductObservation:
     price_visibility = PriceVisibility.VISIBLE if observation.selling_price is not None else PriceVisibility.UNKNOWN
     if observation.price_visibility == "not_present":
@@ -947,7 +1006,7 @@ def collection_result_type(observation, http_status: int | None, persisted_resul
         return "not_found"
     if page_classification == "navigation_error":
         return "navigation_error"
-    if observation.session_status.value in {"expired_or_invalid", "authentication_required"} and observation.selling_price is None:
+    if observation.session_status.value in {"expired_or_invalid", "authentication_required"}:
         return "authentication_lost"
     if observation.selling_price is None and page_classification == "normal_product":
         return "no_price"

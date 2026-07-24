@@ -16,7 +16,7 @@ CONFIG_PATH = ROOT / "data" / "private" / "local_collector_agent.json"
 
 def main() -> int:
     print("Part Pulse Desktop Collector Setup")
-    server_url = input("Part Pulse web address [http://141.148.156.56]: ").strip() or "http://141.148.156.56"
+    server_url = normalize_server_url(input("Part Pulse web address [https://partpulse.duckdns.org]: ").strip() or "https://partpulse.duckdns.org")
     username = input("Part Pulse username [brady]: ").strip() or "brady"
     password = getpass.getpass("Part Pulse password: ")
     if not password:
@@ -54,6 +54,15 @@ def main() -> int:
     print("Setup complete. The collector is running and will start automatically when you sign in to Windows.")
     print("Return to Price Check and wait a few seconds for Desktop collector connected.")
     return 0
+
+
+def normalize_server_url(value: str) -> str:
+    cleaned = value.strip().rstrip("/")
+    if not cleaned:
+        return "https://partpulse.duckdns.org"
+    if "://" not in cleaned:
+        cleaned = f"https://{cleaned}"
+    return cleaned
 
 
 if __name__ == "__main__":

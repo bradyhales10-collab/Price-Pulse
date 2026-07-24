@@ -15,6 +15,7 @@ import urllib.request
 
 from app.local_agent_credentials import unprotect_password
 from local_collector import BRIDGE_DIR, _auth_header, _download, _run_competitor, _upload, prepare_local_database
+from setup_local_collector_agent import normalize_server_url
 
 
 ROOT = Path(__file__).resolve().parent
@@ -33,7 +34,7 @@ def main() -> int:
     args = parse_args()
     config = _load_config(args.config)
     _configure_logging()
-    server_url = str(config["server_url"]).rstrip("/")
+    server_url = normalize_server_url(str(config["server_url"]))
     username = str(config.get("username") or "")
     password = unprotect_password(str(config["protected_password"]))
     auth_header = _auth_header(username, password)
