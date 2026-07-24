@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Part Pulse{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260721c">
+  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260724d">
 </head>
 <body>
   <aside class="sidebar">
@@ -22,13 +22,12 @@
       <a class="{{ 'active' if active == 'runs' else '' }}" href="/runs">Scan Runs</a>
       <a class="{{ 'active' if active == 'quality' else '' }}" href="/quality">Data Quality</a>
       <a class="{{ 'active' if active == 'rules' else '' }}" href="/rules">Pricing Rules</a>
-      <a class="{{ 'active' if active == 'sessions' else '' }}" href="/sessions">Login Sessions</a>
       <a class="{{ 'active' if active == 'settings' else '' }}" href="/settings">Settings</a>
     </nav>
   </aside>
   <main class="page">
     {% block content %}{% endblock %}
   </main>
-  <script src="{{ url_for('static', path='/dashboard.js') }}?v=20260721c"></script>
+  <script src="{{ url_for('static', path='/dashboard.js') }}?v=20260724d"></script>
 </body>
 </html>

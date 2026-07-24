@@ -630,6 +630,20 @@ def create_app(database: Path) -> FastAPI:
             return RedirectResponse(f"/sessions?error={quote(str(exc))}", status_code=303)
         return RedirectResponse(f"/sessions?message={quote('Desktop Collector will open ' + competitor.display_name + ' login refresh shortly.')}", status_code=303)
 
+    @app.post("/imports/{competitor_key}/refresh-login")
+    async def import_refresh_login(request: Request, competitor_key: str):
+        body = (await request.body()).decode("utf-8", errors="replace")
+        parsed = parse_qs(body, keep_blank_values=True)
+        import_batch_id = _int_form_value((parsed.get("import_batch_id") or [""])[-1], 0)
+        try:
+            competitor = select_competitors([competitor_key], allow_experimental=True)[0]
+            queue_local_login_refresh(competitor.competitor_key)
+        except ValueError as exc:
+            return RedirectResponse(f"/imports?message={quote(str(exc))}", status_code=303)
+        query = f"import_batch_id={import_batch_id}&" if import_batch_id else ""
+        message = quote(f"{competitor.display_name} login will open on the computer running the Browser Helper.")
+        return RedirectResponse(f"/imports?{query}message={message}", status_code=303)
+
     @app.get("/imports", response_class=HTMLResponse)
     def imports(
         request: Request,
@@ -672,6 +686,7 @@ def create_app(database: Path) -> FastAPI:
                 "database": app.state.database,
                 "history": import_history(app.state.database),
                 "competitors": _competitor_form_options(),
+                "login_sessions": _login_session_rows(),
                 "local_agent": local_agent_status(),
                 "max_upload_mb": 20,
                 "preview": preview,
@@ -696,12 +711,8 @@ def create_app(database: Path) -> FastAPI:
         try:
             result = save_upload(app.state.database, filename=filename or request.headers.get("x-filename", "upload"), content=content)
         except ValueError as exc:
-            return templates.TemplateResponse(
-                request,
-                "imports.html",
-                {"active": "imports", "database": app.state.database, "history": import_history(app.state.database), "competitors": _competitor_form_options(), "error": str(exc), "max_upload_mb": 20},
-                status_code=400,
-            )
+            response = _imports_response(request, app.state.database, errors=[str(exc)], status_code=400)
+            return response
         if all(field in result.auto_mapping.values() for field in REQUIRED_FIELDS):
             return RedirectResponse(f"/imports?import_batch_id={result.import_batch_id}", status_code=303)
         return RedirectResponse(f"/imports/{result.import_batch_id}/map", status_code=303)
@@ -1131,6 +1142,7 @@ def _imports_response(
             "database": database,
             "history": import_history(database),
             "competitors": _competitor_form_options(),
+            "login_sessions": _login_session_rows(),
             "local_agent": local_agent_status(),
             "max_upload_mb": 20,
             "preview": preview,

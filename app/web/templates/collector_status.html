@@ -1,14 +1,14 @@
 <div class="collector-mini" data-local-agent-status>
   <span class="status-dot {{ 'online' if local_agent.connected else 'offline' }}" data-agent-dot></span>
   <div>
-    <strong data-agent-label>{{ 'Desktop collector connected' if local_agent.connected else 'Desktop collector offline' }}</strong>
-    <span class="muted" data-agent-message>{{ 'Runs on this computer.' if local_agent.connected else 'Start collector before checking prices.' }}</span>
+    <strong data-agent-label>{{ 'Browser Helper ready' if local_agent.connected else 'Browser Helper offline' }}</strong>
+    <span class="muted" data-agent-message>{{ 'Ready to check prices.' if local_agent.connected else 'Open the Browser Helper to run checks.' }}</span>
   </div>
 </div>
 
 {% if job %}
-<section class="card" data-job-status data-job-id="{{ job.job_id }}">
-  <div class="section-title"><h2>Live Price Check</h2>{{ badge(job.status|humanize, 'blue') }}</div>
+<section class="card workflow-card active-step" data-job-status data-job-id="{{ job.job_id }}">
+  <div class="section-title"><div><span class="step-label">Step 3</span><h2>Checking Prices</h2></div>{{ badge(job.status|humanize, 'blue') }}</div>
   <div class="metrics">
     <span>Status <b data-status>{{ job.status }}</b></span>
     <span>Competitor <b data-competitor>{{ job.progress.competitor if job.progress else '' }}</b></span>
@@ -20,7 +20,7 @@
   {% if job.manual_command %}<details><summary>PowerShell fallback</summary><pre><code>{{ job.manual_command }}</code></pre></details>{% endif %}
   <div class="progress-grid" data-competitor-progress></div>
 </section>
-<section class="card">
+<section class="card workflow-card">
   <div class="section-title"><h2>Recent Parts Checked</h2><span data-last-part></span></div>
   <div class="table-wrap"><table><thead><tr><th>#</th><th>Competitor</th><th>Manufacturer</th><th>OEM Part</th><th>Price</th><th>Result</th><th>Checked At</th></tr></thead><tbody data-progress-rows></tbody></table></div>
 </section>

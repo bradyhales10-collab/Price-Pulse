@@ -436,10 +436,24 @@ function pollLocalAgent() {
       const message = root.querySelector("[data-agent-message]");
       dot?.classList.toggle("online", connected);
       dot?.classList.toggle("offline", !connected);
-      if (label) label.textContent = connected ? "Desktop collector connected" : "Desktop collector offline";
+      if (label) label.textContent = connected ? "Browser Helper ready" : "Browser Helper offline";
       if (message) message.textContent = connected
-        ? "Runs on this computer."
-        : "Start collector before checking prices.";
+        ? "Ready to check prices."
+        : "Open the Browser Helper to run checks.";
+      document.querySelectorAll("[data-helper-readiness]").forEach((item) => {
+        item.classList.toggle("ready", connected);
+        item.classList.toggle("attention", !connected);
+        const state = item.querySelector("[data-helper-readiness-state]");
+        if (state) state.textContent = connected ? "Ready" : "Needs attention";
+        const detail = item.querySelector("[data-helper-readiness-detail]");
+        if (detail) detail.textContent = connected
+          ? "The Browser Helper is connected and ready."
+          : "Open Start Part Pulse Collector on this computer.";
+      });
+      document.querySelectorAll("[data-start-price-check]").forEach((button) => {
+        button.disabled = !connected;
+        button.title = connected ? "" : "Open the Browser Helper before starting a price check.";
+      });
       window.setTimeout(pollLocalAgent, 5000);
     })
     .catch(() => window.setTimeout(pollLocalAgent, 10000));

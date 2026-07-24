@@ -366,6 +366,36 @@ def test_login_session_page_queues_desktop_login_refresh(monkeypatch, tmp_path) 
     assert client.post("/collector/agent/login/next?agent_id=test-desktop").status_code == 204
 
 
+def test_price_check_queues_login_refresh_without_leaving_workflow(monkeypatch, tmp_path) -> None:
+    db = _dashboard_db("price-check-login-refresh.db")
+    monkeypatch.setattr("app.collection_jobs.LOCAL_LOGIN_REQUEST_DIR", tmp_path / "login_requests")
+    client = _client(db)
+
+    response = client.post(
+        "/imports/partzilla/refresh-login",
+        data={"import_batch_id": "7"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/imports?import_batch_id=7&message=")
+    claimed = client.post("/collector/agent/login/next?agent_id=test-desktop")
+    assert claimed.status_code == 200
+    assert claimed.json()["competitor_key"] == "partzilla"
+
+
+def test_login_maintenance_is_under_settings_instead_of_main_navigation() -> None:
+    db = _dashboard_db("login-settings-navigation.db")
+    client = _client(db)
+
+    price_check = client.get("/imports")
+    settings = client.get("/settings")
+
+    assert '<a class="" href="/sessions">Login Sessions</a>' not in price_check.text
+    assert "Manage Logins" in settings.text
+    assert 'href="/sessions"' in settings.text
+
+
 def test_login_refresh_replaces_duplicate_requests(monkeypatch, tmp_path) -> None:
     db = _dashboard_db("session-refresh-dedupe.db")
     monkeypatch.setattr("app.collection_jobs.LOCAL_LOGIN_REQUEST_DIR", tmp_path / "login_requests")

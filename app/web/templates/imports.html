@@ -3,26 +3,34 @@
 {% block title %}Price Check{% endblock %}
 {% block content %}
 <header class="page-header">
-  <div><h1>Price Check</h1><p>Upload OEM parts, choose competitors, collect prices, then open that file in Price Comparison.</p></div>
+  <div><h1>Price Check</h1><p>Upload a parts file, check competitor prices, and review the results in one place.</p></div>
   <div class="quick-actions"><a class="button" href="/imports/template">Download Template</a></div>
 </header>
 
+<div class="workflow-steps" aria-label="Price check steps">
+  <span class="{{ 'done' if preview or job else 'current' }}"><b>1</b> Upload file</span>
+  <span class="{{ 'done' if job else 'current' if preview else '' }}"><b>2</b> Confirm and start</span>
+  <span class="{{ 'current' if job else '' }}"><b>3</b> Check prices</span>
+  <span class="{{ 'done' if selected_import and rows and not job else '' }}"><b>4</b> Review results</span>
+</div>
+
 {% if error %}<section class="card">{{ badge('Error', 'warning') }} {{ error }}</section>{% endif %}
 {% if errors %}<section class="card">{% for item in errors %}<p>{{ badge('Error', 'warning') }} {{ item }}</p>{% endfor %}</section>{% endif %}
-<section class="card">
-  <div class="section-title"><h2>Upload Parts File</h2>{% if preview %}{{ badge('File Read', 'success') }}{% endif %}</div>
+<section class="card workflow-card {{ 'active-step' if not preview and not job else '' }}">
+  <div class="section-title"><div><span class="step-label">Step 1</span><h2>Upload Parts File</h2></div>{% if preview %}{{ badge('File Ready', 'success') }}{% endif %}</div>
   <form data-upload-form class="upload-box">
     <input type="file" name="upload_file" accept=".xlsx,.csv" required>
-    <button type="submit">Upload File</button>
-    <p data-upload-status>Accepted: .xlsx or .csv, up to {{ max_upload_mb }} MB.</p>
+    <button type="submit">Read File</button>
+    <p data-upload-status>Choose an Excel or CSV file. Part Pulse will verify the parts before anything runs.</p>
   </form>
 </section>
 
 {% include "collector_status.html" %}
 
 {% if history %}
-<section class="card">
-  <div class="section-title"><h2>Uploaded Files</h2><form method="post" action="/imports/history/clear" onsubmit="return confirm('Clear recent upload history? Imported products and prices will stay in the catalog.');"><button type="submit">Clear Recent Files</button></form></div>
+<details class="card workflow-card history-details" {{ 'open' if not preview and not job else '' }}>
+  <summary><strong>Recent Files</strong><span>Open a previous file or review its results.</span></summary>
+  <div class="section-title history-actions"><span></span><form method="post" action="/imports/history/clear" onsubmit="return confirm('Clear recent upload history? Imported products and prices will stay in the catalog.');"><button type="submit" class="link-button">Clear List</button></form></div>
   <div class="table-wrap"><table><thead><tr><th>Date</th><th>Filename</th><th>Rows</th><th>Valid</th><th>Invalid</th><th>Status</th><th></th><th></th></tr></thead><tbody>
     {% for item in history %}
       <tr>
@@ -32,22 +40,28 @@
         <td>{{ item.valid_rows }}</td>
         <td>{{ item.invalid_rows }}</td>
         <td>{{ badge(item.status, 'success' if item.status == 'imported' else 'blue') }}</td>
-        <td><a class="button" href="/imports?import_batch_id={{ item.import_batch_id }}">{% if item.status == 'imported' %}Open Price Check{% else %}Open File{% endif %}</a></td>
+        <td><a class="button" href="/imports?import_batch_id={{ item.import_batch_id }}">Open</a></td>
         <td><form method="post" action="/imports/{{ item.import_batch_id }}/delete" onsubmit="return confirm('Delete this uploaded file and the current comparison rows created from it?');"><button type="submit" class="link-button">Delete</button></form></td>
       </tr>
     {% endfor %}
   </tbody></table></div>
-</section>
+</details>
 {% endif %}
 
 {% if preview %}
-<section class="card">
-  <div class="section-title"><h2>File Read Summary</h2><a href="/imports/{{ preview.import_batch_id }}/validation-errors.csv">Validation CSV</a></div>
+<section class="card workflow-card active-step">
+  <div class="section-title">
+    <div><span class="step-label">Step 2</span><h2>Confirm and Start</h2></div>
+    <div class="quick-actions">
+      <a href="/imports/{{ preview.import_batch_id }}/validation-errors.csv">Download Validation Details</a>
+      {% if preview.invalid_rows == 0 %}<button type="submit" form="price-check-form" data-start-price-check {{ 'disabled' if not local_agent.connected else '' }}>Start Price Check</button>{% endif %}
+    </div>
+  </div>
   <div class="metrics">
-    <span>Rows read <b>{{ preview.rows_read }}</b></span>
-    <span>Valid parts <b>{{ preview.valid_rows }}</b></span>
-    <span>Invalid rows <b>{{ preview.invalid_rows }}</b></span>
-    <span>Duplicate rows <b>{{ preview.duplicate_rows }}</b></span>
+    <span>Total rows <b>{{ preview.rows_read }}</b></span>
+    <span>Parts ready to check <b>{{ preview.valid_rows }}</b></span>
+    {% if preview.invalid_rows %}<span>Rows needing correction <b>{{ preview.invalid_rows }}</b></span>{% endif %}
+    {% if preview.duplicate_rows %}<span>Duplicate rows ignored <b>{{ preview.duplicate_rows }}</b></span>{% endif %}
   </div>
   {% if preview.mapping %}
   <details class="preview-details">
@@ -59,21 +73,53 @@
   </details>
   {% endif %}
   {% if preview.invalid_rows == 0 %}
-  <form action="/imports/{{ preview.import_batch_id }}/start-price-check" method="post" class="primary-action">
-    <div class="competitor-picker">
-      <strong>Competitors</strong>
+  <div class="readiness-list">
+    <div class="readiness-item ready">
+      <span class="readiness-icon">&#10003;</span>
+      <strong>Parts file</strong>
+      <span>{{ preview.valid_rows }} valid parts are ready.</span>
+      <span class="readiness-state">Ready</span>
+    </div>
+    <div class="readiness-item {{ 'ready' if local_agent.connected else 'attention' }}" data-helper-readiness>
+      <span class="readiness-icon">{{ '&#10003;'|safe if local_agent.connected else '!' }}</span>
+      <strong>Browser Helper</strong>
+      <span data-helper-readiness-detail>{{ 'The Browser Helper is connected and ready.' if local_agent.connected else 'Open Start Part Pulse Collector on this computer.' }}</span>
+      <span class="readiness-state" data-helper-readiness-state>{{ 'Ready' if local_agent.connected else 'Needs attention' }}</span>
+    </div>
+    <div class="readiness-item ready">
+      <span class="readiness-icon">&#10003;</span>
+      <strong>Competitor sign-ins</strong>
+      <span>Saved sign-ins are reused. Refresh one only when a site asks you to log in again.</span>
+      <div class="quick-actions">
+        {% for item in login_sessions if item.competitor_key in ['partzilla', 'chaparral'] %}
+        <form method="post" action="/imports/{{ item.competitor_key }}/refresh-login">
+          <input type="hidden" name="import_batch_id" value="{{ preview.import_batch_id }}">
+          <button type="submit" class="link-button">Refresh {{ item.display_name }}</button>
+        </form>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  <form id="price-check-form" action="/imports/{{ preview.import_batch_id }}/start-price-check" method="post" class="primary-action run-controls">
+    <div>
+      <strong>Choose competitors</strong>
+      <p class="muted">Only supported OEM and competitor combinations will be checked.</p>
+    </div>
+    <div class="competitor-picker run-competitors">
       {% for competitor in competitors %}
-        <label class="check competitor-option {{ 'disabled-option' if not competitor.can_run_now else '' }}"><input type="checkbox" name="competitor" value="{{ competitor.competitor_key }}" {{ 'checked' if competitor.default_checked else '' }} {{ 'disabled' if not competitor.can_run_now else '' }}> {{ competitor.display_name }} {% if competitor.capabilities.status == 'active' %}{{ badge('Active', 'success') }}{% else %}{{ badge('Experimental Probe', 'warning') }}{% endif %}</label>
+        <label class="check competitor-option {{ 'disabled-option' if not competitor.can_run_now else '' }}"><input type="checkbox" name="competitor" value="{{ competitor.competitor_key }}" {{ 'checked' if competitor.default_checked else '' }} {{ 'disabled' if not competitor.can_run_now else '' }}> {{ competitor.display_name }}</label>
       {% endfor %}
     </div>
-    <p class="muted">Selected competitors run together on your computer. Results and live progress are sent back to Part Pulse automatically.</p>
-    <div class="inline-action"><label>Delay seconds</label><input name="delay_seconds" type="number" min="1" value="1"><button type="submit">Start Checking Prices</button></div>
+    <details class="advanced-options">
+      <summary>Advanced options</summary>
+      <div class="inline-action"><label>Seconds between checks <input name="delay_seconds" type="number" min="1" value="1"></label></div>
+    </details>
   </form>
   {% else %}
-  <p>{{ badge('Fix File', 'warning') }} Correct the invalid rows, then upload again.</p>
+  <p>{{ badge('File Needs Attention', 'warning') }} Correct the invalid rows, then upload the file again.</p>
   {% endif %}
   <details class="preview-details">
-    <summary>Show row preview (first 25 rows)</summary>
+    <summary>Preview uploaded rows</summary>
     <div class="table-wrap"><table><thead><tr><th>Row</th><th>Status</th><th>Manufacturer</th><th>OEM Part</th><th>Internal SKU</th><th>Our Price</th><th>Messages</th></tr></thead><tbody>{% for row in preview.rows[:25] %}<tr><td>{{ row.source_row_number }}</td><td>{{ badge(row.status, 'success' if row.status == 'valid' else 'warning') }}</td><td>{{ row.values.get('manufacturer','') }}</td><td>{{ row.values.get('oem_part_number','') }}</td><td>{{ row.values.get('internal_sku','') }}</td><td>{{ row.values.get('our_current_price','') }}</td><td>{{ '; '.join(row.messages) }}</td></tr>{% endfor %}</tbody></table></div>
   </details>
 </section>

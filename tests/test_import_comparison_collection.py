@@ -854,13 +854,15 @@ def test_price_check_page_combines_upload_summary_and_start_action() -> None:
 
     upload = client.post("/imports/upload?filename=price_check_page.xlsx", content=upload_path.read_bytes())
     assert upload.status_code == 200
-    assert "File Read Summary" in upload.text
-    assert "Valid parts" in upload.text
-    assert "Start Checking Prices" in upload.text
+    assert "Confirm and Start" in upload.text
+    assert "Parts ready to check" in upload.text
+    assert "Browser Helper" in upload.text
+    assert "valid parts are ready" in upload.text
+    assert "Start Price Check" in upload.text
     assert 'min="1"' in upload.text
-    assert "Show row preview (first 25 rows)" in upload.text
-    assert upload.text.index("Upload Parts File") < upload.text.index("Uploaded Files")
-    assert upload.text.index("Start Checking Prices") < upload.text.index("Show row preview (first 25 rows)")
+    assert "Preview uploaded rows" in upload.text
+    assert upload.text.index("Upload Parts File") < upload.text.index("Recent Files")
+    assert upload.text.index("Start Price Check") < upload.text.index("Preview uploaded rows")
     assert "Show Missing Prices" not in upload.text
 
 
@@ -949,7 +951,7 @@ def test_price_check_start_validation_error_renders_combined_page() -> None:
 
     assert response.status_code == 400
     assert "Delay must be at least 1 second." in response.text
-    assert "Price Comparison" in response.text
+    assert "Review Results" in response.text
     assert "price-check-validation.xlsx" in response.text
 
 
@@ -1196,9 +1198,9 @@ def test_price_check_keeps_collector_and_live_status_above_large_tables() -> Non
 
     assert imports.index('{% include "collector_status.html" %}') < imports.index("{% if history %}")
     assert imports.index('{% include "collector_status.html" %}') < imports.index('{% include "comparison_section.html" %}')
-    assert "Desktop collector connected" in status
+    assert "Browser Helper ready" in status
     assert "collector-mini" in status
-    assert "Live Price Check" in status
+    assert "Checking Prices" in status
     assert "returnToPriceCheckAfterJob(job)" in js
 
 
