@@ -666,6 +666,9 @@ def create_app(database: Path) -> FastAPI:
         if job and import_batch_id is None:
             active_import_id = job.get("import_batch_id")
             import_batch_id = int(active_import_id) if active_import_id else None
+        terminal_job_statuses = {"completed", "completed_with_warnings", "failed", "stopped_blocked", "stopped_challenge"}
+        if view == "results" and job and str(job.get("status") or "") in terminal_job_statuses:
+            job = None
         preview = preview_import(app.state.database, import_batch_id) if import_batch_id and view != "results" and not job else None
         page_size = page_size if page_size in {25, 50, 100} else 50
         filters = ComparisonFilters(

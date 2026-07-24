@@ -946,6 +946,12 @@ def test_web_price_check_queues_local_agent_and_reports_live_progress(monkeypatc
     results = client.get(f"/imports?import_batch_id={result.import_batch_id}&view=results")
     assert "Confirm and Start" not in results.text
     assert "Choose a Different File" in results.text
+    results_from_finished_job = client.get(
+        f"/imports?import_batch_id={result.import_batch_id}&view=results&job_id={job_id}"
+    )
+    assert "Checking Prices" not in results_from_finished_job.text
+    assert "Recent Files" in results_from_finished_job.text
+    assert "Review Results" in results_from_finished_job.text
 
 
 def test_prices_render_without_currency_symbols_and_with_thousands_separators() -> None:
