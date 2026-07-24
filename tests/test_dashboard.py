@@ -384,10 +384,13 @@ def test_login_refresh_replaces_duplicate_requests(monkeypatch, tmp_path) -> Non
 def test_desktop_collector_has_visible_start_helper() -> None:
     helper = Path("Start Part Pulse Collector.cmd").read_text(encoding="utf-8")
     setup = Path("setup_local_collector_agent.py").read_text(encoding="utf-8")
+    agent = Path("local_collector_agent.py").read_text(encoding="utf-8")
 
     assert "local_collector_agent.py" in helper
     assert "--config" in helper
     assert "pythonw.exe" not in setup
+    assert '"cmd.exe", "/k", "call"' in agent
+    assert "CREATE_NEW_CONSOLE" in agent
 
 
 def test_multi_oem_manufacturer_rendering() -> None:

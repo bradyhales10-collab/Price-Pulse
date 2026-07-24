@@ -103,7 +103,11 @@ def _open_login_refresh(request: dict[str, object]) -> None:
         return
     LOGGER.info("Opening %s login refresh helper", competitor)
     if os.name == "nt":
-        subprocess.Popen(["cmd.exe", "/c", "start", "", str(script)], cwd=ROOT)
+        subprocess.Popen(
+            ["cmd.exe", "/k", "call", str(script)],
+            cwd=ROOT,
+            creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+        )
     else:
         subprocess.Popen([sys.executable, str(ROOT / "auth_bootstrap.py"), "--competitor", competitor, "--url", urls[competitor]], cwd=ROOT)
 
@@ -115,7 +119,7 @@ def _recent_login_helper_opened(competitor: str) -> bool:
         if marker.exists():
             data = json.loads(marker.read_text(encoding="utf-8"))
             opened_at = float(data.get("opened_at") or 0)
-            if now - opened_at < 300:
+            if now - opened_at < 45:
                 return True
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.write_text(json.dumps({"competitor": competitor, "opened_at": now}), encoding="utf-8")
