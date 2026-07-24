@@ -39,7 +39,13 @@ def main() -> int:
     _configure_logging()
     server_url = normalize_server_url(str(config["server_url"]))
     username = str(config.get("username") or "")
-    password = unprotect_password(str(config["protected_password"]))
+    password = ""
+    if username and config.get("protected_password"):
+        try:
+            password = unprotect_password(str(config["protected_password"]))
+        except Exception as exc:
+            LOGGER.warning("Saved Desktop Collector password could not be opened. Continuing without web login: %s", exc)
+            username = ""
     auth_header = _auth_header(username, password)
     agent_id = str(config.get("agent_id") or f"{socket.gethostname()}-collector")
     poll_seconds = max(2, int(config.get("poll_seconds") or 3))

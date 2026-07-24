@@ -39,11 +39,10 @@ def main() -> int:
     )
     startup_dir = Path(os.environ["APPDATA"]) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
     startup_dir.mkdir(parents=True, exist_ok=True)
-    pythonw = Path(sys.executable).with_name("pythonw.exe")
-    executable = pythonw if pythonw.exists() else Path(sys.executable)
+    executable = Path(sys.executable)
     startup_command = startup_dir / "Part Pulse Collector.cmd"
     startup_command.write_text(
-        f'@echo off\nstart "" /min "{executable}" "{ROOT / "local_collector_agent.py"}" --config "{CONFIG_PATH}"\n',
+        f'@echo off\ncd /d "{ROOT}"\nstart "Part Pulse Collector" /min "{executable}" "{ROOT / "local_collector_agent.py"}" --config "{CONFIG_PATH}"\n',
         encoding="ascii",
     )
     subprocess.Popen(

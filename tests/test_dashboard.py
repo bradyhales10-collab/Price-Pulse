@@ -366,6 +366,15 @@ def test_login_session_page_queues_desktop_login_refresh(monkeypatch, tmp_path) 
     assert client.post("/collector/agent/login/next?agent_id=test-desktop").status_code == 204
 
 
+def test_desktop_collector_has_visible_start_helper() -> None:
+    helper = Path("Start Part Pulse Collector.cmd").read_text(encoding="utf-8")
+    setup = Path("setup_local_collector_agent.py").read_text(encoding="utf-8")
+
+    assert "local_collector_agent.py" in helper
+    assert "--config" in helper
+    assert "pythonw.exe" not in setup
+
+
 def test_multi_oem_manufacturer_rendering() -> None:
     db = _dashboard_db("multi_oem.db")
     text = _client(db).get("/").text
