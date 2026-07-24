@@ -15,7 +15,7 @@
 <section class="card">
   <div class="section-title">
     <h2>Competitor Readiness</h2>
-    <span class="muted">A saved session lets the server check login-only prices without opening a browser on your computer.</span>
+    <span class="muted">Server sessions are backup files. Desktop price checks also need the login refreshed on the computer running the collector.</span>
   </div>
   <div class="table-wrap">
     <table>
@@ -71,8 +71,8 @@
 
 <section class="card">
   <div class="section-title"><h2>How To Create A Session File</h2></div>
-  <p>Run the login capture on a computer where a browser can open, sign in to the competitor site, then upload the generated JSON file here. Treat that file like a password.</p>
-  <pre><code>.\.venv\Scripts\python.exe auth_bootstrap.py --competitor partzilla</code></pre>
-  <p class="muted">The file will be created under <strong>data/private</strong>. Upload the matching competitor JSON file here, then Part Pulse can reuse that saved sign-in on the server.</p>
+  <p>For normal price checks, refresh the login on the same computer that runs the Desktop Collector. Open <strong>Refresh Partzilla Login.cmd</strong>, sign in, then press Enter in the command window after the site shows you are signed in.</p>
+  <pre><code>.\Refresh Partzilla Login.cmd</code></pre>
+  <p class="muted">The file is saved under <strong>data/private</strong>. Treat it like a password. Uploading the JSON here is useful as a server-side backup, but it does not replace the desktop collector login when checks run on your computer.</p>
 </section>
 {% endblock %}

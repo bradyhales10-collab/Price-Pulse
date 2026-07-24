@@ -360,7 +360,9 @@ def test_comparison_layout_is_compact_and_highlights_lowest_our_price() -> None:
     page = TestClient(create_app(db), raise_server_exceptions=False).get("/comparison")
 
     assert row["our_price_class"] == "price-below-competitors"
+    assert row["gap_price_class"] == "price-difference-lower"
     assert 'class="price-below-competitors"' in page.text
+    assert 'class="price-difference-lower"' in page.text
     assert "Show Lower Prices" in page.text
     assert "Show All Prices" in page.text
     assert "Show Hidden Prices" not in page.text
@@ -1190,11 +1192,14 @@ def test_branding_theme_and_navigation_are_present() -> None:
 def test_price_check_keeps_collector_and_live_status_above_large_tables() -> None:
     imports = Path("app/web/templates/imports.html").read_text(encoding="utf-8")
     status = Path("app/web/templates/collector_status.html").read_text(encoding="utf-8")
+    js = Path("app/web/static/dashboard.js").read_text(encoding="utf-8")
 
     assert imports.index('{% include "collector_status.html" %}') < imports.index("{% if history %}")
     assert imports.index('{% include "collector_status.html" %}') < imports.index('{% include "comparison_section.html" %}')
     assert "Desktop collector connected" in status
+    assert "collector-mini" in status
     assert "Live Price Check" in status
+    assert "returnToPriceCheckAfterJob(job)" in js
 
 
 def _comparison_db(name: str = "comparison.db") -> Path:

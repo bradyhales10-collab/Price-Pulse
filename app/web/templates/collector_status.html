@@ -1,13 +1,10 @@
-<section class="card collector-status-card">
-  <div class="section-title"><h2>Desktop Collector</h2></div>
-  <div class="collector-connection" data-local-agent-status>
-    <span class="status-dot {{ 'online' if local_agent.connected else 'offline' }}" data-agent-dot></span>
-    <div>
-      <strong data-agent-label>{{ 'Desktop collector connected' if local_agent.connected else 'Desktop collector offline' }}</strong>
-      <p class="muted" data-agent-message>{{ 'Price checks will open and run on your computer.' if local_agent.connected else 'Start the Part Pulse Collector on your computer before checking prices.' }}</p>
-    </div>
+<div class="collector-mini" data-local-agent-status>
+  <span class="status-dot {{ 'online' if local_agent.connected else 'offline' }}" data-agent-dot></span>
+  <div>
+    <strong data-agent-label>{{ 'Desktop collector connected' if local_agent.connected else 'Desktop collector offline' }}</strong>
+    <span class="muted" data-agent-message>{{ 'Runs on this computer.' if local_agent.connected else 'Start collector before checking prices.' }}</span>
   </div>
-</section>
+</div>
 
 {% if job %}
 <section class="card" data-job-status data-job-id="{{ job.job_id }}">

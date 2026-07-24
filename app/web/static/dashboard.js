@@ -403,9 +403,25 @@ function pollJob() {
       const status = job.status === "retrying_visible" ? job.status : ((job.progress && job.progress.status) || job.status || "");
       if (!["completed", "failed", "completed_with_warnings", "stopped_blocked", "stopped_challenge"].includes(status)) {
         window.setTimeout(pollJob, 2000);
+      } else {
+        returnToPriceCheckAfterJob(job);
       }
     })
     .catch(() => window.setTimeout(pollJob, 5000));
+}
+
+function returnToPriceCheckAfterJob(job) {
+  if (window.partPulseJobRefreshScheduled) return;
+  window.partPulseJobRefreshScheduled = true;
+  window.setTimeout(() => {
+    const importBatchId = job.import_batch_id || new URLSearchParams(window.location.search).get("import_batch_id");
+    const message = encodeURIComponent("Price check finished.");
+    if (importBatchId) {
+      window.location.href = `/imports?import_batch_id=${encodeURIComponent(importBatchId)}&message=${message}`;
+    } else {
+      window.location.href = `/imports?message=${message}`;
+    }
+  }, 2500);
 }
 
 function pollLocalAgent() {
@@ -422,8 +438,8 @@ function pollLocalAgent() {
       dot?.classList.toggle("offline", !connected);
       if (label) label.textContent = connected ? "Desktop collector connected" : "Desktop collector offline";
       if (message) message.textContent = connected
-        ? "Price checks will open and run on your computer."
-        : "Start the Part Pulse Collector on your computer before checking prices.";
+        ? "Runs on this computer."
+        : "Start collector before checking prices.";
       window.setTimeout(pollLocalAgent, 5000);
     })
     .catch(() => window.setTimeout(pollLocalAgent, 10000));

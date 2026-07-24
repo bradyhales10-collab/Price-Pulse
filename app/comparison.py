@@ -165,6 +165,14 @@ def _comparison_row(row: dict[str, Any]) -> dict[str, Any]:
     row["lowest_competitor_name"] = lowest_name
     row["lowest_competitor_price"] = _format_decimal(lowest_price)
     row["difference_vs_lowest_competitor"] = _format_decimal(lowest_diff)
+    if lowest_diff is None:
+        row["gap_price_class"] = ""
+    elif lowest_diff > 0:
+        row["gap_price_class"] = "price-difference-higher"
+    elif lowest_diff < 0:
+        row["gap_price_class"] = "price-difference-lower"
+    else:
+        row["gap_price_class"] = ""
     if our is not None and available and any(our > price for price in available.values()):
         row["our_price_class"] = "price-above-competitor"
     elif our is not None and available and all(our < price for price in available.values()):

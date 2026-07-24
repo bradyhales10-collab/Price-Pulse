@@ -641,6 +641,7 @@ def _catalog_product_row(row: sqlite3.Row) -> dict[str, Any]:
     data["difference_vs_lowest_competitor"] = _fixed_money(our_cents - lowest_cents) if our_cents is not None and lowest_cents is not None else ""
     data["our_margin_pct"] = _percent_cents(our_cents - cost_cents, our_cents) if our_cents not in (None, 0) and cost_cents is not None else ""
     data["price_difference_class"] = _price_difference_class(our_cents, lowest_cents)
+    data["gap_price_class"] = _price_difference_class(our_cents, lowest_cents)
     data["our_price_class"] = _our_price_class(our_cents, [data.get(f"{key}_selling_price_cents") for key in ("partzilla", "motosport", "chaparral")])
     data["partzilla"] = _competitor_cell(data, "partzilla")
     data["motosport"] = _competitor_cell(data, "motosport")
