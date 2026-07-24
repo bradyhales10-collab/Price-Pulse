@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -70,6 +71,8 @@ from probe_cart_price import (
 HEAVY_RESOURCE_TYPES = {"image", "font", "media"}
 COMPETITOR_RENDER_SETTLE_MS = 1000
 PARTZILLA_RENDER_SETTLE_MS = 1000
+PARTZILLA_PRICE_POLL_MS = 250
+PARTZILLA_PRICE_POLL_ATTEMPTS = 16
 CHAPARRAL_SEARCH_SETTLE_MS = 500
 CHAPARRAL_LOOKUP_POLL_MS = 250
 MOTOSPORT_NAVIGATION_TIMEOUT_MS = 15000
@@ -270,6 +273,32 @@ def _write_progress(args, result: CollectionRunResult, plan, *, status: str, sta
     tmp.replace(path)
 
 
+def _wait_for_partzilla_product_price(page, initial_settle_ms: int) -> str:
+    page.wait_for_timeout(initial_settle_ms)
+    region_text = _partzilla_product_region_text(page)
+    for _ in range(PARTZILLA_PRICE_POLL_ATTEMPTS):
+        if _has_partzilla_purchase_price(region_text):
+            break
+        page.wait_for_timeout(PARTZILLA_PRICE_POLL_MS)
+        region_text = _partzilla_product_region_text(page)
+    return region_text
+
+
+def _partzilla_product_region_text(page) -> str:
+    try:
+        heading = page.locator('[data-testid="productHeadingWrapper"]')
+        if heading.count() != 1:
+            return ""
+        return heading.locator("..").inner_text(timeout=2000)
+    except (PlaywrightTimeoutError, PlaywrightError, Exception):
+        return ""
+
+
+def _has_partzilla_purchase_price(region_text: str) -> bool:
+    without_msrp = re.sub(r"\bMSRP\s*:?\s*\$[\d,]+(?:\.\d{2})?", "", region_text, flags=re.IGNORECASE)
+    return re.search(r"\$[\d,]+(?:\.\d{2})?", without_msrp) is not None
+
+
 def collect_one_part(database_path: Path, page, planned, scan_run_id: int, settings: ProbeSettings) -> CollectionRow:
     support = manufacturer_support_metadata("partzilla", planned.manufacturer, planned.oem_part_number)
     if not support["manufacturer_supported"]:
@@ -287,7 +316,7 @@ def collect_one_part(database_path: Path, page, planned, scan_run_id: int, setti
         response = page.goto(requested_url, wait_until="domcontentloaded", timeout=settings.timeout)
         navigation_succeeded = True
         status = response.status if response is not None else None
-        page.wait_for_timeout(min(settings.render_settle_ms, PARTZILLA_RENDER_SETTLE_MS))
+        _wait_for_partzilla_product_price(page, min(settings.render_settle_ms, PARTZILLA_RENDER_SETTLE_MS))
         final_url = page.url
         title = page.title()
         html = page.content()

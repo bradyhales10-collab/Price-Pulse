@@ -87,6 +87,25 @@ def test_delay_below_minimum_is_rejected() -> None:
         raise AssertionError("expected delay validation error")
 
 
+def test_partzilla_waits_for_signed_in_purchase_price() -> None:
+    page = _HydratingPartzillaPage(
+        [
+            "FORK CLAMP\nSign In To See Price\nMSRP: $681.41",
+            "FORK CLAMP\n$633.74 SAVE 7%\nMSRP: $681.41\nADD TO CART",
+        ]
+    )
+
+    region_text = collect_parts._wait_for_partzilla_product_price(page, 1000)
+
+    assert "$633.74" in region_text
+    assert page.waits == [1000, collect_parts.PARTZILLA_PRICE_POLL_MS]
+
+
+def test_partzilla_msrp_is_not_treated_as_purchase_price() -> None:
+    assert collect_parts._has_partzilla_purchase_price("Sign In To See Price\nMSRP: $681.41") is False
+    assert collect_parts._has_partzilla_purchase_price("$633.74 SAVE 7%\nMSRP: $681.41") is True
+
+
 def test_completed_run_with_row_level_lookup_errors_is_a_warning_not_total_failure() -> None:
     assert collect_parts._normalized_completed_run_status("failed", completed=53, total=53) == "completed_with_warnings"
     assert collect_parts._normalized_completed_run_status("failed", completed=51, total=53) == "failed"
@@ -450,3 +469,33 @@ class _VisibleProductPage:
             def inner_text(self, **_kwargs) -> str:
                 return "DISC (41080-1514)\n$282.32"
         return Locator()
+
+
+class _HydratingPartzillaPage:
+    def __init__(self, regions: list[str]):
+        self.regions = regions
+        self.index = -1
+        self.waits: list[int] = []
+
+    def wait_for_timeout(self, milliseconds: int) -> None:
+        self.waits.append(milliseconds)
+        self.index = min(self.index + 1, len(self.regions) - 1)
+
+    def locator(self, selector: str):
+        assert selector == '[data-testid="productHeadingWrapper"]'
+        page = self
+
+        class Heading:
+            def count(self) -> int:
+                return 1
+
+            def locator(self, child_selector: str):
+                assert child_selector == ".."
+
+                class Parent:
+                    def inner_text(self, **_kwargs) -> str:
+                        return page.regions[page.index]
+
+                return Parent()
+
+        return Heading()

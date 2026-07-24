@@ -433,6 +433,19 @@ def test_uploaded_file_opens_filtered_price_comparison() -> None:
     assert "newer.xlsx" in comparison.text
 
 
+def test_price_check_search_without_selected_file_does_not_submit_empty_import_id() -> None:
+    db = _comparison_db("comparison_search_without_import.db")
+    client = TestClient(create_app(db), raise_server_exceptions=False)
+
+    page = client.get("/imports")
+    search = client.get("/imports?search=K-PRICE")
+
+    assert page.status_code == 200
+    assert 'name="import_batch_id" value=""' not in page.text
+    assert search.status_code == 200
+    assert "K-PRICE" in search.text
+
+
 def test_comparison_page_saves_updated_price_decision() -> None:
     db = _comparison_db("comparison_save_decision.db")
     client = TestClient(create_app(db), raise_server_exceptions=False)

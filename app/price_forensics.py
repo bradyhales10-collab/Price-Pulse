@@ -214,6 +214,16 @@ def build_price_evidence(
         selected_selling = discount_selling
         selected_reference = _reference_for_discount(candidates, discount_selling)
         explanation.append("Visible discounted purchase-panel price with SAVE text selected as current selling price")
+    elif (
+        selected_selling
+        and selected_msrp
+        and selected_selling.source_type == PriceCandidateSourceType.STRUCTURED_PRODUCT_DATA
+        and selected_selling.normalized_value == selected_msrp.normalized_value
+        and "sign in to see price" in container_text.lower()
+    ):
+        selected_selling = None
+        warnings.append("structured_offer_matches_gated_msrp")
+        explanation.append("Structured offer matched the visible MSRP while the payable price remained sign-in gated")
 
     selling_values = {
         candidate.normalized_value
