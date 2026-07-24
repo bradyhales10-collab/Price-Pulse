@@ -222,7 +222,7 @@ def test_product_detail_prefers_supported_competitor_price_over_not_carried_list
     assert response.status_code == 200
     assert "MotoSport" in response.text
     assert "Partzilla" in response.text
-    assert "$77.97" in response.text
+    assert "77.97" in response.text
     assert "Manufacturer Not Carried" in response.text
     assert "Open MotoSport" in response.text
 
@@ -316,11 +316,13 @@ def test_login_sessions_page_shows_competitor_readiness(monkeypatch) -> None:
     response = _client(db).get("/sessions")
 
     assert response.status_code == 200
-    assert "Login Sessions" in response.text
+    assert "Competitor Logins" in response.text
     assert "Partzilla" in response.text
-    assert "Needs Saved Login" in response.text
     assert "MotoSport" in response.text
-    assert "Not required" in response.text
+    assert response.text.count("Refresh Login") >= 3
+    assert "Upload Session" not in response.text
+    assert "How To Create A Session File" not in response.text
+    assert ">Remove<" not in response.text
     assert "cookie" not in response.text.lower()
     assert "token" not in response.text.lower()
 
@@ -354,7 +356,7 @@ def test_login_session_page_queues_desktop_login_refresh(monkeypatch, tmp_path) 
 
     page = client.get("/sessions")
     assert page.status_code == 200
-    assert "Refresh Login On This Computer" in page.text
+    assert "Refresh Login" in page.text
 
     queued = client.post("/sessions/partzilla/refresh-local", follow_redirects=False)
     assert queued.status_code == 303

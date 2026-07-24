@@ -99,7 +99,7 @@
           <td><a href="/products/{{ row.product_id }}">{{ row.oem_part_number }}</a></td>
           <td>{{ row.product_name or '' }}</td>
           <td>{{ badge(row.review_bucket, 'warning' if row.review_bucket in ['Hidden Price','Missing Competitor Price','Missing Cost','Needs Data'] else 'blue') }}<br><span class="muted">{{ row.review_reason }}</span></td>
-          <td data-sort-value="{{ row.our_current_price_display or '' }}">{% if row.our_current_price_display %}<span class="money strong">${{ row.our_current_price_display }}</span>{% else %}<span class="muted">None</span>{% endif %}</td>
+          <td data-sort-value="{{ row.our_current_price_display or '' }}">{% if row.our_current_price_display %}<span class="money strong">{{ row.our_current_price_display|price }}</span>{% else %}<span class="muted">None</span>{% endif %}</td>
           <td>{% if row.lowest_competitor_name %}{{ row.lowest_competitor_name }} {{ money(row.lowest_competitor_price, True) }}{% else %}<span class="muted">None</span>{% endif %}</td>
           <td class="{{ row.price_difference_class }}" data-sort-value="{{ row.difference_vs_lowest_competitor or '' }}">{% if row.difference_vs_lowest_competitor %}{{ money(row.difference_vs_lowest_competitor, True) }}{% else %}<span class="muted">None</span>{% endif %}</td>
           <td>{{ row.recommended_action }}</td>
@@ -111,9 +111,9 @@
             </select>
           </td>
           <td>
-            <input name="suggested_new_price" form="review-{{ row.product_id }}" value="{{ row.suggested_new_price or '' }}" placeholder="Set price">
-            <input type="hidden" name="displayed_suggested_new_price" form="review-{{ row.product_id }}" value="{{ row.suggested_new_price or '' }}">
-            {% if row.rule_suggestion.suggested_price %}<br><span class="muted">Rules suggest ${{ row.rule_suggestion.suggested_price }}</span>{% endif %}
+            <input name="suggested_new_price" form="review-{{ row.product_id }}" value="{{ (row.suggested_new_price|price) if row.suggested_new_price else '' }}" placeholder="Set price">
+            <input type="hidden" name="displayed_suggested_new_price" form="review-{{ row.product_id }}" value="{{ (row.suggested_new_price|price) if row.suggested_new_price else '' }}">
+            {% if row.rule_suggestion.suggested_price %}<br><span class="muted">Rules suggest {{ row.rule_suggestion.suggested_price|price }}</span>{% endif %}
           </td>
           <td data-sort-value="{{ row.current_margin_pct or '' }}">{% if row.current_margin_pct %}{{ row.current_margin_pct }}%{% else %}<span class="muted">Needs cost</span>{% endif %}</td>
           <td>{% if row.updated_margin_pct %}{{ row.updated_margin_pct }}%{% else %}<span class="muted">Needs cost</span>{% endif %}</td>

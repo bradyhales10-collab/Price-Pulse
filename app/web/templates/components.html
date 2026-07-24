@@ -1,6 +1,6 @@
 {% macro money(value, strong=False) -%}
   {% if value %}
-    <span class="{{ 'money strong' if strong else 'money' }}">${{ value }}</span>
+    <span class="{{ 'money strong' if strong else 'money' }}">{{ value|price }}</span>
   {% else %}
     <span class="muted">None</span>
   {% endif %}
@@ -36,7 +36,7 @@
           <td><a href="/products/{{ item.product_id }}">{{ item.oem_part_number }}</a></td>
           <td>{{ item.product_name or 'Unnamed product' }}</td>
           <td>{{ money(item.selling_price, True) }}</td>
-          <td>{% if item.reference_price and item.price_display_type == 'discounted' %}<span class="strike">${{ item.reference_price }}</span>{% else %}{{ money(item.reference_price) }}{% endif %}</td>
+          <td>{% if item.reference_price and item.price_display_type == 'discounted' %}<span class="strike">{{ item.reference_price|price }}</span>{% else %}{{ money(item.reference_price) }}{% endif %}</td>
           <td>{% if item.savings_percent is not none %}<span class="badge success">Save {{ item.savings_percent }}%</span>{% else %}<span class="muted">None</span>{% endif %}</td>
           <td>{{ badge(item.price_display_type, 'success' if item.price_display_type == 'discounted' else 'neutral') }}</td>
           <td>{{ badge(item.availability_status, 'success' if item.availability_status == 'in_stock' else 'blue') }}</td>

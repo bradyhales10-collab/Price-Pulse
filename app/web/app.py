@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlencode
 
@@ -28,6 +29,7 @@ from app.collection_jobs import (
     claim_next_local_login_refresh,
     complete_local_job,
     job_status,
+    latest_job_for_import,
     local_agent_status,
     local_job_input_path,
     plan_import_collection,
@@ -70,6 +72,7 @@ WEB_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
 templates.env.filters["datetime"] = format_timestamp
 templates.env.filters["humanize"] = humanize_status
+templates.env.filters["price"] = lambda value: _format_price(value)
 
 
 def create_app(database: Path) -> FastAPI:
@@ -649,6 +652,7 @@ def create_app(database: Path) -> FastAPI:
         request: Request,
         import_batch_id: int | None = None,
         job_id: str = "",
+        view: str = "",
         search: str = "",
         price_position: str = "",
         competitor_discounted: int = 0,
@@ -657,7 +661,7 @@ def create_app(database: Path) -> FastAPI:
         page_size: int = 50,
         message: str = "",
     ):
-        preview = preview_import(app.state.database, import_batch_id) if import_batch_id else None
+        preview = preview_import(app.state.database, import_batch_id) if import_batch_id and view != "results" else None
         job = job_status(job_id) if job_id else None
         page_size = page_size if page_size in {25, 50, 100} else 50
         filters = ComparisonFilters(
@@ -684,7 +688,7 @@ def create_app(database: Path) -> FastAPI:
             {
                 "active": "imports",
                 "database": app.state.database,
-                "history": import_history(app.state.database),
+                "history": _import_history_rows(app.state.database),
                 "competitors": _competitor_form_options(),
                 "login_sessions": _login_session_rows(),
                 "local_agent": local_agent_status(),
@@ -1017,6 +1021,27 @@ async def _urlencoded_form(request: Request) -> dict[str, str]:
     return {key: values[-1] if values else "" for key, values in parsed.items()}
 
 
+def _format_price(value: object) -> str:
+    if value is None or value == "":
+        return ""
+    cleaned = str(value).strip().replace("$", "").replace(",", "")
+    try:
+        return f"{Decimal(cleaned):,.2f}"
+    except InvalidOperation:
+        return str(value).replace("$", "")
+
+
+def _import_history_rows(database: Path) -> list[dict[str, object]]:
+    rows = import_history(database)
+    completed_statuses = {"completed", "completed_with_warnings"}
+    for row in rows:
+        job = latest_job_for_import(int(row["import_batch_id"]))
+        scan_status = str(job.get("status") or "") if job else ""
+        row["scan_status"] = scan_status
+        row["scan_completed"] = scan_status in completed_statuses
+    return rows
+
+
 def _int_form_value(value: str | None, default: int) -> int:
     try:
         return int(value or default)
@@ -1140,7 +1165,7 @@ def _imports_response(
         {
             "active": "imports",
             "database": database,
-            "history": import_history(database),
+            "history": _import_history_rows(database),
             "competitors": _competitor_form_options(),
             "login_sessions": _login_session_rows(),
             "local_agent": local_agent_status(),

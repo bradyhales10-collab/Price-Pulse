@@ -118,6 +118,17 @@ def _catalog_product_rows(conn: sqlite3.Connection, where: str, params: list[Any
                ips.units_sold_12m, ips.inventory_qty, ips.scan_priority,
                prd.suggested_new_price_cents,
                MIN(CASE WHEN s.selling_price_cents IS NOT NULL THEN s.selling_price_cents END) lowest_competitor_price_cents,
+               (
+                   SELECT c2.competitor_name
+                   FROM competitor_listings l2
+                   JOIN competitors c2 ON c2.competitor_id=l2.competitor_id
+                   JOIN current_listing_state s2 ON s2.listing_id=l2.listing_id
+                   WHERE l2.product_id=p.product_id AND l2.is_active=1 AND s2.selling_price_cents IS NOT NULL
+                   ORDER BY s2.selling_price_cents,
+                            CASE c2.competitor_code WHEN 'partzilla' THEN 1 WHEN 'motosport' THEN 2 WHEN 'chaparral' THEN 3 ELSE 99 END,
+                            c2.competitor_name COLLATE NOCASE
+                   LIMIT 1
+               ) lowest_competitor_name,
                MAX(s.last_successful_check_at) last_checked_at,
                MAX(CASE WHEN c.competitor_code='partzilla' THEN s.selling_price_cents END) partzilla_selling_price_cents,
                MAX(CASE WHEN c.competitor_code='partzilla' THEN s.reference_price_cents END) partzilla_reference_price_cents,

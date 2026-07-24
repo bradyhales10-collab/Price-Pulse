@@ -17,6 +17,8 @@ import urllib.parse
 import urllib.request
 
 from app.local_agent_credentials import unprotect_password
+from app.competitors.registry import get_competitor
+from app.models import PartRecord
 from local_collector import BRIDGE_DIR, _auth_header, _download, _run_competitor, _upload, prepare_local_database
 from setup_local_collector_agent import normalize_server_url
 
@@ -90,26 +92,26 @@ def _open_login_refresh(request: dict[str, object]) -> None:
         "partzilla": ROOT / "Refresh Partzilla Login.cmd",
         "chaparral": ROOT / "Refresh Chaparral Login.cmd",
     }
-    urls = {
-        "partzilla": "https://www.partzilla.com/product/kawasaki/41080-1514",
-        "chaparral": "https://www.chapmoto.com/search/?q=41080-1514&type=oem",
-    }
+    adapter = get_competitor(competitor)
+    manufacturer = adapter.supported_manufacturers[0] if adapter.supported_manufacturers else "Honda"
+    login_url = adapter.build_product_url(PartRecord("LOGIN", manufacturer, "41080-1514"))
     script = scripts.get(competitor)
-    if script is None or not script.exists():
-        LOGGER.warning("No login refresh helper is available for %s", competitor)
-        return
     if _recent_login_helper_opened(competitor):
         LOGGER.info("Skipping %s login refresh because a helper was opened recently", competitor)
         return
     LOGGER.info("Opening %s login refresh helper", competitor)
-    if os.name == "nt":
+    if os.name == "nt" and script is not None and script.exists():
         subprocess.Popen(
             ["cmd.exe", "/k", "call", str(script)],
             cwd=ROOT,
             creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
         )
     else:
-        subprocess.Popen([sys.executable, str(ROOT / "auth_bootstrap.py"), "--competitor", competitor, "--url", urls[competitor]], cwd=ROOT)
+        subprocess.Popen(
+            [sys.executable, str(ROOT / "auth_bootstrap.py"), "--competitor", competitor, "--url", login_url],
+            cwd=ROOT,
+            creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0) if os.name == "nt" else 0,
+        )
 
 
 def _recent_login_helper_opened(competitor: str) -> bool:

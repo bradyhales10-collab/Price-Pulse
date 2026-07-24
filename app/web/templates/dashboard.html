@@ -62,7 +62,7 @@
           <td>{{ row.products_with_competitor_price }}</td>
           <td>{{ row.avg_our_margin or 'None' }}</td>
           <td>{{ row.avg_lowest_competitor_margin or 'None' }}</td>
-          <td>{% if row.avg_gap_vs_lowest %}${{ row.avg_gap_vs_lowest }}{% else %}<span class="muted">None</span>{% endif %}</td>
+          <td>{% if row.avg_gap_vs_lowest %}{{ row.avg_gap_vs_lowest|price }}{% else %}<span class="muted">None</span>{% endif %}</td>
           <td>{{ row.avg_price_coverage or 'None' }}</td>
           <td>{{ row.our_higher_count }}</td>
           <td>{{ row.our_lower_count }}</td>
@@ -106,7 +106,7 @@
           <td>{{ row.price_coverage or 'None' }}</td>
           <td>{{ row.avg_our_margin or 'None' }}</td>
           <td>{{ row.avg_competitor_margin or 'None' }}</td>
-          <td>{% if row.avg_gap %}${{ row.avg_gap }}{% else %}<span class="muted">None</span>{% endif %}</td>
+          <td>{% if row.avg_gap %}{{ row.avg_gap|price }}{% else %}<span class="muted">None</span>{% endif %}</td>
           <td>{{ row.our_higher_count }}</td>
           <td>{{ row.our_lower_count }}</td>
         </tr>

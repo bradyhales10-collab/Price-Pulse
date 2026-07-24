@@ -9,7 +9,7 @@
 
 <section class="grid three">
   <article class="card"><h2>Our Pricing</h2><div class="big-price">{{ money(product.our_current_price, True) }}</div><p>Calc Cost: {{ money(product.current_cost) }}</p></article>
-  <article class="card"><h2>Selected Competitor Price</h2><div class="big-price">{{ money(product.selling_price, True) }}</div><p>Reference: {% if product.reference_price %}<span class="strike">${{ product.reference_price }}</span>{% else %}<span class="muted">None</span>{% endif %}</p><p>{% if product.savings_percent is not none %}{{ badge('Save ' ~ product.savings_percent ~ '%', 'success') }}{% endif %} {{ badge(product.price_display_type, 'blue') }}</p><p>Confidence {{ badge(product.selling_price_confidence or product.price_parse_confidence, 'success') }}</p></article>
+  <article class="card"><h2>Selected Competitor Price</h2><div class="big-price">{{ money(product.selling_price, True) }}</div><p>Reference: {% if product.reference_price %}<span class="strike">{{ product.reference_price|price }}</span>{% else %}<span class="muted">None</span>{% endif %}</p><p>{% if product.savings_percent is not none %}{{ badge('Save ' ~ product.savings_percent ~ '%', 'success') }}{% endif %} {{ badge(product.price_display_type, 'blue') }}</p><p>Confidence {{ badge(product.selling_price_confidence or product.price_parse_confidence, 'success') }}</p></article>
   <article class="card"><h2>Availability</h2><p>{{ product.availability_raw or 'No availability text' }}</p>{{ badge(product.availability_status, 'success' if product.availability_status == 'in_stock' else 'blue') }}<p>Last checked {{ product.last_successful_check_at|datetime or 'Never' }}</p></article>
 </section>
 

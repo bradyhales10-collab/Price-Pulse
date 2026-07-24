@@ -184,7 +184,7 @@ function renderProgress(job) {
   if (last) last.textContent = progress.last_attempted_part ? `Last: ${progress.last_attempted_part}` : "";
   const body = document.querySelector("[data-progress-rows]");
   if (body) {
-    body.innerHTML = (progress.rows || []).map((row) => `<tr><td>${row.run_order || ""}</td><td>${row.competitor || ""}</td><td>${row.manufacturer || ""}</td><td>${row.oem_part_number || ""}</td><td>${row.selling_price || ""}</td><td>${row.result_type || ""}</td><td>${formatTimestamp(row.checked_at)}</td></tr>`).join("");
+    body.innerHTML = (progress.rows || []).map((row) => `<tr><td>${row.run_order || ""}</td><td>${row.competitor || ""}</td><td>${row.manufacturer || ""}</td><td>${row.oem_part_number || ""}</td><td>${row.selling_price ? formatMoney(moneyNumber(row.selling_price)) : ""}</td><td>${row.result_type || ""}</td><td>${formatTimestamp(row.checked_at)}</td></tr>`).join("");
   }
   const competitorProgress = document.querySelector("[data-competitor-progress]");
   if (competitorProgress) {
@@ -206,7 +206,7 @@ function moneyNumber(value) {
 
 function formatMoney(value) {
   if (!Number.isFinite(value)) return "";
-  return value.toFixed(2);
+  return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function syncMarginFromPrice(input) {

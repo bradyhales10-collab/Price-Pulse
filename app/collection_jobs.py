@@ -500,6 +500,20 @@ def job_status(job_id: str) -> dict[str, object]:
     return metadata
 
 
+def latest_job_for_import(import_batch_id: int) -> dict[str, object] | None:
+    if not JOB_DIR.exists():
+        return None
+    matching: list[tuple[float, str]] = []
+    for job_json in JOB_DIR.glob("*/job.json"):
+        metadata = _read_json(job_json)
+        if metadata.get("import_batch_id") != import_batch_id:
+            continue
+        matching.append((job_json.stat().st_mtime, job_json.parent.name))
+    if not matching:
+        return None
+    return job_status(max(matching)[1])
+
+
 def _pid_is_running(pid: int) -> bool:
     try:
         os.kill(pid, 0)

@@ -57,8 +57,8 @@
           <td>{{ competitor_cell(item.partzilla) }}</td>
           <td>{{ competitor_cell(item.motosport) }}</td>
           <td>{{ competitor_cell(item.chaparral) }}</td>
-          <td>{{ money(item.lowest_competitor_price, True) }}</td>
-          <td class="{{ item.price_difference_class }}">{% if item.difference_vs_lowest_competitor %}<span class="money strong">${{ item.difference_vs_lowest_competitor }}</span>{% else %}<span class="muted">None</span>{% endif %}</td>
+          <td>{% if item.lowest_competitor_name %}{{ item.lowest_competitor_name }} {{ money(item.lowest_competitor_price, True) }}{% else %}<span class="muted">None</span>{% endif %}</td>
+          <td class="{{ item.price_difference_class }}">{% if item.difference_vs_lowest_competitor %}<span class="money strong">{{ item.difference_vs_lowest_competitor|price }}</span>{% else %}<span class="muted">None</span>{% endif %}</td>
           <td class="{{ item.our_price_class }}">{{ money(item.our_current_price, True) }}</td>
           <td>{{ money(item.current_cost) }}</td>
           <td>{% if item.our_margin_pct %}{{ item.our_margin_pct }}%{% else %}<span class="muted">None</span>{% endif %}</td>

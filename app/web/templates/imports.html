@@ -28,19 +28,20 @@
 {% include "collector_status.html" %}
 
 {% if history %}
-<details class="card workflow-card history-details" {{ 'open' if not preview and not job else '' }}>
+<details id="recent-files" class="card workflow-card history-details" {{ 'open' if not preview and not job else '' }}>
   <summary><strong>Recent Files</strong><span>Open a previous file or review its results.</span></summary>
   <div class="section-title history-actions"><span></span><form method="post" action="/imports/history/clear" onsubmit="return confirm('Clear recent upload history? Imported products and prices will stay in the catalog.');"><button type="submit" class="link-button">Clear List</button></form></div>
   <div class="table-wrap"><table><thead><tr><th>Date</th><th>Filename</th><th>Rows</th><th>Valid</th><th>Invalid</th><th>Status</th><th></th><th></th></tr></thead><tbody>
     {% for item in history %}
       <tr>
         <td>{{ item.uploaded_at|datetime }}</td>
-        <td><a href="{{ '/imports?import_batch_id=' ~ item.import_batch_id }}">{{ item.original_filename }}</a></td>
+        {% set open_url = '/imports?import_batch_id=' ~ item.import_batch_id ~ ('&view=results' if item.scan_completed else '') %}
+        <td><a href="{{ open_url }}">{{ item.original_filename }}</a></td>
         <td>{{ item.rows_read }}</td>
         <td>{{ item.valid_rows }}</td>
         <td>{{ item.invalid_rows }}</td>
-        <td>{{ badge(item.status, 'success' if item.status == 'imported' else 'blue') }}</td>
-        <td><a class="button" href="/imports?import_batch_id={{ item.import_batch_id }}">Open</a></td>
+        <td>{% if item.scan_completed %}{{ badge('Price check complete', 'success') }}{% elif item.scan_status %}{{ badge(item.scan_status, 'blue') }}{% else %}{{ badge('Ready to check', 'blue') }}{% endif %}</td>
+        <td><a class="button" href="{{ open_url }}">{{ 'Review Results' if item.scan_completed else 'Open' }}</a></td>
         <td><form method="post" action="/imports/{{ item.import_batch_id }}/delete" onsubmit="return confirm('Delete this uploaded file and the current comparison rows created from it?');"><button type="submit" class="link-button">Delete</button></form></td>
       </tr>
     {% endfor %}
@@ -53,6 +54,7 @@
   <div class="section-title">
     <div><span class="step-label">Step 2</span><h2>Confirm and Start</h2></div>
     <div class="quick-actions">
+      <a href="/imports#recent-files">Choose a Different File</a>
       <a href="/imports/{{ preview.import_batch_id }}/validation-errors.csv">Download Validation Details</a>
       {% if preview.invalid_rows == 0 %}<button type="submit" form="price-check-form" data-start-price-check {{ 'disabled' if not local_agent.connected else '' }}>Start Price Check</button>{% endif %}
     </div>
@@ -91,7 +93,7 @@
       <strong>Competitor sign-ins</strong>
       <span>Saved sign-ins are reused. Refresh one only when a site asks you to log in again.</span>
       <div class="quick-actions">
-        {% for item in login_sessions if item.competitor_key in ['partzilla', 'chaparral'] %}
+        {% for item in login_sessions %}
         <form method="post" action="/imports/{{ item.competitor_key }}/refresh-login">
           <input type="hidden" name="import_batch_id" value="{{ preview.import_batch_id }}">
           <button type="submit" class="link-button">Refresh {{ item.display_name }}</button>
@@ -120,7 +122,7 @@
   {% endif %}
   <details class="preview-details">
     <summary>Preview uploaded rows</summary>
-    <div class="table-wrap"><table><thead><tr><th>Row</th><th>Status</th><th>Manufacturer</th><th>OEM Part</th><th>Internal SKU</th><th>Our Price</th><th>Messages</th></tr></thead><tbody>{% for row in preview.rows[:25] %}<tr><td>{{ row.source_row_number }}</td><td>{{ badge(row.status, 'success' if row.status == 'valid' else 'warning') }}</td><td>{{ row.values.get('manufacturer','') }}</td><td>{{ row.values.get('oem_part_number','') }}</td><td>{{ row.values.get('internal_sku','') }}</td><td>{{ row.values.get('our_current_price','') }}</td><td>{{ '; '.join(row.messages) }}</td></tr>{% endfor %}</tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>Row</th><th>Status</th><th>Manufacturer</th><th>OEM Part</th><th>Internal SKU</th><th>Our Price</th><th>Messages</th></tr></thead><tbody>{% for row in preview.rows[:25] %}<tr><td>{{ row.source_row_number }}</td><td>{{ badge(row.status, 'success' if row.status == 'valid' else 'warning') }}</td><td>{{ row.values.get('manufacturer','') }}</td><td>{{ row.values.get('oem_part_number','') }}</td><td>{{ row.values.get('internal_sku','') }}</td><td>{{ row.values.get('our_current_price','')|price }}</td><td>{{ '; '.join(row.messages) }}</td></tr>{% endfor %}</tbody></table></div>
   </details>
 </section>
 {% endif %}

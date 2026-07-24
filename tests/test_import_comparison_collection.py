@@ -17,6 +17,7 @@ import app.manufacturer_registry as manufacturer_registry
 from app.manufacturer_registry import competitor_supports_manufacturer, normalize_manufacturer, partzilla_slug_for
 from app.reviews import comparison_review_rows, review_rows
 from app.web.app import create_app
+from app.web.queries import CatalogFilters, catalog_data
 from app.xlsx_utils import read_rows, write_workbook
 
 
@@ -576,7 +577,7 @@ def test_review_queue_saves_decisions_and_updates_exports() -> None:
     assert 'class="sortable-table"' in pending.text
     assert 'data-sort="number">Our Price' in pending.text
     assert 'class="price-difference-higher"' in pending.text
-    assert "$12.34" in pending.text
+    assert "12.34" in pending.text
     assert "K-PRICE" in pending.text
     assert "Our Price Higher" in pending.text
 
@@ -661,7 +662,7 @@ def test_manufacturer_specific_pricing_rule_override_changes_suggestion() -> Non
     assert updated.status_code == 303
     review = client.get("/reviews")
     assert review.status_code == 200
-    assert "Rules suggest $9.49" in review.text
+    assert "Rules suggest 9.49" in review.text
     with connect_database(db) as conn:
         row = conn.execute(
             """
@@ -708,7 +709,7 @@ def test_pricing_rules_page_and_review_queue_rule_selection() -> None:
 
     review = client.get("/reviews")
     assert review.status_code == 200
-    assert "Rules suggest $9.99" in review.text
+    assert "Rules suggest 9.99" in review.text
     assert "Round To .99" in review.text
 
     save = client.post(
@@ -798,7 +799,9 @@ def test_approved_review_price_updates_catalog_and_export() -> None:
 
     catalog = client.get("/products?search=K-PRICE")
     assert catalog.status_code == 200
-    assert "$11.49" in catalog.text
+    assert "11.49" in catalog.text
+    catalog_row = catalog_data(db, CatalogFilters(search="K-PRICE"))["products"][0]
+    assert catalog_row["lowest_competitor_name"] == "Partzilla"
 
     export_path = export_review(review_rows(db, status="Approved"), TEST_OUTPUT_DIR / "exports")
     exported = read_rows(export_path, "Pricing Review")
@@ -937,6 +940,37 @@ def test_web_price_check_queues_local_agent_and_reports_live_progress(monkeypatc
     )
     assert completed.status_code == 200
     assert client.get(f"/collections/jobs/{job_id}/status").json()["status"] == "completed"
+    recent = client.get("/imports")
+    assert f"/imports?import_batch_id={result.import_batch_id}&amp;view=results" in recent.text
+    assert "Review Results" in recent.text
+    results = client.get(f"/imports?import_batch_id={result.import_batch_id}&view=results")
+    assert "Confirm and Start" not in results.text
+    assert "Choose a Different File" in results.text
+
+
+def test_prices_render_without_currency_symbols_and_with_thousands_separators() -> None:
+    db = _empty_db("formatted_prices.db")
+    upload_path = TEST_OUTPUT_DIR / "formatted_prices.xlsx"
+    write_workbook(
+        upload_path,
+        {
+            "Upload Data": [
+                ["Internal_SKU", "Manufacturer", "OEM_Part_Number", "Our_Current_Price", "Current_Cost"],
+                ["SKU-COMMA", "Honda", "H-COMMA", "1234.5", "1000"],
+            ],
+        },
+    )
+    result = save_upload(db, filename="formatted-prices.xlsx", content=upload_path.read_bytes())
+    confirm_import(db, result.import_batch_id)
+
+    response = TestClient(create_app(db), raise_server_exceptions=False).get(
+        f"/imports?import_batch_id={result.import_batch_id}&view=results"
+    )
+
+    assert response.status_code == 200
+    assert "1,234.50" in response.text
+    assert "1,000.00" in response.text
+    assert "$1,234.50" not in response.text
 
 
 def test_price_check_start_validation_error_renders_combined_page() -> None:
