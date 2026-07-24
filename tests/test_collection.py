@@ -99,11 +99,27 @@ def test_partzilla_waits_for_signed_in_purchase_price() -> None:
 
     assert "$633.74" in region_text
     assert page.waits == [1000, collect_parts.PARTZILLA_PRICE_POLL_MS]
+    assert page.region_reads >= 2
 
 
 def test_partzilla_msrp_is_not_treated_as_purchase_price() -> None:
     assert collect_parts._has_partzilla_purchase_price("Sign In To See Price\nMSRP: $681.41") is False
+    assert collect_parts._has_partzilla_purchase_price("FREE SHIPPING $149+\nMSRP: $681.41") is False
     assert collect_parts._has_partzilla_purchase_price("$633.74 SAVE 7%\nMSRP: $681.41") is True
+
+
+def test_partzilla_product_region_is_sufficient_for_discount_parser() -> None:
+    region_text = (
+        "KAWASAKI OEM FORK CLAMP | 99969-3880\n"
+        "Part #: 99969-3880\n"
+        "$633.74 SAVE 7%\n"
+        "MSRP: $681.41\n"
+        "In Stock\n"
+        "ADD TO CART"
+    )
+
+    assert collect_parts._has_partzilla_purchase_price(region_text) is True
+    assert "$633.74 SAVE 7%" in region_text
 
 
 def test_completed_run_with_row_level_lookup_errors_is_a_warning_not_total_failure() -> None:
@@ -476,6 +492,7 @@ class _HydratingPartzillaPage:
         self.regions = regions
         self.index = -1
         self.waits: list[int] = []
+        self.region_reads = 0
 
     def wait_for_timeout(self, milliseconds: int) -> None:
         self.waits.append(milliseconds)
@@ -490,11 +507,27 @@ class _HydratingPartzillaPage:
                 return 1
 
             def locator(self, child_selector: str):
-                assert child_selector == ".."
+                assert child_selector in {"xpath=ancestor::main[1]", ".."}
 
                 class Parent:
                     def inner_text(self, **_kwargs) -> str:
+                        page.region_reads += 1
                         return page.regions[page.index]
+
+                    def locator(self, price_selector: str):
+                        assert price_selector == '[data-testid="productPrice"]'
+
+                        class Price:
+                            def count(self) -> int:
+                                return 1 if "$633.74" in page.regions[page.index] else 0
+
+                            def is_visible(self) -> bool:
+                                return self.count() == 1
+
+                            def inner_text(self, **_kwargs) -> str:
+                                return "$633.74"
+
+                        return Price()
 
                 return Parent()
 

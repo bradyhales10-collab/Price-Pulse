@@ -277,7 +277,8 @@ def _wait_for_partzilla_product_price(page, initial_settle_ms: int) -> str:
     page.wait_for_timeout(initial_settle_ms)
     region_text = _partzilla_product_region_text(page)
     for _ in range(PARTZILLA_PRICE_POLL_ATTEMPTS):
-        if _has_partzilla_purchase_price(region_text):
+        if _partzilla_product_price_text(page):
+            region_text = _partzilla_product_region_text(page)
             break
         page.wait_for_timeout(PARTZILLA_PRICE_POLL_MS)
         region_text = _partzilla_product_region_text(page)
@@ -289,14 +290,48 @@ def _partzilla_product_region_text(page) -> str:
         heading = page.locator('[data-testid="productHeadingWrapper"]')
         if heading.count() != 1:
             return ""
-        return heading.locator("..").inner_text(timeout=2000)
+        return heading.locator("xpath=ancestor::main[1]").inner_text(timeout=2000)
+    except (PlaywrightTimeoutError, PlaywrightError, Exception):
+        return ""
+
+
+def _partzilla_product_price_text(page) -> str:
+    return _partzilla_product_field_text(page, "productPrice", r"\$[\d,]+(?:\.\d{2})?")
+
+
+def _partzilla_product_reference_price_text(page) -> str:
+    return _partzilla_product_field_text(page, "productPriceValue", r"\$[\d,]+(?:\.\d{2})?")
+
+
+def _partzilla_product_savings_text(page) -> str:
+    return _partzilla_product_field_text(page, "productSavePercent", r"SAVE\s+\d{1,3}%")
+
+
+def _partzilla_product_field_text(page, testid: str, pattern: str) -> str:
+    try:
+        heading = page.locator('[data-testid="productHeadingWrapper"]')
+        if heading.count() != 1:
+            return ""
+        field = heading.locator("..").locator(f'[data-testid="{testid}"]')
+        if field.count() != 1 or not field.is_visible():
+            return ""
+        text = field.inner_text(timeout=2000).strip()
+        return text if re.fullmatch(pattern, text, re.IGNORECASE) else ""
     except (PlaywrightTimeoutError, PlaywrightError, Exception):
         return ""
 
 
 def _has_partzilla_purchase_price(region_text: str) -> bool:
-    without_msrp = re.sub(r"\bMSRP\s*:?\s*\$[\d,]+(?:\.\d{2})?", "", region_text, flags=re.IGNORECASE)
-    return re.search(r"\$[\d,]+(?:\.\d{2})?", without_msrp) is not None
+    relevant_lines = [
+        line.strip()
+        for line in region_text.splitlines()
+        if line.strip()
+        and "msrp" not in line.lower()
+        and "free shipping" not in line.lower()
+        and "orders over" not in line.lower()
+    ]
+    relevant_text = "\n".join(relevant_lines)
+    return re.search(r"\$[\d,]+(?:\.\d{2})?", relevant_text) is not None
 
 
 def collect_one_part(database_path: Path, page, planned, scan_run_id: int, settings: ProbeSettings) -> CollectionRow:
@@ -309,6 +344,10 @@ def collect_one_part(database_path: Path, page, planned, scan_run_id: int, setti
     title = None
     html = ""
     text = ""
+    product_region_text = ""
+    visible_selling_price_raw = ""
+    visible_reference_price_raw = ""
+    visible_savings_text = ""
     navigation_succeeded = False
     exception_message = None
     checked_at = utc_now()
@@ -316,11 +355,18 @@ def collect_one_part(database_path: Path, page, planned, scan_run_id: int, setti
         response = page.goto(requested_url, wait_until="domcontentloaded", timeout=settings.timeout)
         navigation_succeeded = True
         status = response.status if response is not None else None
-        _wait_for_partzilla_product_price(page, min(settings.render_settle_ms, PARTZILLA_RENDER_SETTLE_MS))
+        product_region_text = _wait_for_partzilla_product_price(
+            page,
+            min(settings.render_settle_ms, PARTZILLA_RENDER_SETTLE_MS),
+        )
+        visible_selling_price_raw = _partzilla_product_price_text(page)
+        visible_reference_price_raw = _partzilla_product_reference_price_text(page)
+        visible_savings_text = _partzilla_product_savings_text(page)
         final_url = page.url
         title = page.title()
         html = page.content()
-        text = page.locator("body").inner_text(timeout=5000) if page.locator("body").count() else ""
+        body_text = page.locator("body").inner_text(timeout=5000) if page.locator("body").count() else ""
+        text = product_region_text or body_text
     except (PlaywrightTimeoutError, PlaywrightError, Exception) as exc:
         exception_message = str(exc)
     from app.models import PartRecord
@@ -341,7 +387,15 @@ def collect_one_part(database_path: Path, page, planned, scan_run_id: int, setti
     )
     mark_authenticated_context(observation, auth_state_loaded=True)
     raw_signals = discover_raw_price_signals(html=html, visible_text=text, observation=observation)
-    price_evidence = build_price_evidence(html=html, visible_text=text, observation=observation, raw_price_signals=raw_signals)
+    price_evidence = build_price_evidence(
+        html=html,
+        visible_text=text,
+        observation=observation,
+        raw_price_signals=raw_signals,
+        verified_visible_selling_price_raw=visible_selling_price_raw or None,
+        verified_visible_reference_price_raw=visible_reference_price_raw or None,
+        verified_visible_savings_text=visible_savings_text or None,
+    )
     apply_price_evidence_to_observation(observation, price_evidence)
     from app.config import AUTHENTICATED_DIAGNOSTICS_DIR
     output_dir = AUTHENTICATED_DIAGNOSTICS_DIR / f"{checked_at.replace(':','').replace('-','')}_{planned.oem_part_number}"

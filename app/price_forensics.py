@@ -177,6 +177,9 @@ def build_price_evidence(
     visible_text: str,
     observation: ProductObservation,
     raw_price_signals: list[RawPriceSignal] | None = None,
+    verified_visible_selling_price_raw: str | None = None,
+    verified_visible_reference_price_raw: str | None = None,
+    verified_visible_savings_text: str | None = None,
 ) -> PriceEvidence:
     container_html, container_text, region = _primary_product_region(
         html=html,
@@ -187,8 +190,14 @@ def build_price_evidence(
     )
     structured_candidates = _structured_candidates(raw_price_signals or [])
     rendered_text_candidates = _discover_visible_discount_candidates(visible_text)
+    verified_visible_candidates = _verified_visible_price_candidates(
+        selling_price_raw=verified_visible_selling_price_raw,
+        reference_price_raw=verified_visible_reference_price_raw,
+        savings_text=verified_visible_savings_text,
+    )
     first_region_candidates = (
         structured_candidates
+        + verified_visible_candidates
         + _discover_candidates(container_html, container_text, in_first_region=True)
         + rendered_text_candidates
     )
@@ -281,6 +290,45 @@ def build_price_evidence(
         price_parse_confidence=confidence,
         parse_warnings=warnings,
     )
+
+
+def _verified_visible_price_candidates(
+    *,
+    selling_price_raw: str | None,
+    reference_price_raw: str | None,
+    savings_text: str | None,
+) -> list[PriceCandidate]:
+    candidates: list[PriceCandidate] = []
+    if selling_price_raw:
+        context = " ".join(value for value in (selling_price_raw, savings_text, "add to cart") if value)
+        candidates.append(
+            _candidate_from_context(
+                raw_text=selling_price_raw,
+                context=context,
+                tag=None,
+                attrs={"data-testid": "productPrice"},
+                relative_location='visible_dom[data-testid="productPrice"]',
+                element_visible_text=context,
+                source_type=PriceCandidateSourceType.VISIBLE_DOM,
+                in_first_region=True,
+                found_through_sibling_fallback=False,
+            )
+        )
+    if reference_price_raw and reference_price_raw != selling_price_raw:
+        candidates.append(
+            _candidate_from_context(
+                raw_text=reference_price_raw,
+                context=f"{reference_price_raw} crossed out reference price",
+                tag=None,
+                attrs={"data-testid": "productPriceValue"},
+                relative_location='visible_dom[data-testid="productPriceValue"]',
+                element_visible_text=reference_price_raw,
+                source_type=PriceCandidateSourceType.VISIBLE_DOM,
+                in_first_region=True,
+                found_through_sibling_fallback=False,
+            )
+        )
+    return candidates
 
 
 def apply_price_evidence_to_observation(observation: ProductObservation, evidence: PriceEvidence) -> ProductObservation:
