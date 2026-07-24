@@ -17,6 +17,17 @@
     <span>ETA <b data-eta>Calculating</b></span>
   </div>
   {% if job.message %}<p>{{ badge('Message', 'warning') }} <span data-message>{{ job.message }}</span></p>{% else %}<p data-message></p>{% endif %}
+  {% if job.competitor_summaries %}
+  <div class="job-details" data-job-details>
+    {% for item in job.competitor_summaries %}
+      <p class="{{ 'attention' if item.needs_attention else 'ready' }}">
+        <strong>{{ item.competitor|humanize }}</strong>
+        <span>{{ item.status|humanize }}</span>
+        {% if item.detail %}<small>{{ item.detail }}</small>{% endif %}
+      </p>
+    {% endfor %}
+  </div>
+  {% endif %}
   {% if job.manual_command %}<details><summary>PowerShell fallback</summary><pre><code>{{ job.manual_command }}</code></pre></details>{% endif %}
   <div class="progress-grid" data-competitor-progress></div>
 </section>

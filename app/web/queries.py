@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from app.database import SCHEMA_VERSION, cents_to_money
+from app.manufacturer_registry import competitor_supports_manufacturer
 
 
 class DashboardDatabaseError(RuntimeError):
@@ -277,8 +278,18 @@ def quality_data(database: Path) -> dict[str, Any]:
               AND missing_s.selling_price_cents IS NULL
               AND COALESCE(missing_se.page_classification, '') <> 'manufacturer_not_carried'
         )"""
+        missing_price_products = _catalog_product_rows(conn, missing_product_where, [], filters=CatalogFilters(page_size=100))
+        display_names = {"partzilla": "Partzilla", "motosport": "MotoSport", "chaparral": "Chaparral"}
+        for row in missing_price_products:
+            row["missing_competitors"] = [
+                display_names[key]
+                for key in display_names
+                if competitor_supports_manufacturer(key, str(row.get("manufacturer") or ""))
+                and not row[key].get("price")
+                and row[key].get("status") != "manufacturer_not_carried"
+            ]
         return {
-            "missing_price_products": _catalog_product_rows(conn, missing_product_where, [], filters=CatalogFilters(page_size=50)),
+            "missing_price_products": missing_price_products,
             "missing_prices": _quality_rows(conn, "s.selling_price_cents IS NULL AND COALESCE(se.page_classification, '') <> 'manufacturer_not_carried'"),
             "not_carried": _quality_rows(conn, "se.page_classification='manufacturer_not_carried'"),
             "low_confidence": _quality_rows(conn, "COALESCE(s.selling_price_confidence, s.price_parse_confidence)='low'"),

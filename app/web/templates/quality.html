@@ -3,53 +3,53 @@
 {% block title %}Data Quality{% endblock %}
 {% block content %}
 <header class="page-header">
-  <div><h1>Data Quality</h1><p>Actionable product and competitor price issues that may need cleanup before pricing decisions.</p></div>
+  <div><h1>Data Quality</h1><p>Products that need another look because a supported competitor price is missing or a check returned an issue.</p></div>
   <div class="quick-actions">
-    <a class="button" href="/comparison?missing_competitor_price=1">Review Missing Prices</a>
+    <a class="button" href="#missing-prices">View Missing Price Details</a>
   </div>
 </header>
 
 <section class="card">
   <div class="management-grid compact">
-    <span>Missing prices <b>{{ missing_price_products|length }}</b></span>
-    <span>Low confidence <b>{{ low_confidence|length }}</b></span>
-    <span>Failures <b>{{ failures|length }}</b></span>
-    <span>Warnings <b>{{ warnings|length }}</b></span>
-    <span>Supersession <b>{{ supersession|length }}</b></span>
+    <span>Products missing a price <b>{{ missing_price_products|length }}</b><small>At least one supported competitor has no usable price.</small></span>
+    <span>Checks to retry <b>{{ failures|length }}</b><small>A recent collection attempt did not complete normally.</small></span>
+    <span>Prices to verify <b>{{ low_confidence|length }}</b><small>A price was found, but the page evidence was unclear.</small></span>
+    <span>Other warnings <b>{{ warnings|length + supersession|length }}</b><small>Parser warnings or substituted part numbers need attention.</small></span>
   </div>
 </section>
 
-<section class="card">
+<section class="card" id="missing-prices">
   <div class="section-title"><h2>Missing Prices</h2><span>{{ missing_price_products|length }} shown</span></div>
-  <p class="muted">Products where at least one carried competitor is missing a stored selling price.</p>
+  <p class="muted">Each row names the supported competitor that has not returned a usable price. “Not carried” combinations are excluded.</p>
   {{ product_quality_table(missing_price_products) }}
 </section>
 
 {% for title, rows in [('Low Confidence Prices', low_confidence), ('Collection Failures', failures), ('Recent Warnings', warnings), ('Supersession Review', supersession)] %}
-<section class="card">
-  <div class="section-title"><h2>{{ title }}</h2><span>{{ rows|length }} shown</span></div>
+<details class="card quality-details">
+  <summary><strong>{{ title }}</strong><span>{{ rows|length }}</span></summary>
   {{ listing_quality_table(rows) }}
-</section>
+</details>
 {% endfor %}
 
-<section class="card">
-  <div class="section-title"><h2>Not Carried By Competitor</h2><span>{{ not_carried|length }} shown</span></div>
+<details class="card quality-details">
+  <summary><strong>Not Carried By Competitor</strong><span>{{ not_carried|length }}</span></summary>
   <p class="muted">Informational only. These are expected skips when a competitor does not carry that OEM.</p>
   {{ listing_quality_table(not_carried) }}
-</section>
+</details>
 {% endblock %}
 
 {% macro product_quality_table(rows) -%}
   {% if rows %}
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Manufacturer</th><th>OEM Part</th><th>Product</th><th>Our Price</th><th>Calc Cost</th><th>Partzilla</th><th>MotoSport</th><th>Chaparral</th><th>Last Checked</th></tr></thead>
+      <thead><tr><th>Manufacturer</th><th>OEM Part</th><th>Product</th><th>Needs Attention</th><th>Our Price</th><th>Calc Cost</th><th>Partzilla</th><th>MotoSport</th><th>Chaparral</th><th>Last Checked</th></tr></thead>
       <tbody>
       {% for item in rows %}
         <tr>
           <td><span class="manufacturer">{{ item.manufacturer }}</span></td>
           <td><a href="/products/{{ item.product_id }}">{{ item.oem_part_number }}</a></td>
           <td>{{ item.product_name or 'Unnamed product' }}</td>
+          <td><strong>{{ item.missing_competitors|join(', ') or 'Review warning' }}</strong></td>
           <td>{{ money(item.our_current_price, True) }}</td>
           <td>{{ money(item.current_cost) }}</td>
           <td>{{ competitor_status(item.partzilla) }}</td>
@@ -67,8 +67,18 @@
 {%- endmacro %}
 
 {% macro competitor_status(item) -%}
-  {% if item.price %}{{ money(item.price, True) }}{% else %}<span class="muted">No price</span>{% endif %}
-  <br>{{ badge(item.status|humanize, 'warning' if item.needs_review else 'blue') }}
+  {% if item.price %}
+    {{ money(item.price, True) }}
+  {% elif item.status == 'manufacturer_not_carried' %}
+    <span class="muted">Not carried</span>
+  {% elif item.status == 'not_checked' %}
+    <strong class="status-warning">Never checked</strong>
+  {% elif item.status == 'not_found' %}
+    <strong class="status-warning">Part not found</strong>
+  {% else %}
+    <strong class="status-warning">No price found</strong>
+  {% endif %}
+  {% if item.status not in ('not_checked', 'manufacturer_not_carried') %}<br><small>{{ item.status|humanize }}</small>{% endif %}
 {%- endmacro %}
 
 {% macro listing_quality_table(rows) -%}

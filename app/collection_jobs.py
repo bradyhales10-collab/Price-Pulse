@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import traceback
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -495,9 +496,33 @@ def job_status(job_id: str) -> dict[str, object]:
         by_competitor = {str(key): _read_progress(Path(str(path))) for key, path in progress_files.items()}
         metadata["progress_by_competitor"] = by_competitor
         metadata["progress"] = _aggregate_progress(by_competitor, metadata)
+        metadata["competitor_summaries"] = [
+            _competitor_progress_summary(key, by_competitor.get(key, {}))
+            for key in [str(item) for item in metadata.get("competitors", by_competitor.keys())]
+        ]
+        failure_details = "; ".join(
+            str(item["detail"]).rstrip(".")
+            for item in metadata["competitor_summaries"]
+            if item.get("actionable_failure") and item.get("detail")
+        )
+        metadata["failure_reason"] = f"{failure_details}." if failure_details else ""
     elif progress_file and Path(str(progress_file)).exists():
         metadata["progress"] = _read_progress(Path(str(progress_file)))
     return metadata
+
+
+def current_active_job() -> dict[str, object] | None:
+    if not JOB_DIR.exists():
+        return None
+    matching: list[tuple[float, str]] = []
+    for job_json in JOB_DIR.glob("*/job.json"):
+        metadata = _read_json(job_json)
+        if str(metadata.get("status") or "") not in ACTIVE_JOB_STATUSES:
+            continue
+        if metadata.get("status") == "running" and not _running_job_is_active(job_json, metadata):
+            continue
+        matching.append((job_json.stat().st_mtime, job_json.parent.name))
+    return job_status(max(matching)[1]) if matching else None
 
 
 def latest_job_for_import(import_batch_id: int) -> dict[str, object] | None:
@@ -512,6 +537,54 @@ def latest_job_for_import(import_batch_id: int) -> dict[str, object] | None:
     if not matching:
         return None
     return job_status(max(matching)[1])
+
+
+def _competitor_progress_summary(competitor: str, progress: dict[str, object]) -> dict[str, object]:
+    status = str(progress.get("run_status") or progress.get("status") or "waiting")
+    completed = int(progress.get("completed") or 0)
+    total = int(progress.get("total") or 0)
+    stop_reason = str(progress.get("stop_reason") or "")
+    issue_types = {
+        "authentication_lost",
+        "blocked",
+        "cart_cleanup_failed",
+        "challenge",
+        "cleanup_failed",
+        "error",
+        "lookup_error",
+        "lookup_failed",
+        "navigation_error",
+    }
+    counts = Counter(
+        str(row.get("result_type") or row.get("lookup_status") or "")
+        for row in progress.get("rows") or []
+        if isinstance(row, dict)
+    )
+    issues = [(key, count) for key, count in counts.items() if key in issue_types and count]
+    details: list[str] = []
+    if completed or total:
+        details.append(f"checked {completed} of {total or completed} parts")
+    if stop_reason:
+        details.append(stop_reason.replace("_", " "))
+    if issues:
+        details.append(", ".join(f"{count} {key.replace('_', ' ')}" for key, count in issues))
+    terminal_failures = {"failed", "stopped_blocked", "stopped_challenge"}
+    needs_attention = status not in {"completed", "running", "queued_local", "waiting"} or bool(issues)
+    display_name = {"motosport": "MotoSport", "partzilla": "Partzilla", "chaparral": "Chaparral"}.get(
+        competitor,
+        competitor.title(),
+    )
+    detail = f"{display_name} {'; '.join(details)}." if details else ""
+    return {
+        "competitor": competitor,
+        "status": status,
+        "completed": completed,
+        "total": total,
+        "needs_attention": needs_attention,
+        "actionable_failure": status in terminal_failures or bool(issues),
+        "detail": detail,
+        "issue_counts": dict(issues),
+    }
 
 
 def _pid_is_running(pid: int) -> bool:

@@ -35,13 +35,21 @@
     {% for item in history %}
       <tr>
         <td>{{ item.uploaded_at|datetime }}</td>
-        {% set open_url = '/imports?import_batch_id=' ~ item.import_batch_id ~ ('&view=results' if item.scan_completed else '') %}
+        {% set open_url = '/imports?import_batch_id=' ~ item.import_batch_id ~ ('&view=results' if item.scan_terminal else '') ~ ('&job_id=' ~ item.scan_job_id if item.scan_terminal and item.scan_job_id else '') %}
         <td><a href="{{ open_url }}">{{ item.original_filename }}</a></td>
         <td>{{ item.rows_read }}</td>
         <td>{{ item.valid_rows }}</td>
         <td>{{ item.invalid_rows }}</td>
-        <td>{% if item.scan_completed %}{{ badge('Price check complete', 'success') }}{% elif item.scan_status %}{{ badge(item.scan_status, 'blue') }}{% else %}{{ badge('Ready to check', 'blue') }}{% endif %}</td>
-        <td><a class="button" href="{{ open_url }}">{{ 'Review Results' if item.scan_completed else 'Open' }}</a></td>
+        <td>
+          {% if item.scan_completed %}{{ badge('Price check complete', 'success') }}
+          {% elif item.scan_status == 'failed' %}{{ badge('Completed with failures', 'warning') }}
+          {% elif item.scan_status %}{{ badge(item.scan_status|humanize, 'blue') }}
+          {% else %}{{ badge('Ready to check', 'blue') }}{% endif %}
+          {% if item.scan_status == 'failed' and (item.scan_message or item.scan_detail) %}
+            <small class="history-status-detail">{{ item.scan_message }}{% if item.scan_detail %} {{ item.scan_detail }}{% endif %}</small>
+          {% endif %}
+        </td>
+        <td><a class="button" href="{{ open_url }}">{{ 'Review Results' if item.scan_terminal and item.scan_has_results else 'Open' }}</a></td>
         <td><form method="post" action="/imports/{{ item.import_batch_id }}/delete" onsubmit="return confirm('Delete this uploaded file and the current comparison rows created from it?');"><button type="submit" class="link-button">Delete</button></form></td>
       </tr>
     {% endfor %}

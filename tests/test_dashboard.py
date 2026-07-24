@@ -274,6 +274,8 @@ def test_data_quality_page() -> None:
     assert "Supersession Review" in response.text
     assert "MotoSport" in response.text
     assert "Manufacturer Not Carried" in response.text
+    assert 'href="#missing-prices"' in response.text
+    assert "/comparison?missing_competitor_price=1" not in response.text
     assert [row["oem_part_number"] for row in data["not_carried"]] == ["P-100"]
     assert "P-100" not in [row["oem_part_number"] for row in data["missing_prices"]]
     assert "Run database audit from the command line" not in response.text

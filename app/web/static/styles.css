@@ -209,6 +209,13 @@ button:disabled { background: #9aa5b1; cursor: not-allowed; opacity: .8; }
 .timeline div { border-left: 3px solid var(--teal); padding: 8px 12px; background: #f8fafc; border-radius: 0 8px 8px 0; }
 .timeline span { display: block; color: var(--muted); margin-top: 3px; }
 .error-card { max-width: 720px; }
+.history-status-detail { display: block; max-width: 360px; margin-top: 6px; color: var(--muted); line-height: 1.35; }
+.job-details { display: grid; gap: 6px; margin-top: 12px; }
+.job-details p { display: grid; grid-template-columns: minmax(100px, 140px) minmax(120px, 180px) 1fr; gap: 10px; align-items: baseline; margin: 0; padding: 8px 10px; border-left: 3px solid #2f9e5b; background: #f7faf8; }
+.job-details p.attention { border-left-color: #d38b10; background: #fff9ec; }
+.quality-details > summary { display: flex; justify-content: space-between; gap: 16px; cursor: pointer; }
+.management-grid span small { display: block; margin-top: 4px; color: var(--muted); font-weight: 400; line-height: 1.3; }
+.status-warning { color: #9a6500; }
 @media (max-width: 1100px) {
   .sidebar { position: static; width: auto; }
   .page { margin-left: 0; padding: 22px; }

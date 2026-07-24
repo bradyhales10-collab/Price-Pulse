@@ -87,6 +87,27 @@ def test_delay_below_minimum_is_rejected() -> None:
         raise AssertionError("expected delay validation error")
 
 
+def test_completed_run_with_row_level_lookup_errors_is_a_warning_not_total_failure() -> None:
+    assert collect_parts._normalized_completed_run_status("failed", completed=53, total=53) == "completed_with_warnings"
+    assert collect_parts._normalized_completed_run_status("failed", completed=51, total=53) == "failed"
+
+
+def test_added_cart_item_cleanup_rebuilds_exact_line_evidence(monkeypatch) -> None:
+    evidence = {"confirmed": True, "remove_selector": "button[data-sku='SKU-1']"}
+    removed: list[dict[str, object]] = []
+    monkeypatch.setattr(collect_parts, "open_cart_text", lambda _page: "OEM-1 Current Price: $10.00")
+    monkeypatch.setattr(collect_parts, "collect_cart_line_records", lambda _page: [{"data_sku": "SKU-1"}])
+    monkeypatch.setattr(collect_parts, "cart_line_evidence", lambda *_args, **_kwargs: evidence)
+    monkeypatch.setattr(collect_parts, "remove_cart_item", lambda _page, *, line_evidence: removed.append(line_evidence) or True)
+    monkeypatch.setattr(collect_parts, "ensure_cart_empty", lambda _page: True)
+    row = collect_parts.CartProbeInputRow("Honda", "OEM-1", "Product", "https://example.test", "", "")
+
+    status = collect_parts._cleanup_added_cart_item(object(), row, supporting_sku="SKU-1", initial_evidence={})
+
+    assert status == "success"
+    assert removed == [evidence]
+
+
 def test_result_normalization() -> None:
     assert normalize_result_type("no change") == "no_change"
 

@@ -41,9 +41,9 @@ CART_ACTION_TEXTS = (
 )
 CART_PRICE_PLACEHOLDERS = {Decimal("9999.99")}
 CART_ACTION_RESCAN_DELAY_MS = 750
-CART_NETWORK_IDLE_CAP_MS = 4000
-CART_RESPONSE_SETTLE_MS = 750
-CART_CLEANUP_SETTLE_MS = 750
+CART_NETWORK_IDLE_CAP_MS = 1500
+CART_RESPONSE_SETTLE_MS = 400
+CART_CLEANUP_SETTLE_MS = 500
 NEVER_CLICK_TEXTS = (
     "checkout",
     "proceed to checkout",
@@ -1083,8 +1083,22 @@ def validate_cart_action_form(page, candidate: dict[str, object], *, row: CartPr
 
 def wait_for_cart_response(page, *, context: CartProbeRunContext | None = None) -> None:
     timeout_ms = (context.limits.max_cart_navigation_wait_seconds if context is not None else 15) * 1000
+    cart_rendered = False
     try:
-        page.wait_for_load_state("networkidle", timeout=min(CART_NETWORK_IDLE_CAP_MS, timeout_ms))
+        page.wait_for_function(
+            """
+            () => Boolean(document.querySelector(
+              '[data-sku], .cart-item, .cart-row, a.cart-remove-item, .removeCartItem, [class*="cart" i] [class*="price" i]'
+            ))
+            """,
+            timeout=min(4000, timeout_ms),
+        )
+        cart_rendered = True
+    except Exception:
+        pass
+    try:
+        if not cart_rendered:
+            page.wait_for_load_state("networkidle", timeout=min(CART_NETWORK_IDLE_CAP_MS, timeout_ms))
     except Exception:
         pass
     try:

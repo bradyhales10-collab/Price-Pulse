@@ -168,13 +168,12 @@ def run_collection(args, plan) -> int:
                 context = browser.new_context(storage_state=str(auth_state_path_for(competitor_key)), viewport=DEFAULT_VIEWPORT)
             else:
                 context = browser.new_context(viewport=DEFAULT_VIEWPORT)
-            if args.collection_mode == "lightweight_browser":
-                context.route("**/*", lambda route: route.abort() if route.request.resource_type in HEAVY_RESOURCE_TYPES else route.continue_())
+            context.route("**/*", lambda route: route.abort() if route.request.resource_type in HEAVY_RESOURCE_TYPES else route.continue_())
             page = context.new_page()
             page.set_default_timeout(settings.timeout)
             page.set_default_navigation_timeout(settings.timeout)
             for planned in plan.planned_parts:
-                if result.rows:
+                if result.rows and competitor_supports_manufacturer(competitor_key, planned.manufacturer):
                     time.sleep(args.delay_seconds)
                 try:
                     if competitor_key == "motosport":
@@ -211,7 +210,14 @@ def run_collection(args, plan) -> int:
             if result.run_status != "running":
                 conn.execute("UPDATE scan_runs SET run_status=? WHERE scan_run_id=?", (result.run_status, scan_run_id))
             else:
-                result.run_status = conn.execute("SELECT run_status FROM scan_runs WHERE scan_run_id=?", (scan_run_id,)).fetchone()[0]
+                database_status = conn.execute("SELECT run_status FROM scan_runs WHERE scan_run_id=?", (scan_run_id,)).fetchone()[0]
+                result.run_status = _normalized_completed_run_status(
+                    database_status,
+                    completed=len(result.rows),
+                    total=len(plan.planned_parts),
+                )
+                if result.run_status != database_status:
+                    conn.execute("UPDATE scan_runs SET run_status=? WHERE scan_run_id=?", (result.run_status, scan_run_id))
         try:
             export_current_prices(args.database)
             export_price_changes(args.database)
@@ -220,6 +226,12 @@ def run_collection(args, plan) -> int:
         write_collection_outputs(result=result, plan=plan, delay_seconds=args.delay_seconds, input_fingerprint=fingerprint_file(args.file))
         _write_progress(args, result, plan, status=result.run_status, started_monotonic=started_monotonic)
     return 0
+
+
+def _normalized_completed_run_status(database_status: str, *, completed: int, total: int) -> str:
+    if database_status == "failed" and total > 0 and completed == total:
+        return "completed_with_warnings"
+    return database_status
 
 
 def _write_progress(args, result: CollectionRunResult, plan, *, status: str, started_monotonic: float) -> None:
@@ -368,6 +380,31 @@ def collect_one_part(database_path: Path, page, planned, scan_run_id: int, setti
     )
 
 
+def _cleanup_added_cart_item(
+    page,
+    row: CartProbeInputRow,
+    *,
+    supporting_sku: str,
+    initial_evidence: dict[str, object] | None = None,
+) -> str:
+    evidence = initial_evidence or {}
+    for _attempt in range(2):
+        if not evidence.get("confirmed"):
+            try:
+                evidence = cart_line_evidence(
+                    open_cart_text(page),
+                    row,
+                    supporting_sku=supporting_sku,
+                    cart_line_records=collect_cart_line_records(page),
+                )
+            except Exception:
+                evidence = {}
+        if evidence.get("confirmed") and remove_cart_item(page, line_evidence=evidence) and ensure_cart_empty(page):
+            return "success"
+        evidence = {}
+    return "failed"
+
+
 def collect_one_motosport_part(database_path: Path, page, planned, scan_run_id: int, settings: ProbeSettings) -> CollectionRow:
     support = manufacturer_support_metadata("motosport", planned.manufacturer, planned.oem_part_number)
     if not support["manufacturer_supported"]:
@@ -414,24 +451,35 @@ def collect_one_motosport_part(database_path: Path, page, planned, scan_run_id: 
             if form_validation["valid"] and ensure_cart_empty(page):
                 click_result = click_cart_action_with_result(page, action["candidate"], timeout_ms=5000)
                 if click_result["clicked"]:
-                    wait_for_cart_response(page)
-                    cart_text = open_cart_text(page)
-                    line_evidence = cart_line_evidence(
-                        cart_text,
-                        cart_row,
-                        supporting_sku=extract_tracking_label(action["candidate"]),
-                        cart_line_records=collect_cart_line_records(page),
-                    )
-                    if line_evidence["confirmed"] and line_evidence["quantity"] == 1 and line_evidence["accepted_price"] is not None:
-                        observation.selling_price = line_evidence["accepted_price"]
-                        observation.price_visibility = "visible"
-                        observation.price_display_type = "discounted" if observation.reference_price and observation.reference_price > observation.selling_price else "regular"
-                        observation.selling_price_confidence = "medium"
-                        observation.parse_confidence = "medium"
-                        observation.warnings = [warning for warning in observation.warnings if warning != "selling_price_hidden_in_cart"]
+                    supporting_sku = extract_tracking_label(action["candidate"])
+                    line_evidence: dict[str, object] = {}
+                    try:
+                        wait_for_cart_response(page)
+                        cart_text = open_cart_text(page)
+                        line_evidence = cart_line_evidence(
+                            cart_text,
+                            cart_row,
+                            supporting_sku=supporting_sku,
+                            cart_line_records=collect_cart_line_records(page),
+                        )
                         observation.raw_evidence_summary["cart_price_evidence"] = line_evidence
-                        cart_price_collected = True
-                    cleanup_status = "success" if remove_cart_item(page, line_evidence=line_evidence) and ensure_cart_empty(page) else "failed"
+                        if line_evidence["confirmed"] and line_evidence["quantity"] == 1 and line_evidence["accepted_price"] is not None:
+                            observation.selling_price = line_evidence["accepted_price"]
+                            observation.price_visibility = "visible"
+                            observation.price_display_type = "discounted" if observation.reference_price and observation.reference_price > observation.selling_price else "regular"
+                            observation.selling_price_confidence = "medium"
+                            observation.parse_confidence = "medium"
+                            observation.warnings = [warning for warning in observation.warnings if warning != "selling_price_hidden_in_cart"]
+                            cart_price_collected = True
+                    except Exception as exc:
+                        observation.warnings.append(f"cart_price_read_failed: {exc}")
+                    finally:
+                        cleanup_status = _cleanup_added_cart_item(
+                            page,
+                            cart_row,
+                            supporting_sku=supporting_sku,
+                            initial_evidence=line_evidence,
+                        )
                 else:
                     observation.warnings.append(str(click_result["reason"]))
             else:
@@ -439,7 +487,7 @@ def collect_one_motosport_part(database_path: Path, page, planned, scan_run_id: 
         else:
             observation.warnings.append("add_to_cart_button_not_found" if action["status"] == "not_found" else "ambiguous_cart_action")
 
-    if cart_price_collected and cleanup_status != "success":
+    if cleanup_status == "failed":
         observation.warnings.append("cart_cleanup_failed")
     product_observation = _product_observation_from_competitor(observation, requested_url=requested_url, checked_at=checked_at)
     output_dir = OUTPUT_DIR / "motosport_collection_diagnostics" / f"{checked_at.replace(':','').replace('-','')}_{planned.oem_part_number}"
@@ -462,7 +510,7 @@ def collect_one_motosport_part(database_path: Path, page, planned, scan_run_id: 
         )
         scan_event_id = conn.execute("SELECT MAX(scan_event_id) FROM scan_events WHERE scan_run_id=? AND listing_id=?", (scan_run_id, planned.listing_id)).fetchone()[0]
     result_type = collection_result_type(product_observation, status, persisted_result)
-    if cart_price_collected and cleanup_status != "success":
+    if cleanup_status == "failed":
         result_type = "cleanup_failed"
     return CollectionRow(
         run_order=planned.run_order,
@@ -571,30 +619,41 @@ def collect_one_chaparral_part(database_path: Path, page, planned, scan_run_id: 
                     click_result = click_cart_action_with_result(page, action["candidate"], timeout_ms=5000)
                     observation.raw_evidence_summary["cart_action_click"] = click_result
                     if click_result["clicked"]:
-                        wait_for_cart_response(page)
-                        cart_text = open_cart_text(page)
-                        line_evidence = cart_line_evidence(
-                            cart_text,
-                            cart_row,
-                            supporting_sku=extract_tracking_label(action["candidate"]),
-                            cart_line_records=collect_cart_line_records(page),
-                        )
-                        observation.raw_evidence_summary["cart_price_evidence"] = line_evidence
-                        if line_evidence.get("rejected_placeholder_price_candidates"):
-                            observation.warnings.append("cart_price_placeholder_ignored")
-                        if line_evidence["confirmed"] and line_evidence["quantity"] == 1 and line_evidence["accepted_price"] is not None:
-                            observation.selling_price = line_evidence["accepted_price"]
-                            observation.price_visibility = "visible"
-                            observation.price_display_type = "regular"
-                            observation.selling_price_confidence = "medium"
-                            observation.parse_confidence = "medium"
-                            observation.raw_evidence_summary["price_source"] = "cart"
-                            observation.raw_evidence_summary["lookup_status"] = "price_found"
-                            cart_price_collected = True
-                        elif line_evidence["confirmed"]:
-                            observation.warnings.append("cart_price_not_found")
-                            observation.raw_evidence_summary["lookup_status"] = "cart_price_not_found"
-                        cleanup_status = "success" if remove_cart_item(page, line_evidence=line_evidence) and ensure_cart_empty(page) else "failed"
+                        supporting_sku = extract_tracking_label(action["candidate"])
+                        line_evidence: dict[str, object] = {}
+                        try:
+                            wait_for_cart_response(page)
+                            cart_text = open_cart_text(page)
+                            line_evidence = cart_line_evidence(
+                                cart_text,
+                                cart_row,
+                                supporting_sku=supporting_sku,
+                                cart_line_records=collect_cart_line_records(page),
+                            )
+                            observation.raw_evidence_summary["cart_price_evidence"] = line_evidence
+                            if line_evidence.get("rejected_placeholder_price_candidates"):
+                                observation.warnings.append("cart_price_placeholder_ignored")
+                            if line_evidence["confirmed"] and line_evidence["quantity"] == 1 and line_evidence["accepted_price"] is not None:
+                                observation.selling_price = line_evidence["accepted_price"]
+                                observation.price_visibility = "visible"
+                                observation.price_display_type = "regular"
+                                observation.selling_price_confidence = "medium"
+                                observation.parse_confidence = "medium"
+                                observation.raw_evidence_summary["price_source"] = "cart"
+                                observation.raw_evidence_summary["lookup_status"] = "price_found"
+                                cart_price_collected = True
+                            elif line_evidence["confirmed"]:
+                                observation.warnings.append("cart_price_not_found")
+                                observation.raw_evidence_summary["lookup_status"] = "cart_price_not_found"
+                        except Exception as exc:
+                            observation.warnings.append(f"cart_price_read_failed: {exc}")
+                        finally:
+                            cleanup_status = _cleanup_added_cart_item(
+                                page,
+                                cart_row,
+                                supporting_sku=supporting_sku,
+                                initial_evidence=line_evidence,
+                            )
                         if cleanup_status != "success" and _reset_chaparral_cart_session(page, settings):
                             cleanup_status = "session_reset"
                             observation.warnings.append("cart_cleanup_session_reset")
@@ -606,7 +665,7 @@ def collect_one_chaparral_part(database_path: Path, page, planned, scan_run_id: 
                 observation.warnings.append("add_to_cart_button_not_found" if action["status"] == "not_found" else "ambiguous_cart_action")
         else:
             observation.warnings.append("cart_not_empty_before_chaparral_check")
-    if cart_price_collected and cleanup_status not in {"success", "session_reset"}:
+    if cleanup_status == "failed":
         observation.warnings.append("cart_cleanup_failed")
         observation.raw_evidence_summary["lookup_status"] = "cart_cleanup_failed"
 
@@ -634,7 +693,7 @@ def collect_one_chaparral_part(database_path: Path, page, planned, scan_run_id: 
         )
         scan_event_id = conn.execute("SELECT MAX(scan_event_id) FROM scan_events WHERE scan_run_id=? AND listing_id=?", (scan_run_id, planned.listing_id)).fetchone()[0]
     result_type = _chaparral_result_type(observation, status, persisted_result)
-    if cart_price_collected and cleanup_status != "success":
+    if cleanup_status == "failed":
         result_type = "cart_cleanup_failed"
     return CollectionRow(
         run_order=planned.run_order,

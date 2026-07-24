@@ -412,14 +412,17 @@ function pollJob() {
 
 function returnToPriceCheckAfterJob(job) {
   if (window.partPulseJobRefreshScheduled) return;
+  const currentQuery = new URLSearchParams(window.location.search);
+  if (currentQuery.get("view") === "results" && currentQuery.get("job_id") === String(job.job_id || "")) return;
   window.partPulseJobRefreshScheduled = true;
   window.setTimeout(() => {
-    const importBatchId = job.import_batch_id || new URLSearchParams(window.location.search).get("import_batch_id");
-    const message = encodeURIComponent("Price check finished.");
+    const importBatchId = job.import_batch_id || currentQuery.get("import_batch_id");
+    const message = encodeURIComponent(job.message || "Price check finished.");
+    const jobQuery = job.job_id ? `&job_id=${encodeURIComponent(job.job_id)}` : "";
     if (importBatchId) {
-      window.location.href = `/imports?import_batch_id=${encodeURIComponent(importBatchId)}&message=${message}`;
+      window.location.href = `/imports?import_batch_id=${encodeURIComponent(importBatchId)}&view=results${jobQuery}&message=${message}`;
     } else {
-      window.location.href = `/imports?message=${message}`;
+      window.location.href = `/imports?${job.job_id ? `job_id=${encodeURIComponent(job.job_id)}&` : ""}message=${message}`;
     }
   }, 2500);
 }

@@ -28,6 +28,7 @@ from app.collection_jobs import (
     claim_next_local_job,
     claim_next_local_login_refresh,
     complete_local_job,
+    current_active_job,
     job_status,
     latest_job_for_import,
     local_agent_status,
@@ -661,8 +662,11 @@ def create_app(database: Path) -> FastAPI:
         page_size: int = 50,
         message: str = "",
     ):
-        preview = preview_import(app.state.database, import_batch_id) if import_batch_id and view != "results" else None
-        job = job_status(job_id) if job_id else None
+        job = job_status(job_id) if job_id else current_active_job()
+        if job and import_batch_id is None:
+            active_import_id = job.get("import_batch_id")
+            import_batch_id = int(active_import_id) if active_import_id else None
+        preview = preview_import(app.state.database, import_batch_id) if import_batch_id and view != "results" and not job else None
         page_size = page_size if page_size in {25, 50, 100} else 50
         filters = ComparisonFilters(
             search=search,
@@ -1034,11 +1038,18 @@ def _format_price(value: object) -> str:
 def _import_history_rows(database: Path) -> list[dict[str, object]]:
     rows = import_history(database)
     completed_statuses = {"completed", "completed_with_warnings"}
+    terminal_statuses = completed_statuses | {"failed", "stopped_blocked", "stopped_challenge"}
     for row in rows:
         job = latest_job_for_import(int(row["import_batch_id"]))
         scan_status = str(job.get("status") or "") if job else ""
         row["scan_status"] = scan_status
         row["scan_completed"] = scan_status in completed_statuses
+        row["scan_terminal"] = scan_status in terminal_statuses
+        row["scan_job_id"] = str(job.get("job_id") or "") if job else ""
+        row["scan_message"] = str(job.get("message") or "") if job else ""
+        row["scan_detail"] = str(job.get("failure_reason") or "") if job else ""
+        progress = job.get("progress") if job else {}
+        row["scan_has_results"] = bool(isinstance(progress, dict) and int(progress.get("completed") or 0) > 0)
     return rows
 
 

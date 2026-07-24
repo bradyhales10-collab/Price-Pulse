@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.collection_jobs import PlannedCollectionPart, job_status, plan_import_collection, start_collection_job, start_price_collection_job, validate_collection_request
+from app.collection_jobs import PlannedCollectionPart, current_active_job, job_status, plan_import_collection, start_collection_job, start_price_collection_job, validate_collection_request
 from app.comparison import ComparisonFilters, comparison_rows
 from app.database import connect_database, initialize_database, utc_now
 from app.exports.review_export import REVIEW_COLUMNS, export_review
@@ -1164,6 +1164,53 @@ def test_parallel_competitor_job_status_aggregates_progress(monkeypatch) -> None
     assert job["progress"]["completed"] == 3
     assert job["progress"]["remaining"] == 1
     assert all("competitor" in row for row in job["progress"]["rows"])
+
+
+def test_current_active_job_restores_progress_and_explains_competitor_failure(monkeypatch, tmp_path) -> None:
+    import app.collection_jobs as collection_jobs
+
+    monkeypatch.setattr(collection_jobs, "JOB_DIR", tmp_path)
+    job_dir = tmp_path / "20260724T135005Z"
+    job_dir.mkdir()
+    progress_path = job_dir / "progress_chaparral.json"
+    progress_path.write_text(
+        json.dumps(
+            {
+                "status": "failed",
+                "run_status": "failed",
+                "competitor": "chaparral",
+                "total": 3,
+                "completed": 3,
+                "remaining": 0,
+                "rows": [
+                    {"oem_part_number": "A", "result_type": "lookup_failed"},
+                    {"oem_part_number": "B", "result_type": "first_observation"},
+                    {"oem_part_number": "C", "result_type": "lookup_failed"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (job_dir / "job.json").write_text(
+        json.dumps(
+            {
+                "job_id": job_dir.name,
+                "status": "queued_local",
+                "started_at": "2026-07-24T13:50:05Z",
+                "import_batch_id": 9,
+                "competitors": ["chaparral"],
+                "planned_count": 3,
+                "progress_files": {"chaparral": str(progress_path)},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    job = current_active_job()
+
+    assert job is not None
+    assert job["import_batch_id"] == 9
+    assert "2 lookup failed" in job["failure_reason"]
 
 
 def test_parallel_status_keeps_polling_when_one_competitor_failed_and_another_runs(monkeypatch) -> None:
