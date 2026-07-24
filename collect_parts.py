@@ -72,6 +72,8 @@ COMPETITOR_RENDER_SETTLE_MS = 1000
 PARTZILLA_RENDER_SETTLE_MS = 1000
 CHAPARRAL_SEARCH_SETTLE_MS = 500
 CHAPARRAL_LOOKUP_POLL_MS = 250
+MOTOSPORT_NAVIGATION_TIMEOUT_MS = 15000
+MOTOSPORT_CART_CLICK_TIMEOUT_MS = 3000
 
 
 def parse_args() -> argparse.Namespace:
@@ -168,7 +170,8 @@ def run_collection(args, plan) -> int:
                 context = browser.new_context(storage_state=str(auth_state_path_for(competitor_key)), viewport=DEFAULT_VIEWPORT)
             else:
                 context = browser.new_context(viewport=DEFAULT_VIEWPORT)
-            context.route("**/*", lambda route: route.abort() if route.request.resource_type in HEAVY_RESOURCE_TYPES else route.continue_())
+            if args.collection_mode == "lightweight_browser":
+                context.route("**/*", lambda route: route.abort() if route.request.resource_type in HEAVY_RESOURCE_TYPES else route.continue_())
             page = context.new_page()
             page.set_default_timeout(settings.timeout)
             page.set_default_navigation_timeout(settings.timeout)
@@ -421,19 +424,33 @@ def collect_one_motosport_part(database_path: Path, page, planned, scan_run_id: 
     cart_price_collected = False
     cleanup_status = "not_attempted"
     try:
-        response = page.goto(requested_url, wait_until="domcontentloaded", timeout=settings.timeout)
+        response = page.goto(
+            requested_url,
+            wait_until="domcontentloaded",
+            timeout=min(settings.timeout, MOTOSPORT_NAVIGATION_TIMEOUT_MS),
+        )
         status = response.status if response is not None else None
+    except PlaywrightTimeoutError as exc:
+        # MotoSport can keep loading marketing assets after the product panel is usable.
+        # Parse the rendered DOM instead of discarding the part after the bounded wait.
+        exception_message = str(exc)
+    except (PlaywrightError, Exception) as exc:
+        exception_message = str(exc)
+    try:
         page.wait_for_timeout(min(settings.render_settle_ms, COMPETITOR_RENDER_SETTLE_MS))
         final_url = page.url
         html = page.content()
         text = page.locator("body").inner_text(timeout=5000) if page.locator("body").count() else ""
     except (PlaywrightTimeoutError, PlaywrightError, Exception) as exc:
-        exception_message = str(exc)
+        exception_message = exception_message or str(exc)
 
     observation = adapter.parse_product_page(html, record, visible_text=text, final_url=final_url, http_status=status)
-    if exception_message:
+    rendered_product = observation.page_classification in {"normal_product", "not_found", "superseded"}
+    if exception_message and not rendered_product:
         observation.page_classification = "navigation_error"
         observation.warnings.append(exception_message)
+    elif exception_message:
+        observation.warnings.append("navigation_timeout_after_product_rendered")
 
     if observation.page_classification == "normal_product" and observation.price_visibility == "see_price_in_cart":
         cart_row = CartProbeInputRow(
@@ -449,7 +466,11 @@ def collect_one_motosport_part(database_path: Path, page, planned, scan_run_id: 
         if action["status"] == "selected":
             form_validation = validate_cart_action_form(page, action["candidate"], row=cart_row, observation=observation)
             if form_validation["valid"] and ensure_cart_empty(page):
-                click_result = click_cart_action_with_result(page, action["candidate"], timeout_ms=5000)
+                click_result = click_cart_action_with_result(
+                    page,
+                    action["candidate"],
+                    timeout_ms=MOTOSPORT_CART_CLICK_TIMEOUT_MS,
+                )
                 if click_result["clicked"]:
                     supporting_sku = extract_tracking_label(action["candidate"])
                     line_evidence: dict[str, object] = {}

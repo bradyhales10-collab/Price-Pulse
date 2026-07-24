@@ -215,6 +215,39 @@ def test_motosport_collection_only_adds_to_cart_for_cart_hidden_prices(monkeypat
     assert row.price_source_category == "motosport_page"
 
 
+def test_motosport_navigation_timeout_keeps_a_rendered_product(monkeypatch) -> None:
+    db = _prepared_db("collection_motosport_timeout_rendered.db", ["41080-1514"])
+    with connect_database(db) as conn:
+        product_id = conn.execute("SELECT product_id FROM products WHERE oem_part_number='41080-1514'").fetchone()[0]
+        competitor_id = seed_motosport(conn)
+        listing_id, _ = upsert_competitor_listing(
+            conn,
+            product_id=int(product_id),
+            competitor_id=competitor_id,
+            competitor_part_number="41080-1514",
+            canonical_url="https://www.motosport.com/oem-parts/part-number/41080-1514",
+        )
+        run_id = create_scan_run(conn, competitor_id=competitor_id, requested_part_count=1)
+    planned = PlannedPart(1, "Kawasaki", "41080-1514", int(product_id), listing_id, None, None, False)
+
+    class SlowRenderedPage(_VisibleProductPage):
+        def goto(self, *_args, **kwargs):
+            assert kwargs["timeout"] == collect_parts.MOTOSPORT_NAVIGATION_TIMEOUT_MS
+            raise collect_parts.PlaywrightTimeoutError("marketing assets still loading")
+
+    row = collect_parts.collect_one_motosport_part(
+        db,
+        SlowRenderedPage(),
+        planned,
+        run_id,
+        collect_parts.ProbeSettings(render_settle_ms=0),
+    )
+
+    assert row.result_type == "first_observation"
+    assert row.selling_price == "282.32"
+    assert "navigation_timeout_after_product_rendered" in row.warnings
+
+
 def test_navigation_error_creates_scan_event_and_can_continue() -> None:
     db = _prepared_db("collection_nav.db", ["41080-1514"])
     with connect_database(db) as conn:
