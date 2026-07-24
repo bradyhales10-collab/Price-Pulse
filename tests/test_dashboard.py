@@ -366,6 +366,21 @@ def test_login_session_page_queues_desktop_login_refresh(monkeypatch, tmp_path) 
     assert client.post("/collector/agent/login/next?agent_id=test-desktop").status_code == 204
 
 
+def test_login_refresh_replaces_duplicate_requests(monkeypatch, tmp_path) -> None:
+    db = _dashboard_db("session-refresh-dedupe.db")
+    monkeypatch.setattr("app.collection_jobs.LOCAL_LOGIN_REQUEST_DIR", tmp_path / "login_requests")
+    client = _client(db)
+
+    first = client.post("/sessions/partzilla/refresh-local", follow_redirects=False)
+    second = client.post("/sessions/partzilla/refresh-local", follow_redirects=False)
+    assert first.status_code == 303
+    assert second.status_code == 303
+
+    claimed = client.post("/collector/agent/login/next?agent_id=test-desktop")
+    assert claimed.status_code == 200
+    assert client.post("/collector/agent/login/next?agent_id=test-desktop").status_code == 204
+
+
 def test_desktop_collector_has_visible_start_helper() -> None:
     helper = Path("Start Part Pulse Collector.cmd").read_text(encoding="utf-8")
     setup = Path("setup_local_collector_agent.py").read_text(encoding="utf-8")

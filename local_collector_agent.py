@@ -98,11 +98,30 @@ def _open_login_refresh(request: dict[str, object]) -> None:
     if script is None or not script.exists():
         LOGGER.warning("No login refresh helper is available for %s", competitor)
         return
+    if _recent_login_helper_opened(competitor):
+        LOGGER.info("Skipping %s login refresh because a helper was opened recently", competitor)
+        return
     LOGGER.info("Opening %s login refresh helper", competitor)
     if os.name == "nt":
         subprocess.Popen(["cmd.exe", "/c", "start", "", str(script)], cwd=ROOT)
     else:
         subprocess.Popen([sys.executable, str(ROOT / "auth_bootstrap.py"), "--competitor", competitor, "--url", urls[competitor]], cwd=ROOT)
+
+
+def _recent_login_helper_opened(competitor: str) -> bool:
+    marker = BRIDGE_DIR / f"login-helper-opened-{competitor}.json"
+    now = time.time()
+    try:
+        if marker.exists():
+            data = json.loads(marker.read_text(encoding="utf-8"))
+            opened_at = float(data.get("opened_at") or 0)
+            if now - opened_at < 300:
+                return True
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(json.dumps({"competitor": competitor, "opened_at": now}), encoding="utf-8")
+    except Exception as exc:
+        LOGGER.warning("Could not update %s login helper marker: %s", competitor, exc)
+    return False
 
 
 def _run_job(job: dict[str, object], config: dict[str, object], server_url: str, auth_header: str | None, agent_id: str) -> None:

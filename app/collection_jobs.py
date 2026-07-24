@@ -360,6 +360,13 @@ def claim_next_local_job(agent_id: str) -> dict[str, object] | None:
 def queue_local_login_refresh(competitor_key: str) -> str:
     adapter = get_competitor(competitor_key)
     LOCAL_LOGIN_REQUEST_DIR.mkdir(parents=True, exist_ok=True)
+    for existing_json in LOCAL_LOGIN_REQUEST_DIR.glob(f"*_{adapter.competitor_key}.json"):
+        existing = _read_json(existing_json)
+        if existing.get("status") in {"queued", "opened"}:
+            existing["status"] = "superseded"
+            existing["message"] = "A newer login refresh request replaced this one."
+            existing["updated_at"] = utc_now()
+            _write_json(existing_json, existing)
     request_id = utc_now().replace(":", "").replace("-", "")
     request_path = LOCAL_LOGIN_REQUEST_DIR / f"{request_id}_{adapter.competitor_key}.json"
     _write_json(
@@ -385,6 +392,16 @@ def claim_next_local_login_refresh(agent_id: str) -> dict[str, object] | None:
             request = _read_json(request_json)
             if request.get("status") != "queued":
                 continue
+            competitor_key = str(request.get("competitor_key") or "")
+            for other_json in LOCAL_LOGIN_REQUEST_DIR.glob(f"*_{competitor_key}.json"):
+                if other_json == request_json:
+                    continue
+                other = _read_json(other_json)
+                if other.get("status") == "queued":
+                    other["status"] = "superseded"
+                    other["message"] = "Another login refresh request was already opened."
+                    other["updated_at"] = utc_now()
+                    _write_json(other_json, other)
             request["status"] = "opened"
             request["agent_id"] = agent_id
             request["claimed_at"] = utc_now()
