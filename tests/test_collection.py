@@ -36,7 +36,7 @@ from app.database import (
 )
 from app.input_loader import load_parts_csv
 from app.models import PartRecord
-from app.schemas.product_observation import AvailabilityStatus, PageClassification
+from app.schemas.product_observation import AvailabilityStatus, PageClassification, SessionStatus
 from tests.test_database_layer import _db, _obs, _record
 
 
@@ -96,6 +96,14 @@ def test_stop_statuses_for_block_challenge_429_and_auth_loss() -> None:
     assert stop_status_for(CollectionRow(1, 1, None, "Kawasaki", "A", page_classification="challenge")) == "stopped_challenge"
     assert stop_status_for(CollectionRow(1, 1, None, "Kawasaki", "A", http_status=429)) == "stopped_blocked"
     assert stop_status_for(CollectionRow(1, 1, None, "Kawasaki", "A", session_status="expired_or_invalid")) == "failed"
+    assert stop_status_for(CollectionRow(1, 1, None, "Kawasaki", "A", session_status="expired_or_invalid", selling_price="72.99")) is None
+
+
+def test_auth_signal_with_visible_price_does_not_override_success() -> None:
+    observation = _obs("72.99")
+    observation.session_status = SessionStatus.EXPIRED_OR_INVALID
+
+    assert collect_parts.collection_result_type(observation, 200, "first_observation") == "first_observation"
 
 
 def test_not_found_result_is_logged_without_stopping_collection() -> None:

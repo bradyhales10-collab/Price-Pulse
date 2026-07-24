@@ -947,7 +947,7 @@ def collection_result_type(observation, http_status: int | None, persisted_resul
         return "not_found"
     if page_classification == "navigation_error":
         return "navigation_error"
-    if observation.session_status.value in {"expired_or_invalid", "authentication_required"}:
+    if observation.session_status.value in {"expired_or_invalid", "authentication_required"} and observation.selling_price is None:
         return "authentication_lost"
     if observation.selling_price is None and page_classification == "normal_product":
         return "no_price"
