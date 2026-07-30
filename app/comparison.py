@@ -167,6 +167,7 @@ def _comparison_row(row: dict[str, Any]) -> dict[str, Any]:
     lowest_price = available[lowest_name] if lowest_name else None
     lowest_diff = None if our is None or lowest_price is None else our - lowest_price
     row["lowest_competitor_name"] = lowest_name
+    row["lowest_competitor_key"] = lowest_name.lower()
     row["lowest_competitor_price"] = _format_decimal(lowest_price)
     row["difference_vs_lowest_competitor"] = _format_decimal(lowest_diff)
     if lowest_diff is None:

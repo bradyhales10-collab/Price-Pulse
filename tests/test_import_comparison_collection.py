@@ -392,7 +392,6 @@ def test_comparison_layout_is_compact_and_highlights_lowest_our_price() -> None:
         "Partzilla",
         "MotoSport",
         "Chaparral",
-        "Lowest Competitor",
         "Our Price",
         "Gap vs Lowest",
         "Calc Cost",
@@ -403,6 +402,11 @@ def test_comparison_layout_is_compact_and_highlights_lowest_our_price() -> None:
         "Reviewed",
     ]
     assert "<th>Original Price</th>" not in page.text
+    # The lowest competitor is now marked in its own column, using the same
+    # colour as Our Price, instead of a separate Lowest Competitor column.
+    assert "Lowest Competitor" not in page.text
+    assert 'title="Lowest competitor"' in page.text
+    assert page.text.count('title="Lowest competitor"') == 1
     assert "Save Selected" in page.text
     assert "Needs Review" in page.text
     assert "Decision" not in page.text

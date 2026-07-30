@@ -14,7 +14,7 @@
   <select name="superseded"><option value="">Superseded: all</option><option value="true" {{ 'selected' if filters.superseded == 'true' else '' }}>Superseded</option><option value="false" {{ 'selected' if filters.superseded == 'false' }}>Not superseded</option></select>
   <select name="confidence"><option value="">All confidence</option>{% for item in ['high','medium','low'] %}<option value="{{ item }}" {{ 'selected' if item == filters.confidence else '' }}>{{ item|humanize }}</option>{% endfor %}</select>
   <select name="sort">{% for key,label in [('last_checked','Last checked'),('part_number','OEM part'),('our_price','Our price'),('lowest_competitor','Lowest competitor')] %}<option value="{{ key }}" {{ 'selected' if key == filters.sort else '' }}>{{ label }}</option>{% endfor %}</select>
-  <select name="page_size">{% for size in [25,50,100,200] %}<option value="{{ size }}" {{ 'selected' if size == filters.page_size else '' }}>{{ size }} rows</option>{% endfor %}</select>
+  <select name="page_size">{% for size in page_size_options %}<option value="{{ size }}" {{ 'selected' if size == filters.page_size else '' }}>{{ size }} rows</option>{% endfor %}</select>
   <label class="check"><input type="checkbox" name="needs_review" value="1" {{ 'checked' if filters.needs_review else '' }}> Needs review</label>
   <button type="submit">Apply</button>
 </form>

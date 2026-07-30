@@ -324,6 +324,10 @@ def quality_data(database: Path) -> dict[str, Any]:
         }
 
 
+PAGE_SIZE_OPTIONS = (25, 50, 100, 200)
+DEFAULT_PAGE_SIZE = 50
+
+
 COMPETITOR_SHORT_NAMES = {
     "Chaparral Motorsports": "Chaparral",
 }
@@ -673,7 +677,7 @@ def _catalog_where(filters: CatalogFilters) -> tuple[str, list[Any]]:
 
 
 def _normalized_filters(filters: CatalogFilters) -> CatalogFilters:
-    page_size = filters.page_size if filters.page_size in {25, 50, 100} else 50
+    page_size = filters.page_size if filters.page_size in PAGE_SIZE_OPTIONS else DEFAULT_PAGE_SIZE
     return CatalogFilters(
         search=filters.search.strip(),
         manufacturer=filters.manufacturer.strip(),

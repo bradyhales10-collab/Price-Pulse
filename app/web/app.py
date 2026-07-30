@@ -89,6 +89,8 @@ from app.reviews import (
 )
 from app.web.formatters import format_timestamp, humanize_status
 from app.web.queries import (
+    DEFAULT_PAGE_SIZE,
+    PAGE_SIZE_OPTIONS,
     CatalogFilters,
     DashboardDatabaseError,
     catalog_data,
@@ -109,6 +111,7 @@ templates.env.filters["datetime"] = format_timestamp
 templates.env.filters["humanize"] = humanize_status
 templates.env.filters["price"] = lambda value: _format_price(value)
 templates.env.filters["short_competitor"] = short_competitor_name
+templates.env.globals["page_size_options"] = PAGE_SIZE_OPTIONS
 
 
 def create_app(database: Path) -> FastAPI:
@@ -242,7 +245,7 @@ def create_app(database: Path) -> FastAPI:
         page_size: int = 50,
         message: str = "",
     ):
-        page_size = page_size if page_size in {25, 50, 100, 200} else 50
+        page_size = page_size if page_size in PAGE_SIZE_OPTIONS else DEFAULT_PAGE_SIZE
         page = max(1, page)
         parsed_import_batch_id = _optional_int_form_value(import_batch_id)
         filters = ComparisonFilters(
@@ -713,7 +716,7 @@ def create_app(database: Path) -> FastAPI:
         if view == "results" and job and str(job.get("status") or "") in terminal_job_statuses:
             job = None
         preview = preview_import(app.state.database, import_batch_id) if import_batch_id and view != "results" and not job else None
-        page_size = page_size if page_size in {25, 50, 100, 200} else 50
+        page_size = page_size if page_size in PAGE_SIZE_OPTIONS else DEFAULT_PAGE_SIZE
         filters = ComparisonFilters(
             search=search,
             manufacturer=manufacturer,

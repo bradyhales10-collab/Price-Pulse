@@ -118,3 +118,58 @@ def test_rules_page_keeps_the_rule_list_and_overrides_without_presets() -> None:
     assert "Strategy Presets" not in page
     assert "Active Pricing Logic" in page
     assert "oem-rule-" in page
+
+
+def test_every_screen_honours_the_same_page_size_options() -> None:
+    """The catalog used to keep its own shorter allowlist, so choosing 200 rows
+    there silently reverted to 50. All screens must share one list."""
+    from app.web.queries import PAGE_SIZE_OPTIONS
+
+    client = _client(_comparison_db("page_size_shared.db"))
+
+    for path in ("/imports", "/products", "/comparison"):
+        for size in PAGE_SIZE_OPTIONS:
+            page = client.get(f"{path}?page_size={size}").text
+            selected = re.search(r'<option value="(\d+)"\s+selected>', page)
+            assert selected is not None, f"{path} at {size}"
+            assert selected.group(1) == str(size), f"{path} reverted {size} to {selected.group(1)}"
+
+
+def test_unknown_page_size_still_falls_back_to_the_default() -> None:
+    from app.web.queries import DEFAULT_PAGE_SIZE
+
+    client = _client(_comparison_db("page_size_bad.db"))
+
+    for path in ("/imports", "/products"):
+        page = client.get(f"{path}?page_size=9999").text
+        selected = re.search(r'<option value="(\d+)"\s+selected>', page)
+        assert selected is not None
+        assert selected.group(1) == str(DEFAULT_PAGE_SIZE)
+
+
+def test_lowest_competitor_is_highlighted_in_its_own_column() -> None:
+    """Replaces the separate Lowest Competitor column: the winning price is
+    marked in place, in the same colour as Our Price."""
+    db = _comparison_db("lowest_highlight.db")
+    page = _client(db).get("/comparison").text
+
+    assert "Lowest Competitor" not in page
+    # Exactly one competitor cell per row can be the lowest.
+    assert page.count('title="Lowest competitor"') == 1
+    assert 'class="group-start price-above-competitor" title="Lowest competitor"' in page
+
+
+def test_rows_expose_which_competitor_column_is_lowest() -> None:
+    db = _comparison_db("lowest_key.db")
+    rows = comparison_rows(db)
+
+    priced = [row for row in rows if row["lowest_competitor_name"]]
+    assert priced, "expected at least one row with a competitor price"
+    for row in priced:
+        assert row["lowest_competitor_key"] == row["lowest_competitor_name"].lower()
+        assert row["lowest_competitor_key"] in {"partzilla", "motosport", "chaparral"}
+
+    # Rows with no competitor price must not claim a lowest column.
+    for row in rows:
+        if not row["lowest_competitor_name"]:
+            assert row["lowest_competitor_key"] == ""
