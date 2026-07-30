@@ -38,3 +38,39 @@ def test_completed_competitor_is_not_flagged_for_login() -> None:
     assert summary["status"] == "completed"
     assert summary["needs_login"] is False
     assert summary["needs_attention"] is False
+
+
+def test_local_job_can_report_login_required_status(tmp_path, monkeypatch) -> None:
+    """A missing sign-in must survive as `login_required` and not be
+    downgraded to a generic `failed`, which is what the user used to see."""
+    import app.collection_jobs as jobs
+
+    monkeypatch.setattr(jobs, "JOB_DIR", tmp_path)
+    job_dir = tmp_path / "job-1"
+    job_dir.mkdir()
+    (job_dir / "job.json").write_text('{"job_id": "job-1", "status": "running"}', encoding="utf-8")
+
+    result = jobs.complete_local_job(
+        "job-1",
+        status="login_required",
+        message="Partzilla needs you to sign in.",
+        agent_id="test-agent",
+    )
+
+    assert result["status"] == "login_required"
+    assert "sign in" in str(result["message"]).lower()
+
+
+def test_unknown_job_status_still_falls_back_to_failed(tmp_path, monkeypatch) -> None:
+    import app.collection_jobs as jobs
+
+    monkeypatch.setattr(jobs, "JOB_DIR", tmp_path)
+    job_dir = tmp_path / "job-2"
+    job_dir.mkdir()
+    (job_dir / "job.json").write_text('{"job_id": "job-2", "status": "running"}', encoding="utf-8")
+
+    result = jobs.complete_local_job(
+        "job-2", status="not-a-real-status", message="x", agent_id="test-agent"
+    )
+
+    assert result["status"] == "failed"

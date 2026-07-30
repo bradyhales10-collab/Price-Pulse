@@ -462,7 +462,7 @@ def complete_local_job(job_id: str, *, status: str, message: str, agent_id: str)
     metadata = _read_json(job_json)
     if not metadata:
         raise FileNotFoundError(f"Collection job {job_id} was not found.")
-    allowed = {"completed", "completed_with_warnings", "failed", "stopped_blocked", "stopped_challenge"}
+    allowed = {"completed", "completed_with_warnings", "failed", "login_required", "stopped_blocked", "stopped_challenge"}
     metadata["status"] = status if status in allowed else "failed"
     metadata["message"] = message
     metadata["agent_id"] = agent_id

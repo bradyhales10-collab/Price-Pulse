@@ -16,6 +16,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from types import SimpleNamespace
 
+from app.auth_session import auth_state_exists
 from app.competitors.registry import get_competitor
 from app.local_agent_credentials import unprotect_password
 from app.models import PartRecord
@@ -176,6 +177,30 @@ def _run_job(job: dict[str, object], config: dict[str, object], server_url: str,
             except Exception as exc:
                 LOGGER.warning("Could not send %s progress for job %s: %s", competitor, job_id, exc)
 
+        adapter = get_competitor(competitor)
+        if adapter.requires_login and not auth_state_exists(adapter.competitor_key):
+            # Without a saved sign-in, collect_parts.py would exit non-zero and the
+            # user would only see a generic failure. Report it clearly instead and
+            # open the sign-in window on this computer so they can fix it directly.
+            LOGGER.info("%s has no saved sign-in; opening the sign-in helper", competitor)
+            progress = {
+                "status": "login_required",
+                "message": (
+                    f"{adapter.display_name} needs you to sign in. A sign-in window has opened on "
+                    f"this computer. Sign in, then start the price check again."
+                ),
+                "competitor": competitor,
+                "competitor_key": adapter.competitor_key,
+                "rows": [],
+                "completed": 0,
+                "total": max_parts,
+            }
+            send_progress(progress)
+            _open_login_refresh(
+                {"competitor_key": adapter.competitor_key, "display_name": adapter.display_name}
+            )
+            return progress
+
         summary = _run_competitor(
             input_path,
             local_db,
@@ -205,12 +230,22 @@ def _run_job(job: dict[str, object], config: dict[str, object], server_url: str,
                 outcomes[competitor] = {"status": "failed", "message": str(exc)}
 
     failed = [key for key, value in outcomes.items() if value.get("status") == "failed"]
+    needs_login = [key for key, value in outcomes.items() if value.get("status") == "login_required"]
     warned = [
         key
         for key, value in outcomes.items()
-        if str(value.get("run_status") or value.get("status") or "") not in {"completed", "running"}
+        if str(value.get("run_status") or value.get("status") or "")
+        not in {"completed", "running", "login_required"}
     ]
-    if failed:
+    if needs_login and not failed:
+        names = ", ".join(get_competitor(key).display_name for key in needs_login)
+        status = "login_required"
+        message = (
+            f"{names} needs you to sign in before prices can be checked. A sign-in window has "
+            f"opened on the computer running the Browser Helper. Sign in there, then start the "
+            f"price check again."
+        )
+    elif failed:
         status = "failed"
         message = f"Local collection failed for: {', '.join(failed)}."
     elif warned:
