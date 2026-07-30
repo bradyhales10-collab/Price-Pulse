@@ -14,7 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from app.auth_session import auth_state_exists, require_competitor_auth_state
+from app.auth_session import MissingAuthStateError, auth_state_exists, require_competitor_auth_state
 from app.competitors.registry import get_competitor
 from app.config import DATA_DIR
 from app.database import cents_to_money, connect_database, utc_now
@@ -573,7 +573,10 @@ def _competitor_progress_summary(competitor: str, progress: dict[str, object]) -
         competitor,
         competitor.title(),
     )
-    detail = f"{display_name} {'; '.join(details)}." if details else ""
+    if status == "login_required":
+        detail = str(progress.get("message") or f"{display_name} needs you to sign in again before prices can be checked.")
+    else:
+        detail = f"{display_name} {'; '.join(details)}." if details else ""
     return {
         "competitor": competitor,
         "status": status,
@@ -581,6 +584,7 @@ def _competitor_progress_summary(competitor: str, progress: dict[str, object]) -
         "total": total,
         "needs_attention": needs_attention,
         "actionable_failure": status in terminal_failures or bool(issues),
+        "needs_login": status == "login_required",
         "detail": detail,
         "issue_counts": dict(issues),
     }
@@ -690,6 +694,20 @@ def _run_collection_thread(
                     )
                 with result_lock:
                     results[competitor_key] = {"return_code": return_code, "progress": progress}
+            except MissingAuthStateError:
+                adapter = get_competitor(competitor_key)
+                progress = {
+                    "status": "login_required",
+                    "message": f"{adapter.display_name} needs you to sign in again before prices can be checked.",
+                    "competitor_key": competitor_key,
+                    "rows": [],
+                    "completed": 0,
+                    "total": max_parts,
+                    "competitor": competitor_key,
+                }
+                progress_file.write_text(json.dumps(progress, indent=2), encoding="utf-8")
+                with result_lock:
+                    results[competitor_key] = {"return_code": 1, "progress": progress}
             except Exception as exc:
                 progress = {"status": "failed", "message": str(exc), "rows": [], "completed": 0, "total": max_parts, "competitor": competitor_key}
                 progress_file.write_text(json.dumps(progress, indent=2), encoding="utf-8")
