@@ -53,6 +53,8 @@
                 <input name="setting_value" value="{{ rule.settings.get('ending_cents', 99) }}" aria-label="Ending cents"> cents ending
               {% elif rule.rule_type == 'anchor' %}
                 <input name="setting_value" value="{{ rule.settings.get('adjustment_cents', 0) }}" aria-label="Adjustment cents"> cents adjustment
+              {% elif rule.rule_type == 'low_price_floor' %}
+                $ <input name="setting_value" value="{{ rule.settings.get('minimum_price', 5) }}" aria-label="Low-value price threshold"> and under
               {% else %}
                 <input type="hidden" name="setting_value" value="">
                 <span class="muted">No setting</span>

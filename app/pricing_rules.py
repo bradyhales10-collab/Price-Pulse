@@ -40,6 +40,7 @@ PRICING_RULE_PRESETS: dict[str, dict[str, Any]] = {
             "use_lowest_competitor": {"enabled": True, "setting_value": "0"},
             "round_to_99": {"enabled": True, "setting_value": "99"},
             "protect_minimum_margin": {"enabled": True, "setting_value": "30"},
+            "keep_price_on_low_value_items": {"enabled": True, "setting_value": "5"},
         },
     },
     "match_market": {
@@ -50,6 +51,7 @@ PRICING_RULE_PRESETS: dict[str, dict[str, Any]] = {
             "use_lowest_competitor": {"enabled": True, "setting_value": "0"},
             "round_to_99": {"enabled": True, "setting_value": "99"},
             "protect_minimum_margin": {"enabled": True, "setting_value": "20"},
+            "keep_price_on_low_value_items": {"enabled": True, "setting_value": "5"},
         },
     },
     "protect_margin": {
@@ -60,6 +62,7 @@ PRICING_RULE_PRESETS: dict[str, dict[str, Any]] = {
             "use_lowest_competitor": {"enabled": True, "setting_value": "0"},
             "round_to_99": {"enabled": True, "setting_value": "99"},
             "protect_minimum_margin": {"enabled": True, "setting_value": "35"},
+            "keep_price_on_low_value_items": {"enabled": True, "setting_value": "5"},
         },
     },
     "aggressive": {
@@ -70,6 +73,7 @@ PRICING_RULE_PRESETS: dict[str, dict[str, Any]] = {
             "use_lowest_competitor": {"enabled": True, "setting_value": "-50"},
             "round_to_99": {"enabled": True, "setting_value": "99"},
             "protect_minimum_margin": {"enabled": True, "setting_value": "20"},
+            "keep_price_on_low_value_items": {"enabled": True, "setting_value": "5"},
         },
     },
 }
@@ -207,6 +211,11 @@ def update_pricing_rule(database: Path, *, rule_code: str, is_enabled: bool, set
         settings["ending_cents"] = ending
     elif rule.rule_type == "anchor":
         settings["adjustment_cents"] = int(_decimal_setting(setting_value, "Adjustment cents"))
+    elif rule.rule_type == "low_price_floor":
+        threshold = _decimal_setting(setting_value, "Low-value price")
+        if threshold < 0:
+            raise ValueError("Low-value price must be zero or more.")
+        settings["minimum_price"] = _json_number(threshold)
     with connect_database(database) as conn:
         conn.execute(
             """
@@ -251,6 +260,21 @@ def suggest_price(row: dict[str, Any], rules: list[PricingRule], *, selected_rul
                     effect = f"Raised to ${_format_money(floor)} to protect {rule.settings.get('minimum_margin_pct', 20)}% margin."
                 else:
                     effect = f"Margin is already above {rule.settings.get('minimum_margin_pct', 20)}%."
+            elif rule.rule_type == "low_price_floor" and proposed is not None:
+                our_price = _money(row.get("our_current_price"))
+                threshold = _money(rule.settings.get("minimum_price", 5))
+                if our_price is None or threshold is None:
+                    effect = "No current price is available to compare."
+                elif our_price > threshold:
+                    effect = f"Our price ${_format_money(our_price)} is above the ${_format_money(threshold)} low-value threshold."
+                elif proposed < our_price:
+                    proposed = our_price
+                    effect = (
+                        f"Kept our price at ${_format_money(our_price)}. It is at or below the "
+                        f"${_format_money(threshold)} low-value threshold, so we do not lower it."
+                    )
+                else:
+                    effect = f"No decrease suggested, so the ${_format_money(threshold)} low-value threshold does not apply."
         applied.append(
             {
                 "rule_code": rule.rule_code,

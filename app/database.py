@@ -274,6 +274,15 @@ def seed_pricing_rules(conn: sqlite3.Connection) -> None:
             '{"minimum_margin_pct": 20}',
             "Raise the suggestion when needed so it does not fall below the minimum gross margin.",
         ),
+        (
+            "keep_price_on_low_value_items",
+            "Keep Price On Low-Value Items",
+            "low_price_floor",
+            1,
+            40,
+            '{"minimum_price": 5}',
+            "Do not suggest lowering our price on inexpensive parts. Matching the market is not worth it at this value, and loyalty benefits such as RM Cash already add value for the customer. Price increases are still allowed.",
+        ),
     ]
     for code, name, rule_type, is_enabled, priority, settings_json, description in defaults:
         conn.execute(
