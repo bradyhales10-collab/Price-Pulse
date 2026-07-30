@@ -199,7 +199,6 @@ def product_detail(database: Path, product_id: int) -> dict[str, Any] | None:
         if not rows:
             return None
         row = rows[0]
-        listing_id = row["listing_id"]
         history = conn.execute("""
             SELECT c.competitor_name, effective_at, change_type, previous_selling_price_cents, new_selling_price_cents,
                    previous_reference_price_cents, new_reference_price_cents, change_details_json
@@ -220,11 +219,30 @@ def product_detail(database: Path, product_id: int) -> dict[str, Any] | None:
             ORDER BY checked_at DESC
             LIMIT 25
         """, (product_id,)).fetchall()
+        history_rows = [_history_row(item) for item in history]
+        history_competitors, history_grid = _pivot_price_history(history_rows)
+        listing_rows = [_catalog_row(item) for item in rows]
+        priced = [item for item in rows if item["selling_price_cents"] is not None]
+        lowest_row = min(priced, key=lambda item: item["selling_price_cents"]) if priced else None
+        lowest_competitor = (
+            {
+                "competitor_name": lowest_row["competitor_name"],
+                "selling_price": cents_to_money(lowest_row["selling_price_cents"]),
+                "reference_price": cents_to_money(lowest_row["reference_price_cents"]),
+                "selling_price_confidence": lowest_row["selling_price_confidence"],
+                "price_display_type": lowest_row["price_display_type"],
+            }
+            if lowest_row is not None
+            else None
+        )
         return {
             "product": _catalog_row(row),
             "listing": dict(row),
-            "listings": [_catalog_row(item) for item in rows],
-            "history": [_history_row(item) for item in history],
+            "listings": listing_rows,
+            "lowest_competitor": lowest_competitor,
+            "history": history_rows,
+            "history_competitors": history_competitors,
+            "history_grid": history_grid,
             "events": [dict(item) for item in events],
         }
 
@@ -757,6 +775,57 @@ def _event_row(row: sqlite3.Row) -> dict[str, Any]:
     data = dict(row)
     data["selling_price"] = cents_to_money(data.get("selling_price_cents"))
     return data
+
+
+PRICE_HISTORY_GROUP_MINUTES = 45
+
+
+def _pivot_price_history(
+    rows: list[dict[str, Any]],
+    *,
+    window_minutes: int = PRICE_HISTORY_GROUP_MINUTES,
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """Turn one-row-per-change history into a date x competitor grid.
+
+    Each competitor is checked in its own scan run, usually a minute or two
+    apart, so entries close together in time belong to the same price check and
+    should share a row. A repeat of the same competitor always starts a new row.
+    Rows are expected newest-first.
+    """
+    competitors = sorted(
+        {str(row.get("competitor_name") or "") for row in rows if row.get("competitor_name")}
+    )
+    groups: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+
+    for row in rows:
+        name = str(row.get("competitor_name") or "")
+        if not name:
+            continue
+        stamp = str(row.get("effective_at") or "")
+        start_new = current is None
+        if current is not None:
+            if name in current["prices"]:
+                start_new = True
+            else:
+                try:
+                    gap = (_parse_time(current["oldest_at"]) - _parse_time(stamp)).total_seconds()
+                except ValueError:
+                    gap = 0
+                if abs(gap) > window_minutes * 60:
+                    start_new = True
+        if start_new:
+            current = {"checked_at": stamp, "oldest_at": stamp, "prices": {}}
+            groups.append(current)
+        current["prices"][name] = {
+            "price": row.get("new_price"),
+            "previous_price": row.get("previous_price"),
+            "change_type": row.get("change_type"),
+            "percent_change": row.get("percent_change"),
+        }
+        current["oldest_at"] = stamp
+
+    return competitors, groups
 
 
 def _history_row(row: sqlite3.Row) -> dict[str, Any]:

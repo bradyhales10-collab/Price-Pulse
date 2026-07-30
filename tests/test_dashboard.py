@@ -185,7 +185,7 @@ def test_product_detail_history_and_scan_timeline_load() -> None:
 
     assert response.status_code == 200
     assert "Our Pricing" in response.text
-    assert "Selected Competitor Price" in response.text
+    assert "Lowest Competitor Price" in response.text
     assert "Price History" in response.text
     assert "Scan Event Timeline" in response.text
     assert "Price Change" in response.text
@@ -233,7 +233,10 @@ def test_product_detail_prefers_supported_competitor_price_over_not_carried_list
     assert "Partzilla" in response.text
     assert "77.97" in response.text
     assert "Manufacturer Not Carried" in response.text
-    assert "Open MotoSport" in response.text
+    # The supported competitor supplies the headline price, not the not-carried one.
+    assert "Lowest Competitor Price" in response.text
+    # Per-competitor links live in the Competitor Listings table.
+    assert "https://www.motosport.com/oem-parts/part-number/00050000068" in response.text
 
 
 def test_scan_runs_and_run_detail_load() -> None:
