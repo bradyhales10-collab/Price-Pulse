@@ -324,6 +324,24 @@ def quality_data(database: Path) -> dict[str, Any]:
         }
 
 
+COMPETITOR_SHORT_NAMES = {
+    "Chaparral Motorsports": "Chaparral",
+}
+
+
+def short_competitor_name(value: Any) -> str:
+    """Shorten long competitor names for table cells, matching the column
+    headings used on the Price Check screen."""
+    if not value:
+        return ""
+    return COMPETITOR_SHORT_NAMES.get(str(value).strip(), str(value))
+
+
+def manufacturer_options(database: Path) -> list[str]:
+    with connect_readonly(database) as conn:
+        return manufacturers(conn)
+
+
 def manufacturers(conn: sqlite3.Connection) -> list[str]:
     return [row["manufacturer"] for row in conn.execute("SELECT DISTINCT manufacturer FROM products ORDER BY manufacturer COLLATE NOCASE")]
 

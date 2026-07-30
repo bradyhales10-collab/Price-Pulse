@@ -94,10 +94,12 @@ from app.web.queries import (
     catalog_data,
     dashboard_data,
     import_batch_label,
+    manufacturer_options,
     product_detail,
     quality_data,
     scan_run_detail,
     scan_runs,
+    short_competitor_name,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -106,6 +108,7 @@ templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
 templates.env.filters["datetime"] = format_timestamp
 templates.env.filters["humanize"] = humanize_status
 templates.env.filters["price"] = lambda value: _format_price(value)
+templates.env.filters["short_competitor"] = short_competitor_name
 
 
 def create_app(database: Path) -> FastAPI:
@@ -190,7 +193,7 @@ def create_app(database: Path) -> FastAPI:
         )
 
     @app.get("/products/{product_id}", response_class=HTMLResponse)
-    def product(request: Request, product_id: int):
+    def product(request: Request, product_id: int, back: str = ""):
         data = product_detail(app.state.database, product_id)
         if data is None:
             return templates.TemplateResponse(
@@ -202,7 +205,12 @@ def create_app(database: Path) -> FastAPI:
         return templates.TemplateResponse(
             request,
             "product_detail.html",
-            {"active": "products", "database": app.state.database, **data},
+            {
+                "active": "products",
+                "database": app.state.database,
+                "back_url": _safe_back_url(back),
+                **data,
+            },
         )
 
     @app.get("/runs", response_class=HTMLResponse)
@@ -234,7 +242,7 @@ def create_app(database: Path) -> FastAPI:
         page_size: int = 50,
         message: str = "",
     ):
-        page_size = page_size if page_size in {25, 50, 100} else 50
+        page_size = page_size if page_size in {25, 50, 100, 200} else 50
         page = max(1, page)
         parsed_import_batch_id = _optional_int_form_value(import_batch_id)
         filters = ComparisonFilters(
@@ -279,6 +287,7 @@ def create_app(database: Path) -> FastAPI:
                 "statuses": REVIEW_STATUSES,
                 "page_query": page_query,
                 "quick_filter_queries": _comparison_quick_filter_queries(filters, page_size),
+                "manufacturers": manufacturer_options(app.state.database),
                 "selected_import": import_batch_label(app.state.database, parsed_import_batch_id),
             },
         )
@@ -687,7 +696,9 @@ def create_app(database: Path) -> FastAPI:
         job_id: str = "",
         view: str = "",
         search: str = "",
+        manufacturer: str = "",
         price_position: str = "",
+        review_state: str = "",
         competitor_discounted: int = 0,
         missing_competitor_price: int = 0,
         page: int = 1,
@@ -702,10 +713,12 @@ def create_app(database: Path) -> FastAPI:
         if view == "results" and job and str(job.get("status") or "") in terminal_job_statuses:
             job = None
         preview = preview_import(app.state.database, import_batch_id) if import_batch_id and view != "results" and not job else None
-        page_size = page_size if page_size in {25, 50, 100} else 50
+        page_size = page_size if page_size in {25, 50, 100, 200} else 50
         filters = ComparisonFilters(
             search=search,
+            manufacturer=manufacturer,
             price_position=price_position,
+            review_state=review_state if review_state in {"pending", "reviewed"} else "",
             competitor_discounted=bool(competitor_discounted),
             missing_competitor_price=bool(missing_competitor_price),
             import_batch_id=import_batch_id,
@@ -1060,6 +1073,15 @@ async def _urlencoded_form(request: Request) -> dict[str, str]:
     return {key: values[-1] if values else "" for key, values in parsed.items()}
 
 
+def _safe_back_url(value: str) -> str:
+    """Only allow same-site paths, so a crafted link cannot send the user
+    somewhere else."""
+    candidate = (value or "").strip()
+    if not candidate.startswith("/") or candidate.startswith("//"):
+        return ""
+    return candidate
+
+
 def _format_price(value: object) -> str:
     if value is None or value == "":
         return ""
@@ -1167,6 +1189,8 @@ def _comparison_page_query(filters: ComparisonFilters, page_size: int) -> str:
         params["hidden_competitor_price"] = 1
     if filters.needs_review:
         params["needs_review"] = 1
+    if filters.review_state:
+        params["review_state"] = filters.review_state
     if filters.import_batch_id:
         params["import_batch_id"] = filters.import_batch_id
     return urlencode(params)

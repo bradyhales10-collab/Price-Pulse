@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import zipfile
 from pathlib import Path
 
@@ -372,12 +373,35 @@ def test_comparison_layout_is_compact_and_highlights_lowest_our_price() -> None:
 
     assert row["our_price_class"] == "price-below-competitors"
     assert row["gap_price_class"] == "price-difference-lower"
-    assert 'class="price-below-competitors"' in page.text
-    assert 'class="price-difference-lower"' in page.text
+    assert "price-below-competitors" in page.text
+    assert "price-difference-lower" in page.text
     assert "Show Lower Prices" in page.text
     assert "Show All Prices" in page.text
     assert "Show Hidden Prices" not in page.text
-    assert page.text.index("<th>Product</th>") < page.text.index("<th>Partzilla</th>") < page.text.index("<th>MotoSport</th>") < page.text.index("<th>Chaparral</th>") < page.text.index("<th>Lowest Competitor</th>") < page.text.index("<th>Gap vs Lowest</th>") < page.text.index("<th>Our Price</th>") < page.text.index("<th>Calc Cost</th>") < page.text.index("<th>Margin %</th>") < page.text.index("<th>Suggested Price</th>") < page.text.index("<th>Updated Price</th>") < page.text.index("<th>New Margin</th>")
+    headers = [
+        text.strip()
+        for text in re.findall(r"<th[^>]*>(.*?)</th>", page.text, re.S)
+        if text.strip() and "<input" not in text
+    ]
+    assert headers == [
+        "Manufacturer",
+        "OEM Part",
+        "Product",
+        "Internal SKU",
+        "Inventory",
+        "Partzilla",
+        "MotoSport",
+        "Chaparral",
+        "Lowest Competitor",
+        "Our Price",
+        "Gap vs Lowest",
+        "Calc Cost",
+        "Margin %",
+        "Suggested Price",
+        "Updated Price",
+        "New Margin",
+        "Reviewed",
+    ]
     assert "<th>Original Price</th>" not in page.text
     assert "Save Selected" in page.text
     assert "Needs Review" in page.text
@@ -707,8 +731,9 @@ def test_pricing_rules_page_and_review_queue_rule_selection() -> None:
 
     rules = client.get("/rules")
     assert rules.status_code == 200
-    assert "Strategy Presets" in rules.text
-    assert "Match Market" in rules.text
+    assert "Strategy Presets" not in rules.text
+    assert "Active Pricing Logic" in rules.text
+    assert "oem-rule-" in rules.text
     assert "Use Lowest Competitor" in rules.text
     assert "Protect Minimum Margin" in rules.text
 

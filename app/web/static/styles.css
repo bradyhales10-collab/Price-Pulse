@@ -73,6 +73,11 @@ p { color: var(--muted); }
 .chip { background: #eef6ff; border: 1px solid #cfe3ff; color: var(--navy); border-radius: 999px; padding: 7px 10px; }
 .table-wrap { overflow: auto; max-height: 70vh; position: relative; isolation: isolate; }
 
+/* Wide data tables scroll with the page rather than inside their own window,
+   so there is a single scrollbar. The sticky header then pins to the top of
+   the viewport as you scroll. */
+.table-wrap.page-scroll { overflow: visible; max-height: none; }
+
 /* Wide data tables (comparison + catalog) have many columns. Let headers wrap
    onto two lines and tighten spacing so everything fits on screen without
    sideways scrolling. Horizontal overflow stays available as a fallback for
@@ -84,6 +89,10 @@ p { color: var(--muted); }
 .wide-table .col-product .truncate { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wide-table .price-input, .wide-table .margin-input { width: 78px; min-width: 78px; }
 .wide-table .badge { padding: 2px 6px; font-size: 11px; }
+.wide-table th.group-start, .wide-table td.group-start { border-left: 2px solid var(--line); }
+.wide-table .col-oem a { font-weight: 600; }
+.back-link { margin: 0 0 10px; }
+.back-link a { font-weight: 600; text-decoration: none; }
 @media (max-width: 1500px) {
   .wide-table { font-size: 11.5px; }
   .wide-table th, .wide-table td { padding: 7px 4px; }

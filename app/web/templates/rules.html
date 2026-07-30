@@ -14,19 +14,6 @@
 {% if message %}<section class="card">{{ badge('Saved', 'success') }} {{ message }}</section>{% endif %}
 
 <section class="card">
-  <div class="section-title"><h2>Strategy Presets</h2><span class="muted">Applies the rule settings below.</span></div>
-  <div class="preset-grid">
-    {% for preset in presets %}
-      <form method="post" action="/rules/presets/{{ preset.preset_code }}">
-        <strong>{{ preset.name }}</strong>
-        <p>{{ preset.description }}</p>
-        <button type="submit">Use {{ preset.name }}</button>
-      </form>
-    {% endfor %}
-  </div>
-</section>
-
-<section class="card">
   <div class="section-title"><h2>Active Pricing Logic</h2></div>
   <div class="table-wrap">
     <table>

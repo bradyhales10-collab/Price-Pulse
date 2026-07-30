@@ -2,6 +2,7 @@
 {% from "components.html" import money, badge %}
 {% block title %}{{ product.oem_part_number }}{% endblock %}
 {% block content %}
+{% if back_url %}<p class="back-link"><a href="{{ back_url }}">&larr; Back to Price Check</a></p>{% endif %}
 <header class="page-header">
   <div><h1>{{ product.manufacturer }} {{ product.oem_part_number }}</h1><p>{{ product.product_name or 'Unnamed product' }}</p></div>
 </header>

@@ -14,7 +14,7 @@
   <select name="superseded"><option value="">Superseded: all</option><option value="true" {{ 'selected' if filters.superseded == 'true' else '' }}>Superseded</option><option value="false" {{ 'selected' if filters.superseded == 'false' }}>Not superseded</option></select>
   <select name="confidence"><option value="">All confidence</option>{% for item in ['high','medium','low'] %}<option value="{{ item }}" {{ 'selected' if item == filters.confidence else '' }}>{{ item|humanize }}</option>{% endfor %}</select>
   <select name="sort">{% for key,label in [('last_checked','Last checked'),('part_number','OEM part'),('our_price','Our price'),('lowest_competitor','Lowest competitor')] %}<option value="{{ key }}" {{ 'selected' if key == filters.sort else '' }}>{{ label }}</option>{% endfor %}</select>
-  <select name="page_size">{% for size in [25,50,100] %}<option value="{{ size }}" {{ 'selected' if size == filters.page_size else '' }}>{{ size }} rows</option>{% endfor %}</select>
+  <select name="page_size">{% for size in [25,50,100,200] %}<option value="{{ size }}" {{ 'selected' if size == filters.page_size else '' }}>{{ size }} rows</option>{% endfor %}</select>
   <label class="check"><input type="checkbox" name="needs_review" value="1" {{ 'checked' if filters.needs_review else '' }}> Needs review</label>
   <button type="submit">Apply</button>
 </form>
@@ -25,7 +25,7 @@
   <div class="section-title"><h2>{{ total }} Products</h2><span>Page {{ filters.page }} of {{ total_pages }}</span></div>
   {{ pagination(query_base, filters.page, total_pages) }}
   {% if products %}
-  <div class="table-wrap">
+  <div class="table-wrap page-scroll">
     <table class="sortable-table wide-table">
       <thead>
         <tr>
@@ -57,7 +57,7 @@
           <td>{{ competitor_cell(item.partzilla) }}</td>
           <td>{{ competitor_cell(item.motosport) }}</td>
           <td>{{ competitor_cell(item.chaparral) }}</td>
-          <td>{% if item.lowest_competitor_name %}{{ item.lowest_competitor_name }} {{ money(item.lowest_competitor_price, True) }}{% else %}<span class="muted">None</span>{% endif %}</td>
+          <td>{% if item.lowest_competitor_name %}{{ item.lowest_competitor_name|short_competitor }} {{ money(item.lowest_competitor_price, True) }}{% else %}<span class="muted">None</span>{% endif %}</td>
           <td class="{{ item.price_difference_class }}">{% if item.difference_vs_lowest_competitor %}<span class="money strong">{{ item.difference_vs_lowest_competitor|price }}</span>{% else %}<span class="muted">None</span>{% endif %}</td>
           <td class="{{ item.our_price_class }}">{{ money(item.our_current_price, True) }}</td>
           <td>{{ money(item.current_cost) }}</td>

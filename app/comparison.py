@@ -22,6 +22,7 @@ class ComparisonFilters:
     missing_competitor_price: bool = False
     hidden_competitor_price: bool = False
     needs_review: bool = False
+    review_state: str = ""
     import_batch_id: int | None = None
 
 
@@ -114,6 +115,10 @@ def _where(filters: ComparisonFilters) -> tuple[str, list[Any]]:
     if filters.needs_review:
         clauses.append("COALESCE(prd.review_status, ?) = ?")
         params.extend([PENDING_REVIEW, PENDING_REVIEW])
+    if filters.review_state == "reviewed":
+        clauses.append("(prd.suggested_new_price_cents IS NOT NULL AND ips.our_current_price_cents = prd.suggested_new_price_cents)")
+    elif filters.review_state == "pending":
+        clauses.append("NOT (prd.suggested_new_price_cents IS NOT NULL AND ips.our_current_price_cents = prd.suggested_new_price_cents)")
     if filters.import_batch_id:
         clauses.append("ips.source_import_batch_id=?")
         params.append(filters.import_batch_id)

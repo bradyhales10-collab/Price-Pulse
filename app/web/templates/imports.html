@@ -133,7 +133,7 @@
 </section>
 {% endif %}
 
-{% set has_results = total or filters.search or filters.price_position or filters.competitor_discounted or filters.missing_competitor_price %}
+{% set has_results = total or filters.search or filters.manufacturer or filters.price_position or filters.review_state or filters.competitor_discounted or filters.missing_competitor_price %}
 {% if has_results %}
 {% include "comparison_section.html" %}
 {% else %}
