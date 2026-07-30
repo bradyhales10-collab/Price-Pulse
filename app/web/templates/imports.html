@@ -28,7 +28,7 @@
 {% include "collector_status.html" %}
 
 {% if history %}
-<details id="recent-files" class="card workflow-card history-details" {{ 'open' if not preview and not job else '' }}>
+<details id="recent-files" class="card workflow-card history-details">
   <summary><strong>Recent Files</strong><span>Open a previous file or review its results.</span></summary>
   <div class="section-title history-actions"><span></span><form method="post" action="/imports/history/clear" onsubmit="return confirm('Clear recent upload history? Imported products and prices will stay in the catalog.');"><button type="submit" class="link-button">Clear List</button></form></div>
   <div class="table-wrap"><table><thead><tr><th>Date</th><th>Filename</th><th>Rows</th><th>Valid</th><th>Invalid</th><th>Status</th><th></th><th></th></tr></thead><tbody>
@@ -73,16 +73,22 @@
     {% if preview.invalid_rows %}<span>Rows needing correction <b>{{ preview.invalid_rows }}</b></span>{% endif %}
     {% if preview.duplicate_rows %}<span>Duplicate rows ignored <b>{{ preview.duplicate_rows }}</b></span>{% endif %}
   </div>
-  {% if preview.mapping %}
-  <details class="preview-details">
-    <summary>Show recognized columns ({{ preview.mapping|length }})</summary>
-    <div class="table-wrap"><table><thead><tr><th>Uploaded Header</th><th>Part Pulse Field</th></tr></thead><tbody>
-      {% for header, field in preview.mapping.items() %}<tr><td>{{ header }}</td><td>{{ field|humanize }}</td></tr>{% endfor %}
-    </tbody></table></div>
-    <p class="muted">Other uploaded columns are left unchanged and are not used for price checking.</p>
-  </details>
-  {% endif %}
   {% if preview.invalid_rows == 0 %}
+  <form id="price-check-form" action="/imports/{{ preview.import_batch_id }}/start-price-check" method="post" class="primary-action run-controls">
+    <div>
+      <strong>Choose competitors</strong>
+      <p class="muted">Only supported OEM and competitor combinations will be checked.</p>
+    </div>
+    <div class="competitor-picker run-competitors">
+      {% for competitor in competitors %}
+        <label class="check competitor-option {{ 'disabled-option' if not competitor.can_run_now else '' }}"><input type="checkbox" name="competitor" value="{{ competitor.competitor_key }}" {{ 'checked' if competitor.default_checked else '' }} {{ 'disabled' if not competitor.can_run_now else '' }}> {{ competitor.display_name }}</label>
+      {% endfor %}
+    </div>
+    <details class="advanced-options">
+      <summary>Advanced options</summary>
+      <div class="inline-action"><label>Seconds between checks <input name="delay_seconds" type="number" min="1" value="1"></label></div>
+    </details>
+  </form>
   <div class="readiness-list">
     <div class="readiness-item ready">
       <span class="readiness-icon">&#10003;</span>
@@ -110,30 +116,27 @@
       </div>
     </div>
   </div>
-  <form id="price-check-form" action="/imports/{{ preview.import_batch_id }}/start-price-check" method="post" class="primary-action run-controls">
-    <div>
-      <strong>Choose competitors</strong>
-      <p class="muted">Only supported OEM and competitor combinations will be checked.</p>
-    </div>
-    <div class="competitor-picker run-competitors">
-      {% for competitor in competitors %}
-        <label class="check competitor-option {{ 'disabled-option' if not competitor.can_run_now else '' }}"><input type="checkbox" name="competitor" value="{{ competitor.competitor_key }}" {{ 'checked' if competitor.default_checked else '' }} {{ 'disabled' if not competitor.can_run_now else '' }}> {{ competitor.display_name }}</label>
-      {% endfor %}
-    </div>
-    <details class="advanced-options">
-      <summary>Advanced options</summary>
-      <div class="inline-action"><label>Seconds between checks <input name="delay_seconds" type="number" min="1" value="1"></label></div>
-    </details>
-  </form>
   {% else %}
   <p>{{ badge('File Needs Attention', 'warning') }} Correct the invalid rows, then upload the file again.</p>
   {% endif %}
   <details class="preview-details">
-    <summary>Preview uploaded rows</summary>
+    <summary>Preview uploaded rows and recognized columns</summary>
     <div class="table-wrap"><table><thead><tr><th>Row</th><th>Status</th><th>Manufacturer</th><th>OEM Part</th><th>Internal SKU</th><th>Our Price</th><th>Messages</th></tr></thead><tbody>{% for row in preview.rows[:25] %}<tr><td>{{ row.source_row_number }}</td><td>{{ badge(row.status, 'success' if row.status == 'valid' else 'warning') }}</td><td>{{ row.values.get('manufacturer','') }}</td><td>{{ row.values.get('oem_part_number','') }}</td><td>{{ row.values.get('internal_sku','') }}</td><td>{{ row.values.get('our_current_price','')|price }}</td><td>{{ '; '.join(row.messages) }}</td></tr>{% endfor %}</tbody></table></div>
+    {% if preview.mapping %}
+    <h3>Recognized columns ({{ preview.mapping|length }})</h3>
+    <div class="table-wrap"><table><thead><tr><th>Uploaded Header</th><th>Part Pulse Field</th></tr></thead><tbody>
+      {% for header, field in preview.mapping.items() %}<tr><td>{{ header }}</td><td>{{ field|humanize }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    <p class="muted">Other uploaded columns are left unchanged and are not used for price checking.</p>
+    {% endif %}
   </details>
 </section>
 {% endif %}
 
+{% set has_results = total or filters.search or filters.price_position or filters.competitor_discounted or filters.missing_competitor_price %}
+{% if has_results %}
 {% include "comparison_section.html" %}
+{% else %}
+{% if message %}<section class="card">{{ message }}</section>{% endif %}
+{% endif %}
 {% endblock %}
