@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+import time
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from playwright.sync_api import Error as PlaywrightError
@@ -11,6 +14,7 @@ from playwright.sync_api import sync_playwright
 from app.auth_session import (
     auth_state_path_for,
     mark_authenticated_context,
+    save_uploaded_auth_state,
     write_authenticated_observation,
     write_sanitized_authenticated_diagnostics,
 )
@@ -60,10 +64,10 @@ def main() -> int:
 
     print(f"A browser window will open for {adapter.display_name}.")
     print("Sign in manually in that browser. This script will not type, click, store, or display your credentials.")
-    if adapter.competitor_key == "partzilla":
-        print("After the product page shows a visible main product price, come back here and press Enter.")
-    else:
-        print("After you are signed in and the page is stable, come back here and press Enter.")
+    print("")
+    print("WHEN YOU ARE DONE SIGNING IN, JUST CLOSE THE BROWSER WINDOW.")
+    print("Your sign-in will be saved automatically. You do not need to come back to this window.")
+    print("")
     print(f"Page: {requested_url}")
 
     final_url: str | None = None
@@ -90,13 +94,11 @@ def main() -> int:
             status = response.status if response is not None else None
             page.wait_for_timeout(settings.render_settle_ms)
 
-            input("Press Enter after you have manually signed in and returned to the product page...")
-            page.wait_for_timeout(settings.render_settle_ms)
-
-            final_url = page.url
-            title = page.title()
-            html = page.content()
-            text = page.locator("body").inner_text(timeout=5000) if page.locator("body").count() else ""
+            snapshot = _wait_for_manual_sign_in(page, context, settle_ms=settings.render_settle_ms)
+            final_url = snapshot.final_url
+            title = snapshot.title
+            html = snapshot.html
+            text = snapshot.text
             signals = detect_page_signals(text=text, html=html)
 
             if adapter.competitor_key == "partzilla" and record is not None:
@@ -116,29 +118,55 @@ def main() -> int:
                 )
                 mark_authenticated_context(observation, auth_state_loaded=False)
                 result = _bootstrap_result(observation.session_status, observation.page_classification, observation.price_visibility)
-                should_save = observation.session_status == SessionStatus.AUTHENTICATED
+                should_save = (
+                    observation.session_status == SessionStatus.AUTHENTICATED
+                    or snapshot.signed_in_observed
+                )
             else:
-                result = "session_saved"
+                result = "session_saved" if snapshot.signed_in_observed else "session_saved_unconfirmed"
                 should_save = True
 
-            if should_save:
-                auth_state_path.parent.mkdir(parents=True, exist_ok=True)
-                context.storage_state(path=auth_state_path)
+            # The state is written from the snapshot captured while polling, so this
+            # still works when the user simply closes the browser to finish.
+            if should_save and snapshot.storage_state is not None:
+                save_uploaded_auth_state(
+                    adapter.competitor_key,
+                    json.dumps(snapshot.storage_state).encode("utf-8"),
+                )
                 storage_saved = True
 
-            context.close()
-            browser.close()
+            try:
+                context.close()
+                browser.close()
+            except Exception:
+                # The user closing the browser is a normal way to finish here.
+                pass
 
     except (PlaywrightTimeoutError, PlaywrightError, Exception) as exc:
         exception_message = str(exc)
         result = "navigation_error"
 
-    print(f"Result: {result}")
-    print(f"Auth state saved: {'yes' if storage_saved else 'no'}")
+    print("")
+    print("===============================")
     if storage_saved:
-        print(f"Auth state path: {auth_state_path}")
-        print("Treat this file like a password. Do not share it or commit it.")
-    elif observation is not None:
+        print("  Your sign-in was SAVED.")
+        print("===============================")
+        print("")
+        print("You can close this window and start the price check again.")
+        print("")
+        print(f"(Technical details: result={result}, saved to {auth_state_path})")
+        print("Treat that file like a password. Do not share it or commit it.")
+    else:
+        print("  Your sign-in was NOT saved.")
+        print("===============================")
+        print("")
+        print("Please try again, and this time make sure you are fully signed in")
+        print("before closing the browser window.")
+        print("")
+        print(f"(Technical details: result={result})")
+    print("")
+
+    if not storage_saved and observation is not None:
         part_label = record.oem_part_number if record is not None else adapter.competitor_key
         output_dir = AUTHENTICATED_DIAGNOSTICS_DIR / f"{stamp}_bootstrap_{_safe_filename(part_label)}"
         observation_path = output_dir / "observation.json"
@@ -146,9 +174,92 @@ def main() -> int:
         write_authenticated_observation(observation_path, observation)
         write_sanitized_authenticated_diagnostics(diagnostics_path, observation, exception_message=exception_message)
         _print_unconfirmed_summary(observation, observation_path, diagnostics_path)
-    elif exception_message:
+    elif not storage_saved and exception_message:
         print(f"Exception: {exception_message}")
     return 0 if storage_saved else 1
+
+
+SIGNED_OUT_MARKERS = ("sign in to see price", "login to see price", "sign in for price")
+SIGNED_IN_MARKERS = ("sign out", "log out", "logout", "my account", "account dashboard")
+
+
+@dataclass
+class SignInSnapshot:
+    """Last readable state of the sign-in page, captured while polling."""
+
+    final_url: str | None = None
+    title: str | None = None
+    html: str = ""
+    text: str = ""
+    storage_state: dict | None = None
+    signed_in_observed: bool = False
+    closed_by_user: bool = False
+    timed_out: bool = False
+    detected_signals: list[str] = field(default_factory=list)
+
+
+def _looks_signed_in(*, text: str, html: str) -> bool:
+    visible = text.lower()
+    if any(marker in visible for marker in SIGNED_OUT_MARKERS):
+        return False
+    return any(marker in visible for marker in SIGNED_IN_MARKERS)
+
+
+def _wait_for_manual_sign_in(
+    page,
+    context,
+    *,
+    settle_ms: int,
+    timeout_seconds: int = 900,
+    poll_seconds: float = 2.0,
+) -> SignInSnapshot:
+    """Wait for the user to sign in, then capture the browser session.
+
+    Finishes as soon as the page looks signed in, or when the user closes the
+    browser window. Capturing the state during polling (rather than after)
+    means closing the browser is a valid way to finish, which is what people
+    naturally do.
+    """
+    snapshot = SignInSnapshot()
+    deadline = time.monotonic() + timeout_seconds
+
+    while time.monotonic() < deadline:
+        try:
+            if page.is_closed():
+                snapshot.closed_by_user = True
+                return snapshot
+            html = page.content()
+            text = page.locator("body").inner_text(timeout=5000) if page.locator("body").count() else ""
+            snapshot.final_url = page.url
+            snapshot.title = page.title()
+            snapshot.html = html
+            snapshot.text = text
+            state = context.storage_state()
+        except Exception:
+            # Reads fail once the window is gone; keep whatever we already have.
+            snapshot.closed_by_user = True
+            return snapshot
+
+        if state is not None:
+            snapshot.storage_state = state
+
+        if _looks_signed_in(text=text, html=html):
+            try:
+                page.wait_for_timeout(settle_ms)
+                snapshot.storage_state = context.storage_state()
+                snapshot.html = page.content()
+                snapshot.text = page.locator("body").inner_text(timeout=5000)
+                snapshot.final_url = page.url
+                snapshot.title = page.title()
+            except Exception:
+                snapshot.closed_by_user = True
+            snapshot.signed_in_observed = True
+            return snapshot
+
+        time.sleep(poll_seconds)
+
+    snapshot.timed_out = True
+    return snapshot
 
 
 def _bootstrap_result(

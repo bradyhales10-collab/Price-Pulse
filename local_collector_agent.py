@@ -16,7 +16,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from types import SimpleNamespace
 
-from app.auth_session import auth_state_exists
+from app.auth_session import auth_state_exists, delete_auth_state
 from app.competitors.registry import get_competitor
 from app.local_agent_credentials import unprotect_password
 from app.models import PartRecord
@@ -217,7 +217,34 @@ def _run_job(job: dict[str, object], config: dict[str, object], server_url: str,
         )
         LOGGER.info("%s job %s upload: %s", competitor, job_id, upload_result)
         progress_path = BRIDGE_DIR / f"progress-{expected_run_id}-{competitor}.json"
-        return json.loads(progress_path.read_text(encoding="utf-8")) if progress_path.exists() else {"status": "completed"}
+        outcome = json.loads(progress_path.read_text(encoding="utf-8")) if progress_path.exists() else {"status": "completed"}
+
+        # A saved sign-in that has since expired would otherwise fail every run
+        # forever: the file still exists, so the pre-check above never fires and
+        # the sign-in window never reopens. Clear it and ask for a fresh sign-in.
+        if str(outcome.get("stop_reason") or "") == "authentication_lost":
+            LOGGER.info("%s sign-in has expired; clearing it and reopening the sign-in helper", competitor)
+            try:
+                delete_auth_state(adapter.competitor_key)
+            except Exception as exc:
+                LOGGER.warning("Could not remove the expired %s sign-in: %s", competitor, exc)
+            outcome = {
+                "status": "login_required",
+                "message": (
+                    f"Your saved {adapter.display_name} sign-in has expired. A sign-in window has "
+                    f"opened on this computer. Sign in, then start the price check again."
+                ),
+                "competitor": competitor,
+                "competitor_key": adapter.competitor_key,
+                "rows": outcome.get("rows") or [],
+                "completed": outcome.get("completed") or 0,
+                "total": outcome.get("total") or max_parts,
+            }
+            send_progress(outcome)
+            _open_login_refresh(
+                {"competitor_key": adapter.competitor_key, "display_name": adapter.display_name}
+            )
+        return outcome
 
     with ThreadPoolExecutor(max_workers=max(1, len(jobs))) as executor:
         futures = {executor.submit(run_competitor, local_job): local_job[0] for local_job in jobs}
