@@ -1,0 +1,89 @@
+@echo off
+title Repair Part Pulse
+cd /d "%~dp0"
+set "PP_ROOT=%CD%"
+
+echo ===============================
+echo   Repair Part Pulse
+echo ===============================
+echo.
+echo Use this when Part Pulse is not working right.
+echo.
+echo It will:
+echo   - Stop Part Pulse
+echo   - Replace the program files with the latest version from GitHub
+echo   - Reinstall everything it needs
+echo.
+echo Your data is NOT touched. Your uploaded parts, price history,
+echo saved sign-ins, and database all stay exactly as they are.
+echo.
+pause
+echo.
+
+echo [1 of 4] Stopping Part Pulse...
+powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'python' -and $_.CommandLine -like ('*' + $env:PP_ROOT + '*') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+echo   Done.
+echo.
+
+echo [2 of 4] Getting the latest version from GitHub...
+where git >nul 2>&1
+if errorlevel 1 (
+  echo   ERROR: Git is not installed, so the program files cannot be updated.
+  echo   Install Git from https://git-scm.com/download/win and run this again.
+  echo.
+  pause
+  exit /b 1
+)
+git fetch origin
+if errorlevel 1 (
+  echo   ERROR: Could not reach GitHub. Check your internet connection.
+  echo.
+  pause
+  exit /b 1
+)
+git reset --hard origin/main
+if errorlevel 1 (
+  echo   ERROR: Could not update the program files.
+  echo.
+  pause
+  exit /b 1
+)
+echo   Done.
+echo.
+
+echo [3 of 4] Reinstalling what Part Pulse needs...
+echo   This can take a few minutes. Please wait.
+if not exist ".venv\Scripts\python.exe" (
+  py -m venv .venv
+  if errorlevel 1 (
+    echo   ERROR: Could not create the Python environment.
+    echo   Make sure Python is installed from python.org.
+    echo.
+    pause
+    exit /b 1
+  )
+)
+".venv\Scripts\python.exe" -m pip install --upgrade pip
+".venv\Scripts\python.exe" -m pip install -r requirements.txt
+".venv\Scripts\python.exe" -m playwright install chromium
+echo   Done.
+echo.
+
+echo [4 of 4] Checking that everything works...
+".venv\Scripts\python.exe" -m pytest -q
+if errorlevel 1 (
+  echo.
+  echo   WARNING: Some checks did not pass. Part Pulse may still work,
+  echo   but send this window to Claude if you keep having trouble.
+) else (
+  echo   All checks passed.
+)
+echo.
+
+echo ===============================
+echo   Repair finished.
+echo ===============================
+echo.
+echo Now double-click "Start Part Pulse.cmd" to run Part Pulse.
+echo.
+pause
