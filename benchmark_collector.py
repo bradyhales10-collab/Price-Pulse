@@ -12,13 +12,18 @@ from playwright.sync_api import sync_playwright
 
 from app.auth_session import mark_authenticated_context, require_auth_state
 from app.browser_probe import detect_page_signals
-from app.config import DEFAULT_DATABASE_PATH, DEFAULT_VIEWPORT, OUTPUT_DIR, PARTZILLA_AUTH_STATE_PATH, ProbeSettings
+from app.config import (
+    DEFAULT_DATABASE_PATH,
+    DEFAULT_VIEWPORT,
+    OUTPUT_DIR,
+    PARTZILLA_AUTH_STATE_PATH,
+    ProbeSettings,
+)
 from app.models import PartRecord
 from app.parsers.partzilla_product_parser import build_parse_input_from_probe, parse_partzilla_product_page
 from app.price_forensics import apply_price_evidence_to_observation, build_price_evidence
 from app.raw_price_signals import discover_raw_price_signals
 from app.url_builder import build_partzilla_product_url
-
 
 BENCHMARK_PARTS = ["34028-0327", "41080-1514", "14081-005", "K53001-240", "13270-1800"]
 BENCHMARK_EXPECTATIONS_PATH = Path("data/validation/benchmark_expectations.csv")

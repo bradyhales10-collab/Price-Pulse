@@ -1,25 +1,35 @@
 from __future__ import annotations
 
-import sqlite3
 import json
 import zipfile
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.collection_jobs import PlannedCollectionPart, current_active_job, job_status, plan_import_collection, start_collection_job, start_price_collection_job, validate_collection_request
+import app.manufacturer_registry as manufacturer_registry
+from app.collection_jobs import (
+    PlannedCollectionPart,
+    current_active_job,
+    job_status,
+    plan_import_collection,
+    start_collection_job,
+    start_price_collection_job,
+    validate_collection_request,
+)
 from app.comparison import ComparisonFilters, comparison_rows
 from app.database import connect_database, initialize_database, utc_now
 from app.exports.review_export import REVIEW_COLUMNS, export_review
 from app.imports import confirm_import, preview_import, save_upload
 from app.input_loader import load_parts_csv
-import app.manufacturer_registry as manufacturer_registry
-from app.manufacturer_registry import competitor_supports_manufacturer, normalize_manufacturer, partzilla_slug_for
+from app.manufacturer_registry import (
+    competitor_supports_manufacturer,
+    normalize_manufacturer,
+    partzilla_slug_for,
+)
 from app.reviews import comparison_review_rows, review_rows
 from app.web.app import create_app
 from app.web.queries import CatalogFilters, catalog_data
 from app.xlsx_utils import read_rows, write_workbook
-
 
 TEST_OUTPUT_DIR = Path("data/output/test-artifacts")
 

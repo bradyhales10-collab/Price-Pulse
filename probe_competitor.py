@@ -15,11 +15,16 @@ from playwright.sync_api import sync_playwright
 
 from app.competitors.base import CompetitorObservation
 from app.competitors.registry import get_competitor, select_competitors
-from app.config import DATA_DIR, DEFAULT_DATABASE_PATH, DEFAULT_VIEWPORT, ProbeSettings, ensure_data_directories
+from app.config import (
+    DATA_DIR,
+    DEFAULT_DATABASE_PATH,
+    DEFAULT_VIEWPORT,
+    ProbeSettings,
+    ensure_data_directories,
+)
 from app.database import connect_database, initialize_database, money_to_cents, normalize_part_number, utc_now
 from app.input_loader import load_parts_csv
 from app.manufacturer_registry import manufacturer_support_metadata, normalize_manufacturer
-
 
 DEFAULT_PROBE_MAX_PARTS = 10
 HARD_PROBE_MAX_PARTS = 25

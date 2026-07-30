@@ -5,6 +5,7 @@ import json
 from decimal import Decimal
 from pathlib import Path
 
+import import_validation_results
 from app.database import (
     cents_to_money,
     complete_scan_run,
@@ -31,8 +32,6 @@ from app.schemas.product_observation import (
 from export_current_prices import _rows as current_price_rows
 from export_price_changes import _rows as price_change_rows
 from import_validation_results import main as import_validation_main
-import import_validation_results
-
 
 TEST_OUTPUT_DIR = Path("data/output/test-artifacts")
 

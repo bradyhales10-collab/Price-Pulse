@@ -11,7 +11,6 @@ from typing import Any
 from app.parsers.money_parser import parse_money
 from app.schemas.product_observation import ParseConfidence, ProductObservation
 
-
 MONEYISH_RE = re.compile(r"\$?\s*\d{1,3}(?:,\d{3})*(?:\.\d{2})?|\$?\s*\d+(?:\.\d{2})?")
 SCRIPT_RE = re.compile(r"<script(?P<attrs>[^>]*)>(?P<body>.*?)</script>", re.IGNORECASE | re.DOTALL)
 META_RE = re.compile(r"<meta(?P<attrs>[^>]*)>", re.IGNORECASE | re.DOTALL)

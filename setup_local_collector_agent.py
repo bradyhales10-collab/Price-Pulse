@@ -3,12 +3,11 @@ from __future__ import annotations
 import getpass
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 from app.local_agent_credentials import protect_password
-
 
 ROOT = Path(__file__).resolve().parent
 CONFIG_PATH = ROOT / "data" / "private" / "local_collector_agent.json"

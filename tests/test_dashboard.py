@@ -5,7 +5,17 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.database import connect_database, create_scan_run, initialize_database, persist_observation, seed_motosport, seed_partzilla, table_counts, upsert_competitor_listing, upsert_product_and_listing
+from app.database import (
+    connect_database,
+    create_scan_run,
+    initialize_database,
+    persist_observation,
+    seed_motosport,
+    seed_partzilla,
+    table_counts,
+    upsert_competitor_listing,
+    upsert_product_and_listing,
+)
 from app.models import PartRecord
 from app.schemas.product_observation import (
     AccessContext,
@@ -20,7 +30,6 @@ from app.schemas.product_observation import (
 )
 from app.web.app import create_app
 from app.web.queries import dashboard_data, quality_data
-
 
 TEST_OUTPUT_DIR = Path("data/output/test-artifacts")
 

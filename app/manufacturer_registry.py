@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 MANUFACTURER_COVERAGE_CONFIG = Path(__file__).resolve().parent / "competitors" / "manufacturer_coverage.json"
 
 

@@ -4,7 +4,6 @@ import re
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 
-
 MONEY_RE = re.compile(r"\$\s*(?P<amount>\d{1,3}(?:,\d{3})*(?:\.\d{2})?|\d+(?:\.\d{2})?)")
 
 

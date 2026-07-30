@@ -8,7 +8,15 @@ from pathlib import Path
 
 from app.collection import SUCCESS_RESULT_TYPES
 from app.competitors.registry import get_competitor
-from app.database import complete_scan_run, connect_database, create_scan_run, persist_observation, seed_competitor, upsert_competitor_listing, utc_now
+from app.database import (
+    complete_scan_run,
+    connect_database,
+    create_scan_run,
+    persist_observation,
+    seed_competitor,
+    upsert_competitor_listing,
+    utc_now,
+)
 from app.input_loader import FIELDNAMES
 from app.manufacturer_registry import normalize_manufacturer
 from app.models import PartRecord

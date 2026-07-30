@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from app.url_builder import UnsupportedManufacturerError, build_partzilla_product_url, canonicalize_partzilla_product_url
+from app.url_builder import (
+    UnsupportedManufacturerError,
+    build_partzilla_product_url,
+    canonicalize_partzilla_product_url,
+)
 
 
 def test_builds_kawasaki_url_without_encoding_hyphens() -> None:

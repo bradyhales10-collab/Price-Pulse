@@ -4,3 +4,9 @@ fastapi>=0.111,<1
 uvicorn>=0.30,<1
 jinja2>=3.1,<4
 httpx>=0.27,<1
+
+# For reproducible installs (recommended when running scheduled/production
+# collection jobs), install exact pinned versions instead:
+#   pip install -r requirements-lock.txt
+# Regenerate the lock after intentionally upgrading a dependency:
+#   pip install -r requirements.txt && pip freeze > requirements-lock.txt

@@ -7,7 +7,6 @@ from pathlib import Path
 
 from app.config import DATA_DIR, INPUT_DIR, ensure_data_directories
 
-
 OUTPUT_FIELDS = [
     "manufacturer",
     "oem_part_number",

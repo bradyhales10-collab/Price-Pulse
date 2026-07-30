@@ -10,8 +10,12 @@ from pathlib import Path
 
 from app.parsers.money_parser import parse_money
 from app.raw_price_signals import RawPriceRoleHint, RawPriceSignal
-from app.schemas.product_observation import ParseConfidence, PriceDisplayType, PriceValidationStatus, ProductObservation
-
+from app.schemas.product_observation import (
+    ParseConfidence,
+    PriceDisplayType,
+    PriceValidationStatus,
+    ProductObservation,
+)
 
 MONEY_RE = re.compile(r"\$[\d,]+(?:\.\d{2})?")
 ELEMENT_RE = re.compile(

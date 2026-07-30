@@ -11,7 +11,13 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
-from app.auth_session import auth_state_path_for, mark_authenticated_context, require_competitor_auth_state
+from app.auth_session import (
+    auth_state_path_for,
+    mark_authenticated_context,
+    require_competitor_auth_state,
+    write_authenticated_observation,
+    write_sanitized_authenticated_diagnostics,
+)
 from app.browser_probe import detect_page_signals
 from app.collection import (
     CollectionRow,
@@ -24,7 +30,16 @@ from app.collection import (
     validate_delay,
     write_collection_outputs,
 )
-from app.config import DEFAULT_DATABASE_PATH, DEFAULT_VIEWPORT, OUTPUT_DIR, ProbeSettings, ensure_data_directories
+from app.competitors.chaparral import ChaparralAdapter, build_search_url, normalize_part_number_for_match
+from app.competitors.motosport import MotoSportAdapter
+from app.competitors.registry import get_competitor, select_competitors
+from app.config import (
+    DEFAULT_DATABASE_PATH,
+    DEFAULT_VIEWPORT,
+    OUTPUT_DIR,
+    ProbeSettings,
+    ensure_data_directories,
+)
 from app.database import (
     cents_to_money,
     complete_scan_run,
@@ -33,31 +48,44 @@ from app.database import (
     initialize_database,
     persist_observation,
     seed_competitor,
-    seed_motosport,
-    seed_partzilla,
     upsert_competitor_listing,
     utc_now,
 )
 from app.input_loader import load_parts_csv
-from app.manufacturer_registry import competitor_supports_manufacturer, manufacturer_support_metadata, normalize_manufacturer
+from app.manufacturer_registry import (
+    competitor_supports_manufacturer,
+    manufacturer_support_metadata,
+    normalize_manufacturer,
+)
 from app.models import PartRecord
 from app.parsers.partzilla_product_parser import build_parse_input_from_probe, parse_partzilla_product_page
-from app.price_forensics import PriceCandidateRole, apply_price_evidence_to_observation, build_price_evidence, write_price_evidence
+from app.price_forensics import (
+    PriceCandidateRole,
+    apply_price_evidence_to_observation,
+    build_price_evidence,
+    write_price_evidence,
+)
 from app.raw_price_signals import discover_raw_price_signals, write_raw_price_signals
-from app.schemas.product_observation import AccessContext, AvailabilityStatus, PageClassification, ParseConfidence, PriceDisplayType, PriceValidationStatus, PriceVisibility, ProductObservation, SessionStatus
+from app.schemas.product_observation import (
+    AccessContext,
+    AvailabilityStatus,
+    PageClassification,
+    ParseConfidence,
+    PriceDisplayType,
+    PriceValidationStatus,
+    PriceVisibility,
+    ProductObservation,
+    SessionStatus,
+)
 from app.url_builder import build_partzilla_product_url
-from app.auth_session import write_authenticated_observation, write_sanitized_authenticated_diagnostics
-from app.competitors.motosport import MotoSportAdapter
-from app.competitors.chaparral import ChaparralAdapter, build_search_url, normalize_part_number_for_match
-from app.competitors.registry import get_competitor, select_competitors
 from export_current_prices import export_current_prices
 from export_price_changes import export_price_changes
 from probe_cart_price import (
+    CartProbeInputRow,
     bounded_cart_action_inventory,
     cart_line_evidence,
     click_cart_action_with_result,
     collect_cart_line_records,
-    CartProbeInputRow,
     ensure_cart_empty,
     extract_tracking_label,
     open_cart_text,
@@ -66,7 +94,6 @@ from probe_cart_price import (
     validate_cart_action_form,
     wait_for_cart_response,
 )
-
 
 HEAVY_RESOURCE_TYPES = {"image", "font", "media"}
 COMPETITOR_RENDER_SETTLE_MS = 1000

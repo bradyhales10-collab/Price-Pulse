@@ -12,7 +12,6 @@ from app.database import (
     connect_database,
     create_scan_run,
     initialize_database,
-    normalize_part_number,
     persist_observation,
     seed_partzilla,
     upsert_product_and_listing,

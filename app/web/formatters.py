@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def format_timestamp(value: object) -> str:
@@ -11,7 +11,7 @@ def format_timestamp(value: object) -> str:
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
         return text
-    parsed = parsed.astimezone(timezone.utc)
+    parsed = parsed.astimezone(UTC)
     month = parsed.strftime("%b")
     hour = parsed.strftime("%I").lstrip("0") or "0"
     return f"{month} {parsed.day}, {parsed.year} {hour}:{parsed:%M} {parsed:%p} UTC"

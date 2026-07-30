@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from playwright.sync_api import Error as PlaywrightError
@@ -18,7 +18,6 @@ from app.config import (
 )
 from app.models import PartRecord, ProbeDiagnostics
 from app.url_builder import build_partzilla_product_url
-
 
 LOGGER = logging.getLogger(__name__)
 
@@ -44,7 +43,7 @@ VISIBLE_BLOCK_PATTERNS = {
 
 
 def _timestamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
 def _safe_filename(value: str) -> str:

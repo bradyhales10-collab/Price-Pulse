@@ -9,7 +9,6 @@ from app.manufacturer_registry import competitor_manufacturers
 from app.models import PartRecord
 from app.parsers.money_parser import parse_money
 
-
 MONEY_RE = re.compile(r"\$[\d,]+(?:\.\d{2})?")
 PERCENT_RE = re.compile(r"(?P<percent>\d+)%\s*off", re.IGNORECASE)
 SAVE_RE = re.compile(r"Save\s*(?P<amount>\$[\d,]+(?:\.\d{2})?)", re.IGNORECASE)

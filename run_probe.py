@@ -3,13 +3,12 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from app.config import DEFAULT_INPUT_CSV, DIAGNOSTICS_DIR, ProbeSettings, ensure_data_directories
 from app.browser_probe import probe_partzilla_page
+from app.config import DEFAULT_INPUT_CSV, DIAGNOSTICS_DIR, ProbeSettings, ensure_data_directories
 from app.input_loader import PartNotFoundError, find_part_record, load_parts_csv
 from app.logging_setup import setup_logging
-
 
 LOGGER = logging.getLogger(__name__)
 
@@ -25,7 +24,7 @@ def parse_args() -> argparse.Namespace:
 
 def write_startup_failure_report(exc: Exception) -> None:
     ensure_data_directories()
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     report_path = DIAGNOSTICS_DIR / f"{stamp}_startup_failure.txt"
     report_path.write_text(
         "\n".join(

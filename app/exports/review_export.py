@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from app.xlsx_utils import write_workbook
-
 
 REVIEW_COLUMNS = [
     "Internal_SKU",
@@ -30,7 +29,7 @@ REVIEW_COLUMNS = [
 
 def export_review(rows: list[dict[str, Any]], output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
-    path = output_dir / f"Pricing_Update_Review_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.xlsx"
+    path = output_dir / f"Pricing_Update_Review_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}.xlsx"
     review_rows = [REVIEW_COLUMNS]
     for row in rows:
         review_rows.append(
@@ -58,7 +57,7 @@ def export_review(rows: list[dict[str, Any]], output_dir: Path) -> Path:
         path,
         {
             "Pricing Review": review_rows,
-            "Export Summary": [["Rows Exported", len(rows)], ["Generated At", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")]],
+            "Export Summary": [["Rows Exported", len(rows)], ["Generated At", datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")]],
             "Instructions": [["This export mirrors the Price Comparison working list through New Margin."], ["When a row is Approved, Updated_Price is also written back as the current product price."]],
         },
         styled_review=True,

@@ -4,7 +4,7 @@ import argparse
 import json
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from playwright.sync_api import Error as PlaywrightError
@@ -23,7 +23,12 @@ from app.config import (
 )
 from app.logging_setup import setup_logging
 from app.parsers.partzilla_product_parser import build_parse_input_from_probe, parse_partzilla_product_page
-from app.schemas.product_observation import AvailabilityStatus, PageClassification, PriceVisibility, ProductObservation
+from app.schemas.product_observation import (
+    AvailabilityStatus,
+    PageClassification,
+    PriceVisibility,
+    ProductObservation,
+)
 from app.url_builder import build_partzilla_product_url
 from app.validation import (
     ValidationPartNotFoundError,
@@ -32,7 +37,6 @@ from app.validation import (
     update_validation_summary,
     write_validation_review,
 )
-
 
 LOGGER = logging.getLogger(__name__)
 
@@ -75,8 +79,8 @@ def main() -> int:
 
 
 def inspect_validation_part(record, settings: ProbeSettings) -> tuple[ProductObservation, Path]:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    checked_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    checked_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     output_dir = DIAGNOSTICS_DIR / f"{stamp}_{_safe_filename(record.oem_part_number)}"
     output_dir.mkdir(parents=True, exist_ok=True)
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+from datetime import UTC
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlencode
@@ -11,19 +12,13 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app.web.queries import (
-    CatalogFilters,
-    DashboardDatabaseError,
-    catalog_data,
-    dashboard_data,
-    import_batch_label,
-    product_detail,
-    quality_data,
-    scan_run_detail,
-    scan_runs,
+from app.auth_session import (
+    InvalidAuthStateError,
+    auth_state_exists,
+    auth_state_status,
+    delete_auth_state,
+    save_uploaded_auth_state,
 )
-from app.web.formatters import format_timestamp, humanize_status
-from app.auth_session import InvalidAuthStateError, auth_state_exists, auth_state_status, delete_auth_state, save_uploaded_auth_state
 from app.collection_jobs import (
     claim_next_local_job,
     claim_next_local_login_refresh,
@@ -43,16 +38,18 @@ from app.collection_jobs import (
     validate_collection_request,
 )
 from app.collector_bridge import import_collection_summary, selected_parts_csv
+from app.comparison import ComparisonFilters
 from app.competitors.registry import list_competitors, select_competitors
-from app.comparison import ComparisonFilters, comparison_rows
 from app.config import OUTPUT_DIR
 from app.exports.review_export import export_review
 from app.imports import (
+    ALL_FIELDS,
     IMPORT_DIR,
-    confirm_import,
-    import_history,
+    REQUIRED_FIELDS,
     clear_import_history,
+    confirm_import,
     delete_import_batch,
+    import_history,
     preview_import,
     read_headers,
     save_upload,
@@ -60,13 +57,48 @@ from app.imports import (
     workbook_sheets,
     write_import_template,
 )
-from app.imports import ALL_FIELDS, REQUIRED_FIELDS
+from app.maintenance import (
+    clear_comparison_results,
+    clear_pending_review_queue,
+    clear_scan_runs,
+    reset_all_test_data,
+)
 from app.management import management_summary
 from app.manufacturer_registry import manufacturer_coverage_settings, save_manufacturer_coverage_settings
-from app.maintenance import clear_comparison_results, clear_pending_review_queue, clear_scan_runs, reset_all_test_data
-from app.pricing_rules import apply_pricing_rule_preset, list_manufacturer_rule_overrides, list_pricing_rule_presets, list_pricing_rules, update_manufacturer_rule_override, update_pricing_rule
-from app.reviews import ALL_BUCKETS, ALL_STATUSES, REVIEW_BUCKETS, REVIEW_STATUSES, PENDING_REVIEW, comparison_review_rows, review_queue, review_rows, save_bulk_review_decision, save_review_decision, suggested_price_for_product, undo_saved_review_decision
-
+from app.pricing_rules import (
+    apply_pricing_rule_preset,
+    list_manufacturer_rule_overrides,
+    list_pricing_rule_presets,
+    list_pricing_rules,
+    update_manufacturer_rule_override,
+    update_pricing_rule,
+)
+from app.reviews import (
+    ALL_BUCKETS,
+    ALL_STATUSES,
+    PENDING_REVIEW,
+    REVIEW_BUCKETS,
+    REVIEW_STATUSES,
+    comparison_review_rows,
+    review_queue,
+    review_rows,
+    save_bulk_review_decision,
+    save_review_decision,
+    suggested_price_for_product,
+    undo_saved_review_decision,
+)
+from app.web.formatters import format_timestamp, humanize_status
+from app.web.queries import (
+    CatalogFilters,
+    DashboardDatabaseError,
+    catalog_data,
+    dashboard_data,
+    import_batch_label,
+    product_detail,
+    quality_data,
+    scan_run_detail,
+    scan_runs,
+)
 
 LOGGER = logging.getLogger(__name__)
 WEB_DIR = Path(__file__).resolve().parent
@@ -1110,9 +1142,9 @@ def _timestamp_from_epoch(value: object) -> str:
     if value is None:
         return ""
     try:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        return datetime.fromtimestamp(float(value), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return datetime.fromtimestamp(float(value), tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     except (TypeError, ValueError, OSError):
         return ""
 

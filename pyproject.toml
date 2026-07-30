@@ -1,0 +1,22 @@
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+exclude = [
+    ".venv",
+    "data",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes (unused imports/vars, undefined names)
+    "I",   # isort (import ordering)
+    "B",   # bugbear (common bug patterns)
+    "UP",  # pyupgrade (modern Python idioms)
+]
+ignore = [
+    "E501",  # line length is a soft goal, not a hard failure
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]

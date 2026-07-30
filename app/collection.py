@@ -7,8 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.config import OUTPUT_DIR
-from app.database import cents_to_money, complete_scan_run, connect_database, table_counts, utc_now
-
+from app.database import cents_to_money
 
 MIN_DELAY_SECONDS = 1
 

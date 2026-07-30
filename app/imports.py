@@ -6,19 +6,24 @@ import json
 import re
 import secrets
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from datetime import UTC, datetime
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
 from app.config import DATA_DIR
-from app.database import connect_database, money_to_cents, normalize_part_number, seed_partzilla, upsert_product_and_listing, utc_now
+from app.database import (
+    connect_database,
+    money_to_cents,
+    normalize_part_number,
+    upsert_product_and_listing,
+    utc_now,
+)
 from app.manufacturer_registry import normalize_manufacturer, partzilla_slug_for
 from app.models import PartRecord
 from app.xlsx_utils import read_rows as read_xlsx_rows
 from app.xlsx_utils import sheet_names as xlsx_sheet_names
 from app.xlsx_utils import write_workbook
-
 
 IMPORT_DIR = DATA_DIR / "imports"
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
@@ -91,7 +96,7 @@ def save_upload(database: Path, *, filename: str, content: bytes, max_bytes: int
     if len(content) > max_bytes:
         raise ValueError("Uploaded file is too large.")
     IMPORT_DIR.mkdir(parents=True, exist_ok=True)
-    stored_filename = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_{secrets.token_hex(8)}{extension}"
+    stored_filename = f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}_{secrets.token_hex(8)}{extension}"
     path = IMPORT_DIR / stored_filename
     path.write_bytes(content)
     digest = hashlib.sha256(content).hexdigest()

@@ -5,7 +5,6 @@ from dataclasses import dataclass
 
 from app.schemas.product_observation import AvailabilityStatus
 
-
 SHIPS_IN_RE = re.compile(r"ships?\s+in\s+(?P<estimate>[^.;,\n\r]+)", re.IGNORECASE)
 
 

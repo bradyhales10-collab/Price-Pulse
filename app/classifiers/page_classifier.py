@@ -10,7 +10,6 @@ from app.schemas.product_observation import (
     PriceVisibilityResult,
 )
 
-
 BLOCKED_STATUSES = {401, 403, 429}
 BLOCKED_PHRASES = [
     "access denied",

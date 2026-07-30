@@ -17,11 +17,10 @@ from playwright.sync_api import sync_playwright
 
 from app.competitors.motosport import MotoSportAdapter
 from app.config import DATA_DIR, DEFAULT_VIEWPORT, ProbeSettings, ensure_data_directories
-from app.database import money_to_cents, utc_now
+from app.database import utc_now
 from app.manufacturer_registry import manufacturer_support_metadata, normalize_manufacturer
 from app.models import PartRecord
 from app.parsers.money_parser import parse_money
-
 
 CONFIRMATION_TEXT = "RUN CART PRICE PROBE"
 HARD_CART_PROBE_MAX_PARTS = 5
@@ -171,7 +170,7 @@ class CartProbeRunContext:
         input_file: Path | None = None,
         requested_max_parts: int | None = None,
         mode: str = "unknown",
-    ) -> "CartProbeRunContext":
+    ) -> CartProbeRunContext:
         run_id = utc_now().replace(":", "").replace("-", "")
         run_output_dir = base_data_dir / "output" / "competitor_probes" / "motosport_cart" / run_id
         run_output_dir.mkdir(parents=True, exist_ok=False)

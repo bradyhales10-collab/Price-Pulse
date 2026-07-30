@@ -3,7 +3,7 @@ from __future__ import annotations
 import html as html_lib
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.classifiers.page_classifier import PageContext, classify_page, classify_price_visibility
 from app.models import PartRecord
@@ -14,15 +14,13 @@ from app.schemas.product_observation import (
     AccessContext,
     PageClassification,
     ParseConfidence,
+    PriceValidationStatus,
     PriceVisibility,
     PriceVisibilityResult,
-    PriceValidationStatus,
     ProductObservation,
     SessionStatus,
 )
-from app.url_builder import build_partzilla_product_url
-from app.url_builder import canonicalize_partzilla_product_url
-
+from app.url_builder import build_partzilla_product_url, canonicalize_partzilla_product_url
 
 DATA_TESTID_RE_TEMPLATE = r"<(?P<tag>[a-zA-Z0-9]+)[^>]*data-testid=[\"']{testid}[\"'][^>]*>(?P<body>.*?)</(?P=tag)>"
 DATA_TESTID_PREFIX_RE_TEMPLATE = (
@@ -51,7 +49,7 @@ class ProductParseInput:
 
 
 def parse_partzilla_product_page(parse_input: ProductParseInput) -> ProductObservation:
-    checked_at = parse_input.checked_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    checked_at = parse_input.checked_at or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     context = PageContext(
         navigation_succeeded=parse_input.navigation_succeeded,
         http_status=parse_input.http_status,

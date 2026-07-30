@@ -1,27 +1,33 @@
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import logging
-from logging.handlers import RotatingFileHandler
 import os
-from pathlib import Path
-import subprocess
 import socket
+import subprocess
 import sys
-from types import SimpleNamespace
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+from types import SimpleNamespace
 
-from app.local_agent_credentials import unprotect_password
 from app.competitors.registry import get_competitor
+from app.local_agent_credentials import unprotect_password
 from app.models import PartRecord
-from local_collector import BRIDGE_DIR, _auth_header, _download, _run_competitor, _upload, prepare_local_database
+from local_collector import (
+    BRIDGE_DIR,
+    _auth_header,
+    _download,
+    _run_competitor,
+    _upload,
+    prepare_local_database,
+)
 from setup_local_collector_agent import normalize_server_url
-
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = ROOT / "data" / "private" / "local_collector_agent.json"

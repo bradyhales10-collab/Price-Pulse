@@ -7,7 +7,6 @@ from pathlib import Path
 from app.manufacturer_registry import normalize_manufacturer
 from app.models import InvalidRow, LoadResult, PartRecord
 
-
 LOGGER = logging.getLogger(__name__)
 
 FIELDNAMES = [

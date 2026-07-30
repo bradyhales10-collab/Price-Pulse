@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import base64
 import csv
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import getpass
 import json
 import subprocess
@@ -12,14 +11,20 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Callable
 
 from app.competitors.registry import get_competitor
-from app.database import connect_database, initialize_database, seed_competitor, upsert_competitor_listing, upsert_product_and_listing
+from app.database import (
+    connect_database,
+    initialize_database,
+    seed_competitor,
+    upsert_competitor_listing,
+    upsert_product_and_listing,
+)
 from app.input_loader import load_parts_csv
 from app.manufacturer_registry import competitor_supports_manufacturer
-
 
 ROOT = Path(__file__).resolve().parent
 BRIDGE_DIR = ROOT / "data" / "output" / "local_bridge"
@@ -119,7 +124,7 @@ def _collect_and_upload(
 def _auth_header(username: str | None, password: str | None) -> str | None:
     if not username:
         return None
-    token = base64.b64encode(f"{username}:{password or ''}".encode("utf-8")).decode("ascii")
+    token = base64.b64encode(f"{username}:{password or ''}".encode()).decode("ascii")
     return f"Basic {token}"
 
 

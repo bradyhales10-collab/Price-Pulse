@@ -8,7 +8,6 @@ from pathlib import Path
 
 from app.config import DATA_DIR
 
-
 DELETE_CONFIRMATION_TEXT = "DELETE EMPTY CART PROBE ARTIFACTS"
 RESULT_FILENAMES = {"cart_probe_metadata.json", "cart_probe_summary.csv", "cart_probe_review.txt", "folder_audit.json"}
 EVIDENCE_FILENAMES = {"cart_action_used.json", "cart_line_evidence.txt", "cart_price_evidence.json", "cleanup_evidence.txt"}

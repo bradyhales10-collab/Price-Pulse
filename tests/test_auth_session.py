@@ -17,7 +17,6 @@ from app.models import PartRecord
 from app.parsers.partzilla_product_parser import ProductParseInput, parse_partzilla_product_page
 from app.schemas.product_observation import PageClassification, PriceVisibility, SessionStatus
 
-
 TEST_OUTPUT_DIR = Path("data/output/test-artifacts")
 
 

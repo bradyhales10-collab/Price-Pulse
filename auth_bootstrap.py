@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
-from app.auth_session import auth_state_path_for, mark_authenticated_context
-from app.auth_session import write_authenticated_observation, write_sanitized_authenticated_diagnostics
+from app.auth_session import (
+    auth_state_path_for,
+    mark_authenticated_context,
+    write_authenticated_observation,
+    write_sanitized_authenticated_diagnostics,
+)
 from app.browser_probe import detect_page_signals
 from app.competitors.registry import get_competitor
 from app.config import (
@@ -49,8 +53,8 @@ def main() -> int:
             return 1
 
     requested_url = args.url or adapter.build_product_url(record)
-    checked_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    checked_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     settings = ProbeSettings(headless=False, slow_mo=args.slow_mo, timeout=args.timeout)
     auth_state_path = auth_state_path_for(adapter.competitor_key)
 
