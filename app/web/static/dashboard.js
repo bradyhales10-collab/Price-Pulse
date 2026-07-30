@@ -189,13 +189,31 @@ function renderProgress(job) {
   const competitorProgress = document.querySelector("[data-competitor-progress]");
   if (competitorProgress) {
     const entries = Object.entries(job.progress_by_competitor || {});
-    competitorProgress.innerHTML = entries.map(([key, item]) => `
+    competitorProgress.innerHTML = entries.map(([key, item]) => {
+      const status = item.run_status || item.status || "waiting";
+      if (status === "login_required") {
+        const label = (item.competitor || key || "").replace(/^\w/, (c) => c.toUpperCase());
+        return `
+      <div class="progress-card attention">
+        <span>${key}</span>
+        <b>${item.completed ?? 0} / ${item.total ?? 0}</b>
+        <small>${item.message || `${label} needs you to sign in again.`}</small>
+        <form method="post" action="/imports/${encodeURIComponent(key)}/refresh-login" class="quick-actions">
+          <input type="hidden" name="import_batch_id" value="${job.import_batch_id ?? ""}">
+          <button type="submit" class="link-button">Sign in to ${label}</button>
+        </form>
+        <small class="muted">A browser window will open on the computer running the Browser Helper. Sign in there, then click "Start Checking Prices" again.</small>
+      </div>
+    `;
+      }
+      return `
       <div class="progress-card">
         <span>${key}</span>
         <b>${item.completed ?? 0} / ${item.total ?? 0}</b>
-        <small>${item.run_status || item.status || "waiting"}${item.last_attempted_part ? ` | Last: ${item.last_attempted_part}` : ""}</small>
+        <small>${status}${item.last_attempted_part ? ` | Last: ${item.last_attempted_part}` : ""}</small>
       </div>
-    `).join("");
+    `;
+    }).join("");
   }
 }
 

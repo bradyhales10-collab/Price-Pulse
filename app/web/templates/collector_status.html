@@ -24,6 +24,13 @@
         <strong>{{ item.competitor|humanize }}</strong>
         <span>{{ item.status|humanize }}</span>
         {% if item.detail %}<small>{{ item.detail }}</small>{% endif %}
+        {% if item.needs_login %}
+        <form method="post" action="/imports/{{ item.competitor }}/refresh-login" class="quick-actions">
+          <input type="hidden" name="import_batch_id" value="{{ job.import_batch_id }}">
+          <button type="submit" class="link-button">Sign in to {{ item.competitor|humanize }}</button>
+        </form>
+        <small class="muted">A browser window will open on the computer running the Browser Helper. Sign in there, then click &quot;Start Checking Prices&quot; again.</small>
+        {% endif %}
       </p>
     {% endfor %}
   </div>
