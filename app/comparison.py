@@ -8,7 +8,6 @@ from typing import Any
 from app.database import cents_to_money
 from app.web.queries import connect_readonly
 
-
 PENDING_REVIEW = "Pending Review"
 
 

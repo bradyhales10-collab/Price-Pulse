@@ -7,7 +7,6 @@ from app.models import PartRecord
 from app.parsers.partzilla_product_parser import ProductParseInput, parse_partzilla_product_page
 from app.schemas.product_observation import AvailabilityStatus, PageClassification, PriceVisibility
 
-
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 

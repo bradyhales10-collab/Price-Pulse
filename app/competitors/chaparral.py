@@ -13,7 +13,6 @@ from app.manufacturer_registry import competitor_manufacturers, normalize_manufa
 from app.models import PartRecord
 from app.parsers.money_parser import parse_money
 
-
 SEARCH_URL = "https://www.chapmoto.com/search/"
 LOOKUP_URL = SEARCH_URL
 MONEY_RE = re.compile(r"\$[\d,]+(?:\.\d{2})?")

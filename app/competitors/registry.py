@@ -5,7 +5,6 @@ from app.competitors.chaparral import ChaparralAdapter
 from app.competitors.motosport import MotoSportAdapter
 from app.competitors.partzilla import PartzillaAdapter
 
-
 _REGISTRY: dict[str, CompetitorAdapter] = {
     "partzilla": PartzillaAdapter(),
     "motosport": MotoSportAdapter(),

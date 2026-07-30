@@ -3,10 +3,14 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from app.price_forensics import PriceCandidateRole, PriceCandidateSourceType, PriceEvidence
-from app.schemas.product_observation import PageClassification, ParseConfidence, ProductObservation, SessionStatus
+from app.price_forensics import PriceCandidateRole, PriceEvidence
+from app.schemas.product_observation import (
+    PageClassification,
+    ParseConfidence,
+    ProductObservation,
+    SessionStatus,
+)
 from app.validation import ValidationPart
-
 
 AUTHENTICATED_SUMMARY_FIELDNAMES = [
     "validation_order",

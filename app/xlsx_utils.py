@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
-
 NS = {
     "main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
     "rel": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",

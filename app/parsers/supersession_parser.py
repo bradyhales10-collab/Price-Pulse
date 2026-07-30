@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-
 SUPERSEDED_BY_RE = re.compile(r"\bSUPERSEDED\s+BY\s+(?P<part>[A-Za-z0-9-]+)", re.IGNORECASE)
 
 

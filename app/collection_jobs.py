@@ -9,17 +9,16 @@ import threading
 import traceback
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 from app.auth_session import auth_state_exists, require_competitor_auth_state
-from app.config import DATA_DIR
 from app.competitors.registry import get_competitor
-from app.database import connect_database, cents_to_money, utc_now
+from app.config import DATA_DIR
+from app.database import cents_to_money, connect_database, utc_now
 from app.input_loader import FIELDNAMES
-
 
 JOB_DIR = DATA_DIR / "output" / "ui_collection_jobs"
 LOCAL_AGENT_STATUS_FILE = JOB_DIR / "local_agent_status.json"
@@ -426,7 +425,7 @@ def local_agent_status() -> dict[str, object]:
     connected = False
     try:
         seen_at = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
-        connected = datetime.now(timezone.utc) - seen_at.astimezone(timezone.utc) <= timedelta(seconds=15)
+        connected = datetime.now(UTC) - seen_at.astimezone(UTC) <= timedelta(seconds=15)
     except ValueError:
         pass
     status["connected"] = connected
@@ -600,7 +599,7 @@ def _started_more_than_hours_ago(value: str, hours: int) -> bool:
         started = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return False
-    return datetime.now(timezone.utc) - started.astimezone(timezone.utc) > timedelta(hours=hours)
+    return datetime.now(UTC) - started.astimezone(UTC) > timedelta(hours=hours)
 
 
 def _mark_job_status(path: Path, metadata: dict[str, object], status: str, message: str) -> None:

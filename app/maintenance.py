@@ -5,7 +5,6 @@ from pathlib import Path
 from app.config import DATA_DIR
 from app.database import connect_database, utc_now
 
-
 IMPORT_DIR = DATA_DIR / "imports"
 
 

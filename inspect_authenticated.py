@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from playwright.sync_api import Error as PlaywrightError
@@ -38,7 +38,12 @@ from app.price_forensics import (
     write_product_purchase_region_text,
 )
 from app.raw_price_signals import discover_raw_price_signals, write_raw_price_signals
-from app.schemas.product_observation import AvailabilityStatus, PageClassification, PriceVisibility, ProductObservation
+from app.schemas.product_observation import (
+    AvailabilityStatus,
+    PageClassification,
+    PriceVisibility,
+    ProductObservation,
+)
 from app.url_builder import build_partzilla_product_url
 
 
@@ -84,8 +89,8 @@ def main() -> int:
         print(f"Error: {exc}")
         return 1
 
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    checked_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    checked_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     output_dir = AUTHENTICATED_DIAGNOSTICS_DIR / f"{stamp}_{_safe_filename(record.oem_part_number)}"
     observation_path = output_dir / "observation.json"
     diagnostics_path = output_dir / "sanitized_diagnostics.txt"

@@ -3,17 +3,15 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from decimal import Decimal, ROUND_HALF_UP
+from datetime import UTC, datetime
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
 
 from app.config import DEFAULT_DATABASE_PATH
 from app.models import PartRecord
 from app.schemas.product_observation import PageClassification, ProductObservation
-from app.url_builder import build_partzilla_product_url
-from app.url_builder import UnsupportedManufacturerError
-
+from app.url_builder import UnsupportedManufacturerError, build_partzilla_product_url
 
 SCHEMA_VERSION = 9
 PARTZILLA_CODE = "partzilla"
@@ -22,7 +20,7 @@ CHAPARRAL_CODE = "chaparral"
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def connect_database(path: Path = DEFAULT_DATABASE_PATH) -> sqlite3.Connection:

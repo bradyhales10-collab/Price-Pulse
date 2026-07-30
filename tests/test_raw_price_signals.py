@@ -4,9 +4,18 @@ import json
 
 from app.models import PartRecord
 from app.parsers.partzilla_product_parser import ProductParseInput, parse_partzilla_product_page
-from app.price_forensics import add_manual_validation, apply_price_evidence_to_observation, build_price_evidence
+from app.price_forensics import (
+    add_manual_validation,
+    apply_price_evidence_to_observation,
+    build_price_evidence,
+)
 from app.raw_price_signals import RawPriceRoleHint, discover_raw_price_signals
-from app.schemas.product_observation import AccessContext, ParseConfidence, PriceValidationStatus, SessionStatus
+from app.schemas.product_observation import (
+    AccessContext,
+    ParseConfidence,
+    PriceValidationStatus,
+    SessionStatus,
+)
 
 
 def test_product_associated_structured_offer_price() -> None:
@@ -319,7 +328,7 @@ def _json_ld_product(
         f'"name":"KAWASAKI OEM {name}"',
     ]
     if price is not None:
-        offer_fields = [f'"@type":"Offer"', f'"price":"{price}"']
+        offer_fields = ['"@type":"Offer"', f'"price":"{price}"']
         if price_specification is not None:
             offer_fields.append(f'"priceSpecification":{{"@type":"PriceSpecification","price":"{price_specification}"}}')
         if unit_price_specification is not None:

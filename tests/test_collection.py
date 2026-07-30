@@ -1,25 +1,24 @@
 from __future__ import annotations
 
+import builtins
 import csv
 import json
-import builtins
 from decimal import Decimal
 from pathlib import Path
 
 import collect_parts
-from app.competitors.base import CompetitorObservation
 from app.collection import (
     CollectionRow,
     CollectionRunResult,
     PlannedPart,
     fingerprint_file,
     normalize_result_type,
-    output_dir_for_run,
     plan_collection,
     stop_status_for,
     validate_delay,
     write_collection_outputs,
 )
+from app.competitors.base import CompetitorObservation
 from app.database import (
     complete_scan_run,
     connect_database,
@@ -35,10 +34,8 @@ from app.database import (
     utc_now,
 )
 from app.input_loader import load_parts_csv
-from app.models import PartRecord
 from app.schemas.product_observation import AvailabilityStatus, PageClassification, SessionStatus
 from tests.test_database_layer import _db, _obs, _record
-
 
 TEST_OUTPUT_DIR = Path("data/output/test-artifacts")
 

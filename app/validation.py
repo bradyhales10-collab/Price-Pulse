@@ -7,7 +7,6 @@ from pathlib import Path
 from app.models import PartRecord
 from app.schemas.product_observation import PageClassification, ParseConfidence, ProductObservation
 
-
 SUMMARY_FIELDNAMES = [
     "validation_order",
     "test_case_id",

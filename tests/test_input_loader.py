@@ -6,7 +6,6 @@ import pytest
 
 from app.input_loader import PartNotFoundError, find_part_record, load_parts_csv
 
-
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 

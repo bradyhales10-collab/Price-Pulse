@@ -7,7 +7,6 @@ from fastapi.testclient import TestClient
 from app.database import SCHEMA_SQL, connect_database, initialize_database, utc_now
 from app.web.app import create_app
 
-
 TEST_OUTPUT_DIR = Path("data/output/test-artifacts")
 
 

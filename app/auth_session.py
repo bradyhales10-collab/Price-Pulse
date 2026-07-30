@@ -13,7 +13,6 @@ from app.schemas.product_observation import (
     SessionStatus,
 )
 
-
 SENSITIVE_DIAGNOSTIC_TERMS = (
     "cookie",
     "authorization",

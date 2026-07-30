@@ -3,7 +3,14 @@ from __future__ import annotations
 from decimal import Decimal
 from pathlib import Path
 
-from app.database import connect_database, create_scan_run, initialize_database, persist_observation, seed_partzilla, upsert_product_and_listing
+from app.database import (
+    connect_database,
+    create_scan_run,
+    initialize_database,
+    persist_observation,
+    seed_partzilla,
+    upsert_product_and_listing,
+)
 from app.models import PartRecord
 from app.parsers.partzilla_product_parser import ProductParseInput, parse_partzilla_product_page
 from app.price_forensics import apply_price_evidence_to_observation, build_price_evidence

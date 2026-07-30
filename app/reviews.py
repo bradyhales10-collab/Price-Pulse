@@ -3,14 +3,18 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
 from app.comparison import ComparisonFilters, comparison_rows
 from app.database import connect_database, utc_now
-from app.pricing_rules import list_manufacturer_rule_overrides, list_pricing_rules, rules_for_manufacturer, suggest_price
-
+from app.pricing_rules import (
+    list_manufacturer_rule_overrides,
+    list_pricing_rules,
+    rules_for_manufacturer,
+    suggest_price,
+)
 
 PENDING_REVIEW = "Pending Review"
 ALL_STATUSES = "All"

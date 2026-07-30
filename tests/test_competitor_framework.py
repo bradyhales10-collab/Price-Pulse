@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from fastapi.testclient import TestClient
 
 import collect_parts
 import export_cart_hidden_probe_input
@@ -16,23 +17,33 @@ import inspect_cart_probe_outputs
 import probe_cart_price
 import probe_competitor
 from app.competitors.base import CompetitorObservation
-from app.competitors.chaparral import ChaparralAdapter, build_search_url, normalize_availability, normalize_part_number_for_match, select_exact_match
+from app.competitors.chaparral import (
+    ChaparralAdapter,
+    build_search_url,
+    normalize_availability,
+    normalize_part_number_for_match,
+    select_exact_match,
+)
 from app.competitors.motosport import MotoSportAdapter
 from app.competitors.registry import get_competitor, select_competitors
-from app.database import connect_database, create_scan_run, initialize_database, money_to_cents, seed_competitor, seed_partzilla, utc_now
+from app.database import (
+    connect_database,
+    create_scan_run,
+    initialize_database,
+    seed_competitor,
+    seed_partzilla,
+    utc_now,
+)
+from app.imports import confirm_import
+from app.input_loader import load_parts_csv
 from app.internal_sources.api_source import ApiInternalProductSource, ApiSourceConfig
 from app.internal_sources.base import InternalProductSource
 from app.internal_sources.csv_source import CsvInternalProductSource
 from app.internal_sources.excel_source import ExcelInternalProductSource
+from app.manufacturer_registry import manufacturer_support_metadata
 from app.models import PartRecord
 from app.web.app import create_app
-from app.xlsx_utils import write_workbook
 from tests.test_import_comparison_collection import TEST_OUTPUT_DIR, _empty_db, _upload_simple_batch
-from app.imports import confirm_import, save_upload
-from app.input_loader import load_parts_csv
-from app.manufacturer_registry import manufacturer_support_metadata
-from fastapi.testclient import TestClient
-
 
 REGULAR_HTML = """
 <main>

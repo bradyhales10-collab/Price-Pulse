@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from playwright.sync_api import Error as PlaywrightError
@@ -29,12 +29,6 @@ from app.config import (
     ProbeSettings,
     ensure_data_directories,
 )
-from app.parsers.partzilla_product_parser import build_parse_input_from_probe, parse_partzilla_product_page
-from app.price_forensics import PriceCandidateRole, apply_price_evidence_to_observation, build_price_evidence, write_price_evidence
-from app.raw_price_signals import discover_raw_price_signals, write_raw_price_signals
-from app.schemas.product_observation import PageClassification
-from app.url_builder import build_partzilla_product_url
-from app.validation import ValidationPartNotFoundError, find_validation_part, load_validation_manifest
 from app.database import (
     complete_scan_run,
     connect_database,
@@ -44,6 +38,17 @@ from app.database import (
     seed_partzilla,
     upsert_product_and_listing,
 )
+from app.parsers.partzilla_product_parser import build_parse_input_from_probe, parse_partzilla_product_page
+from app.price_forensics import (
+    PriceCandidateRole,
+    apply_price_evidence_to_observation,
+    build_price_evidence,
+    write_price_evidence,
+)
+from app.raw_price_signals import discover_raw_price_signals, write_raw_price_signals
+from app.schemas.product_observation import PageClassification
+from app.url_builder import build_partzilla_product_url
+from app.validation import ValidationPartNotFoundError, find_validation_part, load_validation_manifest
 
 
 def parse_args() -> argparse.Namespace:
@@ -111,8 +116,8 @@ def main() -> int:
 
 
 def inspect_authenticated_validation_part(record, *, auth_state_path: str, settings: ProbeSettings):
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    checked_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    checked_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     output_dir = AUTHENTICATED_DIAGNOSTICS_DIR / f"{stamp}_{_safe_filename(record.oem_part_number)}"
     observation_path = output_dir / "observation.json"
     diagnostics_path = output_dir / "sanitized_diagnostics.txt"

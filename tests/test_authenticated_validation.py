@@ -18,7 +18,6 @@ from app.schemas.product_observation import (
 )
 from app.validation import load_validation_manifest
 
-
 TEST_OUTPUT_DIR = Path("data/output/test-artifacts")
 
 

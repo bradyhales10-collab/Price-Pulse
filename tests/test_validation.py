@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import csv
 from decimal import Decimal
 from pathlib import Path
-import csv
 
 import validate_step3
 from app.schemas.product_observation import (
@@ -10,8 +10,8 @@ from app.schemas.product_observation import (
     AvailabilityStatus,
     PageClassification,
     ParseConfidence,
-    PriceVisibility,
     PriceValidationStatus,
+    PriceVisibility,
     ProductObservation,
     SessionStatus,
 )
