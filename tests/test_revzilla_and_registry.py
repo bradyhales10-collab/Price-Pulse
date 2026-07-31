@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 
 from app.comparison import competitor_sql_parts, competitor_state_aliases
@@ -31,11 +32,30 @@ LIVE_PAGE = """
 <html><head>
 <meta name="sailthru.price" content="8299">
 <meta name="sailthru.inventory" content="12">
+<meta name="sailthru.tags" content="manufacturer-kawasaki,stock-level-in-stock">
 </head><body>
 <h1>Kawasaki GASKET 11060-1234</h1>
 <p>Current price is $82.99</p>
 <p>OEM Part Number: 11060-1234</p>
 <p>In Stock</p><button>Add To Cart</button>
+</body></html>
+"""
+
+# Reproduces the real 41080-0162 page, which the first live probe read wrongly.
+# The price carries cents only in the metadata, the listing is out of stock, and
+# the page still shows "Add to Cart" and "Ships FREE".
+REAL_OUT_OF_STOCK_PAGE = """
+<html><head>
+<meta name="sailthru.price" content="32642">
+<meta content="0" name="sailthru.inventory">
+<meta name="sailthru.tags" content="price-350-399,manufacturer-kawasaki,stock-level-out-of-stock">
+</head><body>
+<h1>Kawasaki DISC, RR 41080-0162</h1>
+<p>Current price is $326</p><p>42</p>
+<p>OEM Part Number: 41080-0162</p>
+<button>Add to Cart</button>
+<p>This item Ships FREE</p>
+<td>AvailabilityOut of Stock</td>
 </body></html>
 """
 
@@ -260,3 +280,100 @@ def test_probe_input_file_is_well_formed_and_includes_a_polaris_control() -> Non
     # Polaris is included on purpose: it must come back as not carried.
     assert "Polaris" in manufacturers
     assert "Kawasaki" in manufacturers
+
+
+# --- Regressions from the first live probe ------------------------------------
+
+
+def test_out_of_stock_listing_is_detected_despite_add_to_cart_and_ships_free() -> None:
+    """The first live run recorded this part as in stock at $326, because
+    "Ships FREE" was read as a stock signal and "AvailabilityOut of Stock" was
+    rejected by a word boundary. It is out of stock and worth no price."""
+    observation = RevzillaAdapter().parse_product_page(
+        REAL_OUT_OF_STOCK_PAGE,
+        _part("41080-0162"),
+        visible_text=re.sub(r"<[^>]+>", "\n", REAL_OUT_OF_STOCK_PAGE),
+        http_status=200,
+    )
+
+    assert observation.availability_status == "out_of_stock"
+    assert observation.selling_price is None
+    assert "price_ignored_out_of_stock" in observation.warnings
+
+
+def test_shipping_promo_is_not_treated_as_stock_information() -> None:
+    assert extract_availability("This item Ships FREE", "")[1] == "unknown"
+
+
+def test_out_of_stock_is_found_even_without_a_separating_space() -> None:
+    assert extract_availability("AvailabilityOut of Stock", "")[1] == "out_of_stock"
+
+
+def test_cents_are_read_from_metadata_whatever_the_attribute_order() -> None:
+    """The live run lost the cents and recorded $326 instead of $326.42."""
+    for html in (
+        '<meta name="sailthru.price" content="32642">',
+        '<meta content="32642" name="sailthru.price">',
+        "meta-sailthru.price: 32642",
+    ):
+        assert extract_price("", html) == (Decimal("326.42"), "page_metadata"), html
+
+
+def test_a_visible_price_without_cents_is_refused_rather_than_rounded() -> None:
+    """Dollars and cents render separately, so a price with no cents beside it
+    may be truncated. Recording it would be worse than recording nothing."""
+    price, source = extract_price("Current price is $326", "")
+
+    assert price == Decimal("326")
+    assert source == "visible_price_dollars_only"
+
+    observation = RevzillaAdapter().parse_product_page(
+        "<html><body><p>Current price is $326</p><p>OEM Part Number: 41080-0162</p><p>In Stock</p></body></html>",
+        _part("41080-0162"),
+        visible_text="Current price is $326\nOEM Part Number: 41080-0162\nIn Stock",
+        http_status=200,
+    )
+    assert observation.selling_price is None
+    assert "price_ignored_missing_cents" in observation.warnings
+
+
+def test_split_dollars_and_cents_are_joined_when_adjacent() -> None:
+    assert extract_price("Current price is $326.42", "") == (Decimal("326.42"), "visible_price")
+
+
+def test_unknown_availability_does_not_yield_a_price() -> None:
+    """Only a positive in-stock signal is trusted, because RevZilla prices
+    listings it cannot sell."""
+    observation = RevzillaAdapter().parse_product_page(
+        "<html><body><p>Current price is $82.99</p><p>OEM Part Number: 11060-1234</p></body></html>",
+        _part("11060-1234"),
+        visible_text="Current price is $82.99\nOEM Part Number: 11060-1234",
+        http_status=200,
+    )
+
+    assert observation.availability_status == "unknown"
+    assert observation.selling_price is None
+    assert "price_ignored_unknown" in observation.warnings
+
+
+def test_probe_report_no_longer_hardcodes_another_competitor() -> None:
+    from pathlib import Path as _Path
+
+    source = _Path("probe_competitor.py").read_text(encoding="utf-8")
+
+    assert "MotoSport" not in source
+
+
+def test_part_association_is_reported_to_the_probe() -> None:
+    """The probe counts a run as successful only when association is confirmed,
+    so the adapter must record it."""
+    observation = RevzillaAdapter().parse_product_page(
+        LIVE_PAGE,
+        _part("11060-1234"),
+        visible_text=re.sub(r"<[^>]+>", "\n", LIVE_PAGE),
+        http_status=200,
+    )
+
+    association = observation.raw_evidence_summary["product_association"]
+    assert association["confirmed"] is True
+    assert association["observed_part_number"] == "11060-1234"

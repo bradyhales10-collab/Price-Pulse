@@ -348,12 +348,12 @@ def _review_text(run: ProbeRun) -> str:
             "Manufacturer | Attempted | HTTP 200 product pages | Visible prices | Cart-hidden prices | Not found | Ambiguous | Warnings",
             *_manufacturer_summary_lines(rows),
             "",
-            "MotoSport direct part-number URLs appear to work for some products but not all tested products. Coverage should be evaluated before promoting this competitor.",
+            f"Coverage should be evaluated before promoting {run.competitor_key} from a probe to a production collector.",
             "",
             "FEASIBILITY ASSESSMENT",
             "",
             f"Access feasibility: {access_feasibility}.",
-            "URL predictability: direct part-number URLs appear to work for some MotoSport parts, but not all tested parts resolved. Additional URL/search fallback testing is needed."
+            "URL predictability: not all tested parts resolved to a product page. Additional URL or search fallback testing is needed."
             if url_predictability == "partial"
             else "URL predictability: direct part-number URLs worked for the rows attempted in this controlled probe.",
             "Price visibility: evaluated from public page content only.",
@@ -363,7 +363,7 @@ def _review_text(run: ProbeRun) -> str:
             f"Observed access problems: {run.stop_reason or 'None recorded by this probe.'}",
             f"Recommended next step: {recommendation}",
             "",
-            "MotoSport is experimental_probe and is not production-ready.",
+            f"{run.competitor_key} is experimental_probe and is not production-ready.",
         ]
     )
     return "\n".join(lines) + "\n"

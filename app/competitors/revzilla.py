@@ -27,41 +27,47 @@ from urllib.parse import urlencode
 from app.competitors.base import CompetitorCapabilities, CompetitorObservation
 from app.manufacturer_registry import competitor_manufacturers, normalize_manufacturer
 from app.models import PartRecord
-from app.parsers.money_parser import parse_money
 
 BASE_URL = "https://www.revzilla.com"
 SEARCH_URL = f"{BASE_URL}/search"
 
-# "Current price is $715.68" is the visible price label on OEM product pages.
-CURRENT_PRICE_RE = re.compile(r"current\s+price\s+is\s*(\$[\d,]+(?:\.\d{2})?)", re.IGNORECASE)
-# The page also carries the price in cents in a meta tag, which needs no money
-# parsing. Both the real tag and a flattened "name: value" rendering are matched.
-SAILTHRU_PRICE_RE = re.compile(
-    r"sailthru\.price[\"']?(?:[^>]*?content=[\"']|\s*[:=]\s*[\"']?)(\d+)",
-    re.IGNORECASE,
-)
-SAILTHRU_INVENTORY_RE = re.compile(
-    r"sailthru\.inventory[\"']?(?:[^>]*?content=[\"']|\s*[:=]\s*[\"']?)(\d+)",
+# The page metadata is the reliable source: it carries the price in cents and
+# the stock level, both of which the visible page can contradict.
+#   meta-sailthru.price     -> 32642 means $326.42
+#   meta-sailthru.inventory -> 0 means out of stock
+#   meta-sailthru.tags      -> includes stock-level-out-of-stock
+META_TAG_RE = re.compile(r"<meta\b[^>]*>", re.IGNORECASE)
+META_CONTENT_RE = re.compile(r"content=[\"\']([^\"\']*)[\"\']", re.IGNORECASE)
+
+# Dollars and cents render in separate elements, so extracted text can arrive as
+# "Current price is $326" followed by "42" on the next line. Cents are captured
+# separately and their absence is treated as a warning, never as .00.
+CURRENT_PRICE_RE = re.compile(
+    r"current\s+price\s+is\s*\$\s*([\d,]+)(?:\s*\.\s*(\d{2}))?",
     re.IGNORECASE,
 )
 OEM_PART_NUMBER_RE = re.compile(r"OEM\s+Part\s+Number:\s*([A-Z0-9][A-Z0-9.\-/]*)", re.IGNORECASE)
-PRODUCT_LINK_RE = re.compile(r"href=[\"'](/oem/[^\"'?#]+)[\"']", re.IGNORECASE)
+PRODUCT_LINK_RE = re.compile(r"href=[\"\'](/oem/[^\"\'?#]+)[\"\']", re.IGNORECASE)
 
+# No leading \b: the product table renders as "AvailabilityOut of Stock" with no
+# separating space, which a word boundary would reject.
 DISCONTINUED_RE = re.compile(
-    r"\b(discontinued|no\s+longer\s+available|closeout:\s*this\s+product\s+is\s+no\s+longer\s+available)\b",
+    r"(discontinued|no\s+longer\s+available|closeout:\s*this\s+product\s+is\s+no\s+longer\s+available)",
     re.IGNORECASE,
 )
-OUT_OF_STOCK_RE = re.compile(r"\b(out\s+of\s+stock|currently\s+unavailable|sold\s+out)\b", re.IGNORECASE)
-IN_STOCK_RE = re.compile(r"\b(in\s+stock|ships\s+(?:free|today|within)|add\s+to\s+cart)\b", re.IGNORECASE)
-BACKORDER_RE = re.compile(r"\b(back\s*ordered|backorder|pre-?order)\b", re.IGNORECASE)
+OUT_OF_STOCK_RE = re.compile(r"(out\s+of\s+stock|currently\s+unavailable|sold\s+out)", re.IGNORECASE)
+IN_STOCK_RE = re.compile(r"(in\s+stock|instock)", re.IGNORECASE)
+BACKORDER_RE = re.compile(r"(back\s*ordered|backorder|pre-?order)", re.IGNORECASE)
 
 CAPTCHA_RE = re.compile(r"\b(captcha|verify\s+you\s+are\s+human|checking\s+your\s+browser)\b", re.IGNORECASE)
 BLOCK_RE = re.compile(r"\b(access\s+denied|rate\s+limited|too\s+many\s+requests|forbidden)\b", re.IGNORECASE)
 NOT_FOUND_RE = re.compile(r"\b(no\s+results|0\s+results|we\s+couldn'?t\s+find|no\s+products\s+found)\b", re.IGNORECASE)
 SUPERSESSION_RE = re.compile(r"\bsupersedes\s+part\s+([A-Z0-9][A-Z0-9.\-/]*)", re.IGNORECASE)
 
-# Availability states where a shown price is not something we can compete with.
-UNSELLABLE_AVAILABILITY = {"discontinued", "out_of_stock"}
+# RevZilla shows a price on listings it cannot actually sell, so a price is only
+# accepted when the stock level positively says in stock. Anything else, including
+# unknown, is not a price we can compete with.
+SELLABLE_AVAILABILITY = {"in_stock"}
 
 
 @dataclass(frozen=True)
@@ -142,12 +148,17 @@ class RevzillaAdapter:
         selling_price = match.selling_price
         price_source = match.price_source
 
-        # A discontinued or out-of-stock listing keeps showing its last price.
-        # Treating that as a live competitor price would drag suggestions down.
-        if selling_price is not None and match.availability_status in UNSELLABLE_AVAILABILITY:
-            warnings.append(f"price_ignored_{match.availability_status}")
+        # RevZilla keeps showing a price on listings it cannot sell. Only a
+        # positively in-stock listing gives a price we can compete with.
+        if selling_price is not None and match.availability_status not in SELLABLE_AVAILABILITY:
+            warnings.append(f"price_ignored_{match.availability_status or 'unknown_availability'}")
             selling_price = None
             price_source = "unavailable_listing"
+
+        # A price without cents is probably truncated, so it is not recorded.
+        if selling_price is not None and price_source == "visible_price_dollars_only":
+            warnings.append("price_ignored_missing_cents")
+            selling_price = None
 
         if match.superseded_part_number:
             warnings.append("superseded")
@@ -190,6 +201,18 @@ class RevzillaAdapter:
                 "availability_status": match.availability_status,
                 "currency": "USD",
                 "fulfilled_by": "Montgomeryville Cycle Center",
+                "product_association": {
+                    "confirmed": True,
+                    "requested_part_number": product.oem_part_number,
+                    "observed_part_number": match.part_number,
+                    "basis": "oem_part_number_on_product_page",
+                },
+                "price_evidence": {
+                    "price_source": price_source,
+                    "availability_status": match.availability_status,
+                    "availability_raw": match.availability_raw,
+                    "price_accepted": selling_price is not None,
+                },
             },
             parse_confidence="high" if selling_price is not None else "medium",
         )
@@ -247,17 +270,50 @@ def normalize_availability(raw: str | None) -> str:
     return "unknown"
 
 
+def meta_value(html: str, name: str) -> str | None:
+    """Read a meta tag's content regardless of attribute order.
+
+    Also accepts a flattened "meta-name: value" rendering, so the same code
+    works on extracted text as well as raw HTML.
+    """
+    for tag in META_TAG_RE.findall(html or ""):
+        if not re.search(rf"[\"\' ]{re.escape(name)}[\"\' ]", tag, re.IGNORECASE):
+            continue
+        content = META_CONTENT_RE.search(tag)
+        if content:
+            return content.group(1).strip()
+    flattened = re.search(rf"(?:meta-)?{re.escape(name)}\s*:\s*([^\n\r]+)", html or "", re.IGNORECASE)
+    return flattened.group(1).strip() if flattened else None
+
+
 def extract_availability(text: str, html: str = "") -> tuple[str | None, str]:
-    """Availability wins over price: check the strongest negative signal first."""
-    inventory = SAILTHRU_INVENTORY_RE.search(html or text)
+    """Determine stock level, preferring page metadata over visible wording.
+
+    Order matters. The visible page carries an "Add to Cart" button and a
+    "Ships FREE" badge even on listings that are out of stock, so neither can
+    be used as evidence of availability.
+    """
+    source = html or text
+
+    # Discontinued is checked first: it is a stronger statement than out of
+    # stock, because the part is not coming back at all.
     discontinued = DISCONTINUED_RE.search(text)
     if discontinued:
         return (" ".join(discontinued.group(0).split()), "discontinued")
+
+    tags = (meta_value(source, "sailthru.tags") or "").lower()
+    if "stock-level-out-of-stock" in tags:
+        return ("stock-level-out-of-stock", "out_of_stock")
+
+    inventory = meta_value(source, "sailthru.inventory")
+    if inventory is not None and inventory.isdigit():
+        if int(inventory) == 0:
+            return ("inventory 0", "out_of_stock")
+        return (f"inventory {inventory}", "in_stock")
+
     out_of_stock = OUT_OF_STOCK_RE.search(text)
     if out_of_stock:
         return (" ".join(out_of_stock.group(0).split()), "out_of_stock")
-    if inventory is not None and inventory.group(1) == "0":
-        return ("inventory 0", "out_of_stock")
     backorder = BACKORDER_RE.search(text)
     if backorder:
         return (" ".join(backorder.group(0).split()), "backordered")
@@ -268,17 +324,28 @@ def extract_availability(text: str, html: str = "") -> tuple[str | None, str]:
 
 
 def extract_price(text: str, html: str = "") -> tuple[Decimal | None, str]:
-    """Prefer the cents value in the page metadata over parsing dollar text."""
-    meta = SAILTHRU_PRICE_RE.search(html or "")
-    if meta:
-        cents = int(meta.group(1))
-        if cents > 0:
-            return (Decimal(cents) / Decimal("100"), "page_metadata")
+    """Read the price, preferring the cents value in the page metadata.
+
+    The visible price splits dollars and cents across elements, so extracted
+    text can read "Current price is $326" with the cents on the next line.
+    Whole dollars are therefore reported as a distinct source so the caller can
+    treat them with suspicion rather than silently recording the wrong price.
+    """
+    source = html or text
+    cents = meta_value(source, "sailthru.price")
+    if cents is not None and cents.isdigit() and int(cents) > 0:
+        return (Decimal(int(cents)) / Decimal("100"), "page_metadata")
+
     visible = CURRENT_PRICE_RE.search(text)
     if visible:
-        parsed = parse_money(visible.group(1)).value
-        if parsed is not None:
-            return (parsed, "visible_price")
+        dollars = visible.group(1).replace(",", "")
+        fraction = visible.group(2)
+        if not dollars.isdigit():
+            return (None, "not_available")
+        if fraction:
+            return (Decimal(f"{dollars}.{fraction}"), "visible_price")
+        # Cents were not found next to the dollars, so this may be truncated.
+        return (Decimal(dollars), "visible_price_dollars_only")
     return (None, "not_available")
 
 
@@ -427,6 +494,8 @@ def _lookup_status(*, selling_price: Decimal | None, availability_status: str, s
         return "out_of_stock"
     if selling_price is not None:
         return "price_found"
+    if availability_status == "unknown":
+        return "availability_unknown"
     return "lookup_failed"
 
 

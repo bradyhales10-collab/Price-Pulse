@@ -719,7 +719,7 @@ def test_probe_review_does_not_count_404_prices_and_flags_global_leaks() -> None
     assert "High-confidence prices: 0" in review
     assert "Ambiguous prices: 0" in review
     assert "Not found: 1" in review
-    assert "URL predictability: direct part-number URLs appear to work for some MotoSport parts" in review
+    assert "URL predictability: not all tested parts resolved to a product page" in review
 
     leaked = probe_competitor.ProbeRun("motosport", "2026-07-11T00:00:00Z", completed_at="2026-07-11T00:01:00Z")
     for index, part in enumerate(("A", "B"), start=1):
@@ -790,7 +790,7 @@ def test_probe_review_includes_motosport_coverage_summary() -> None:
     assert "Manufacturer-level summary:" in review
     assert "Kawasaki | 2 | 2 | 1 | 1 | 0 | 0 | 1" in review
     assert "Can-Am | 1 | 0 | 0 | 0 | 1 | 0 | 1" in review
-    assert "Coverage should be evaluated before promoting this competitor." in review
+    assert "Coverage should be evaluated before promoting motosport" in review
 
 
 def test_probe_review_flags_placeholder_test_inputs() -> None:
