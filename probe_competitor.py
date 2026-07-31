@@ -147,6 +147,7 @@ def main() -> int:
             final_url = url
             html = ""
             text = ""
+            followed_url = None
             try:
                 response = page.goto(url, wait_until="domcontentloaded", timeout=settings.timeout)
                 status = response.status if response is not None else None
@@ -154,10 +155,25 @@ def main() -> int:
                 final_url = page.url
                 html = page.content()
                 text = page.locator("body").inner_text(timeout=5000) if page.locator("body").count() else ""
+
+                # Some competitors cannot build a product URL from a part number
+                # and have to search first, then open the matching result. That
+                # costs one extra page load, so the same delay is applied again.
+                resolver = getattr(adapter, "search_result_product_url", None)
+                if resolver is not None and status not in STOP_STATUSES:
+                    followed_url = resolver(html, record)
+                    if followed_url and followed_url != final_url:
+                        time.sleep(args.delay_seconds)
+                        response = page.goto(followed_url, wait_until="domcontentloaded", timeout=settings.timeout)
+                        status = response.status if response is not None else status
+                        page.wait_for_timeout(settings.render_settle_ms)
+                        final_url = page.url
+                        html = page.content()
+                        text = page.locator("body").inner_text(timeout=5000) if page.locator("body").count() else ""
             except (PlaywrightTimeoutError, PlaywrightError, Exception) as exc:
                 text = f"Navigation error: {exc}"
             observation = adapter.parse_product_page(html, record, visible_text=text, final_url=final_url, http_status=status)
-            row = ProbeRow(index, record.manufacturer, record.oem_part_number, url, checked_at, observation)
+            row = ProbeRow(index, record.manufacturer, record.oem_part_number, followed_url or url, checked_at, observation)
             run.rows.append(row)
             print(f"[{index}/{len(records)}] {record.oem_part_number} | {observation.selling_price or ''} | {observation.page_classification}")
             if status in STOP_STATUSES or observation.page_classification in STOP_CLASSIFICATIONS:
@@ -256,7 +272,7 @@ def _review_text(run: ProbeRun) -> str:
     global_promo_leak_suspected = _global_promo_leak_suspected(rows)
     placeholder_parts = placeholder_part_numbers(rows)
     lines = [
-        "MOTOSPORT COMPETITOR PROBE",
+        f"{run.competitor_key.upper()} COMPETITOR PROBE",
         "",
         f"Started: {run.started_at}",
         f"Completed: {run.completed_at or ''}",
@@ -314,7 +330,7 @@ def _review_text(run: ProbeRun) -> str:
         parser_quality = "promising"
     lines.extend(
         [
-            "MOTOSPORT COVERAGE SUMMARY",
+            f"{run.competitor_key.upper()} COVERAGE SUMMARY",
             "",
             "Input quality: placeholder/test file detected" if placeholder_parts else "Input quality: clean realistic test file",
             "WARNING: This probe input contains placeholder part numbers and should not be used for competitor coverage measurement." if placeholder_parts else "",

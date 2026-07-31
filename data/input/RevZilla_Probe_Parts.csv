@@ -1,0 +1,8 @@
+Test_Case_ID,Manufacturer,OEM_Part_Number,Search_Observed_Product_Name,Search_Observed_MSRP,Expected_Partzilla_URL,Test_Purpose,Verified_Date,Source_URL,Internal_SKU
+RZ-KAW-001,Kawasaki,41080-1186,"DISC, FR",,,Known RevZilla OEM page that is discontinued and out of stock. Expect NO price to be recorded.,2026-07-31,https://www.revzilla.com/oem/kawasaki/kawasaki-41080-1186-disc-fr,RZ-KAW-001
+RZ-KAW-002,Kawasaki,41080-0162,"DISC, RR",,,Known RevZilla OEM page. Checks search-then-open and price capture.,2026-07-31,https://www.revzilla.com/oem/kawasaki/kawasaki-41080-0162-disc-rr,RZ-KAW-002
+RZ-KAW-003,Kawasaki,41080-0170,"DISC, RR",,,Known RevZilla OEM page covering several small-bore models.,2026-07-31,https://www.revzilla.com/oem/kawasaki/kawasaki-41080-0170-disc-rr,RZ-KAW-003
+RZ-KAW-004,Kawasaki,41080-1387,"DISC, FR",,,Known RevZilla OEM page.,2026-07-31,https://www.revzilla.com/oem/kawasaki/kawasaki-41080-1387-disc-fr,RZ-KAW-004
+RZ-KAW-005,Kawasaki,41080-1410-5C,"DISC,FR,GRAY/SILVER",,,Supersedes 41080-1398-5C. Checks supersession detection and a suffixed part number.,2026-07-31,https://www.revzilla.com/oem/kawasaki/kawasaki-41080-1410-5c-disc-fr-graysilver,RZ-KAW-005
+RZ-KAW-006,Kawasaki,41080-1514,"DISC,RR",,,"Part already tracked on Partzilla and MotoSport, so prices can be compared side by side.",2026-07-31,,RZ-KAW-006
+RZ-POL-001,Polaris,7547333,Polaris part used as a control,,,"Control row: RevZilla has no Polaris OEM fiche, so this must report manufacturer_not_carried and never a price.",2026-07-31,,RZ-POL-001

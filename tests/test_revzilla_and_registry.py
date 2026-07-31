@@ -189,3 +189,74 @@ def test_unsafe_competitor_keys_are_rejected_before_reaching_sql() -> None:
         except ValueError:
             continue
         raise AssertionError(f"unsafe key was accepted: {bad!r}")
+
+
+# --- Probe wiring ------------------------------------------------------------
+
+
+def test_revzilla_is_accepted_by_the_probe_but_not_a_normal_price_check() -> None:
+    """Experimental competitors must be usable for probing and refused for
+    production collection, so a half-tested adapter cannot quietly go live."""
+    import argparse
+
+    import probe_competitor
+    from app.competitors.registry import select_competitors
+
+    probe_competitor.validate_probe_args(
+        argparse.Namespace(competitor="revzilla", max_parts=7, delay_seconds=6)
+    )
+
+    try:
+        select_competitors(["revzilla"])
+    except ValueError as exc:
+        assert "experimental" in str(exc).lower()
+    else:
+        raise AssertionError("experimental competitor should be refused for a normal run")
+
+
+def test_probe_safety_limits_still_apply_to_revzilla() -> None:
+    import argparse
+
+    import probe_competitor
+
+    for bad in (
+        argparse.Namespace(competitor="revzilla", max_parts=26, delay_seconds=6),
+        argparse.Namespace(competitor="revzilla", max_parts=1, delay_seconds=4),
+    ):
+        try:
+            probe_competitor.validate_probe_args(bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"probe limits not enforced for {bad}")
+
+
+def test_search_result_resolver_only_follows_the_requested_part() -> None:
+    from app.competitors.revzilla import select_search_result
+
+    page = (
+        '<a href="/oem/kawasaki/kawasaki-99999-9999-other">wrong</a>'
+        '<a href="/oem/kawasaki/kawasaki-41080-1186-disc-fr">right</a>'
+        '<a href="/motorcycle/aftermarket-thing">aftermarket</a>'
+    )
+
+    assert select_search_result(page, "41080-1186") == (
+        "https://www.revzilla.com/oem/kawasaki/kawasaki-41080-1186-disc-fr"
+    )
+    # No confident match must return nothing rather than a wrong link.
+    assert select_search_result(page, "12345-6789") is None
+    assert select_search_result("", "41080-1186") is None
+    assert select_search_result(page, "") is None
+
+
+def test_probe_input_file_is_well_formed_and_includes_a_polaris_control() -> None:
+    from pathlib import Path
+
+    from app.input_loader import load_parts_csv
+
+    result = load_parts_csv(Path("data/input/RevZilla_Probe_Parts.csv"))
+    manufacturers = {record.manufacturer for record in result.records}
+
+    assert len(result.records) >= 6
+    # Polaris is included on purpose: it must come back as not carried.
+    assert "Polaris" in manufacturers
+    assert "Kawasaki" in manufacturers

@@ -194,11 +194,32 @@ class RevzillaAdapter:
             parse_confidence="high" if selling_price is not None else "medium",
         )
 
+    def search_result_product_url(self, html: str, product: PartRecord) -> str | None:
+        """Pick the OEM product link for this part from a search results page.
+
+        RevZilla product URLs embed a description slug, so the collector has to
+        search first and then follow the matching result. Only links whose slug
+        contains the requested part number are accepted, so a near-miss result
+        is never followed.
+        """
+        return select_search_result(html, product.oem_part_number)
+
     def normalize_availability(self, raw: str | None) -> str:
         return normalize_availability(raw)
 
     def normalize_supersession(self, raw: str | None) -> tuple[bool, str | None]:
         return (bool(raw), raw)
+
+
+def select_search_result(html: str, requested_part_number: str) -> str | None:
+    """Return the first /oem/ link whose slug matches the requested part."""
+    normalized = normalize_part_number_for_match(requested_part_number)
+    if not normalized:
+        return None
+    for path in PRODUCT_LINK_RE.findall(html or ""):
+        if normalize_part_number_for_match(path).find(normalized) != -1:
+            return f"{BASE_URL}{path}"
+    return None
 
 
 def build_search_url(part_number: str) -> str:
