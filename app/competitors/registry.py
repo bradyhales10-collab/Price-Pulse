@@ -4,12 +4,24 @@ from app.competitors.base import CompetitorAdapter
 from app.competitors.chaparral import ChaparralAdapter
 from app.competitors.motosport import MotoSportAdapter
 from app.competitors.partzilla import PartzillaAdapter
+from app.competitors.revzilla import RevzillaAdapter
 
 _REGISTRY: dict[str, CompetitorAdapter] = {
     "partzilla": PartzillaAdapter(),
     "motosport": MotoSportAdapter(),
     "chaparral": ChaparralAdapter(),
+    "revzilla": RevzillaAdapter(),
 }
+
+
+def short_display_name(adapter: CompetitorAdapter) -> str:
+    """Short label for table cells and column headings."""
+    return getattr(adapter, "short_name", None) or adapter.display_name
+
+
+def competitor_short_names() -> dict[str, str]:
+    """Full display name -> short label, for every registered competitor."""
+    return {adapter.display_name: short_display_name(adapter) for adapter in list_competitors()}
 
 
 def list_competitors() -> list[CompetitorAdapter]:

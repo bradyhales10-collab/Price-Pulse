@@ -44,7 +44,11 @@ def test_database_initializes_and_is_rerunnable() -> None:
         counts = table_counts(conn)
         migrations = conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0]
         override_table = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pricing_rule_manufacturer_overrides'").fetchone()
-    assert counts["competitors"] == 3
+    # Every registered adapter must be seeded, so this cannot drift when a
+    # competitor is added.
+    from app.competitors.registry import list_competitors
+
+    assert counts["competitors"] == len(list_competitors())
     assert migrations == 9
     assert override_table is not None
 

@@ -2,73 +2,149 @@
   "manufacturers": [
     {
       "display_name": "Honda",
-      "aliases": ["honda"],
+      "aliases": [
+        "honda"
+      ],
       "partzilla_slug": "honda"
     },
     {
       "display_name": "Yamaha",
-      "aliases": ["yamaha"],
+      "aliases": [
+        "yamaha"
+      ],
       "partzilla_slug": "yamaha"
     },
     {
       "display_name": "Kawasaki",
-      "aliases": ["kawasaki"],
+      "aliases": [
+        "kawasaki"
+      ],
       "partzilla_slug": "kawasaki"
     },
     {
       "display_name": "Suzuki",
-      "aliases": ["suzuki"],
+      "aliases": [
+        "suzuki"
+      ],
       "partzilla_slug": "suzuki"
     },
     {
       "display_name": "Polaris",
-      "aliases": ["polaris"],
+      "aliases": [
+        "polaris"
+      ],
       "partzilla_slug": "polaris"
     },
     {
       "display_name": "Can-Am",
-      "aliases": ["can-am", "can am", "canam", "can_am"],
+      "aliases": [
+        "can-am",
+        "can am",
+        "canam",
+        "can_am"
+      ],
       "partzilla_slug": "can-am"
     },
     {
       "display_name": "Arctic Cat",
-      "aliases": ["arctic cat", "arcticcat", "arctic_cat"],
+      "aliases": [
+        "arctic cat",
+        "arcticcat",
+        "arctic_cat"
+      ],
       "partzilla_slug": "arctic-cat"
     },
     {
       "display_name": "Sea-Doo",
-      "aliases": ["sea-doo", "sea doo", "seadoo", "sea_doo"],
+      "aliases": [
+        "sea-doo",
+        "sea doo",
+        "seadoo",
+        "sea_doo"
+      ],
       "partzilla_slug": "sea-doo"
     },
     {
       "display_name": "Ski-Doo",
-      "aliases": ["ski-doo", "ski doo", "skidoo", "ski_doo"],
+      "aliases": [
+        "ski-doo",
+        "ski doo",
+        "skidoo",
+        "ski_doo"
+      ],
       "partzilla_slug": "ski-doo"
     },
     {
       "display_name": "KTM",
-      "aliases": ["ktm"],
+      "aliases": [
+        "ktm"
+      ],
       "partzilla_slug": null
     },
     {
       "display_name": "Husqvarna",
-      "aliases": ["husqvarna"],
+      "aliases": [
+        "husqvarna"
+      ],
       "partzilla_slug": null
     },
     {
       "display_name": "GasGas",
-      "aliases": ["gasgas", "gas gas", "gas-gas", "gas_gas"],
+      "aliases": [
+        "gasgas",
+        "gas gas",
+        "gas-gas",
+        "gas_gas"
+      ],
       "partzilla_slug": null
     },
     {
       "display_name": "Triumph",
-      "aliases": ["triumph"],
+      "aliases": [
+        "triumph"
+      ],
       "partzilla_slug": null
     }
   ],
   "competitors": {
-    "partzilla": ["Honda", "Yamaha", "Kawasaki", "Suzuki", "Polaris", "Can-Am", "Arctic Cat", "Sea-Doo", "Ski-Doo"],
-    "motosport": ["Honda", "Yamaha", "Kawasaki", "Suzuki", "Can-Am", "KTM", "Husqvarna", "GasGas"],
-    "chaparral": ["Honda", "Yamaha", "Kawasaki", "Suzuki", "Can-Am", "Polaris", "KTM", "Husqvarna", "GasGas", "Triumph"]
+    "partzilla": [
+      "Honda",
+      "Yamaha",
+      "Kawasaki",
+      "Suzuki",
+      "Polaris",
+      "Can-Am",
+      "Arctic Cat",
+      "Sea-Doo",
+      "Ski-Doo"
+    ],
+    "motosport": [
+      "Honda",
+      "Yamaha",
+      "Kawasaki",
+      "Suzuki",
+      "Can-Am",
+      "KTM",
+      "Husqvarna",
+      "GasGas"
+    ],
+    "chaparral": [
+      "Honda",
+      "Yamaha",
+      "Kawasaki",
+      "Suzuki",
+      "Can-Am",
+      "Polaris",
+      "KTM",
+      "Husqvarna",
+      "GasGas",
+      "Triumph"
+    ],
+    "revzilla": [
+      "Honda",
+      "Yamaha",
+      "Kawasaki",
+      "Suzuki"
+    ]
   }
 }

@@ -49,6 +49,7 @@ class ChaparralMatch:
 class ChaparralAdapter:
     competitor_key = "chaparral"
     display_name = "Chaparral Motorsports"
+    short_name = "Chaparral"
     supported_manufacturers = competitor_manufacturers("chaparral")
     lookup_url = LOOKUP_URL
     capabilities = CompetitorCapabilities(

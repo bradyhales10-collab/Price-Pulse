@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from app.competitors.registry import list_competitors, short_display_name
 from app.database import cents_to_money
 from app.web.queries import connect_readonly
 
@@ -26,44 +28,99 @@ class ComparisonFilters:
     import_batch_id: int | None = None
 
 
+# Historical SQL aliases, kept so existing generated SQL stays byte-identical
+# for the original three competitors. New competitors get generated aliases.
+_LISTING_ALIAS = {"partzilla": "pl", "motosport": "ml", "chaparral": "cl"}
+_STATE_ALIAS = {"partzilla": "ps", "motosport": "ms", "chaparral": "cs"}
+_EVENT_ALIAS = {"motosport": "mse", "chaparral": "cse"}
+_SAFE_KEY = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def _sql_aliases(key: str) -> tuple[str, str, str]:
+    if not _SAFE_KEY.match(key):
+        raise ValueError(f"Competitor key is not safe to use in SQL: {key!r}")
+    return (
+        _LISTING_ALIAS.get(key, f"{key}_l"),
+        _STATE_ALIAS.get(key, f"{key}_s"),
+        _EVENT_ALIAS.get(key, f"{key}_e"),
+    )
+
+
+def competitor_state_aliases() -> dict[str, str]:
+    return {adapter.competitor_key: _sql_aliases(adapter.competitor_key)[1] for adapter in list_competitors()}
+
+
+def competitor_sql_parts() -> tuple[str, str, str]:
+    """Build the per-competitor SELECT columns and JOINs from the registry.
+
+    Registering a competitor adapter is enough for its prices to flow through
+    this query; no SQL editing is needed to add one.
+    """
+    columns: list[str] = []
+    joins: list[str] = []
+    name_fallbacks: list[str] = []
+
+    for index, adapter in enumerate(list_competitors()):
+        key = adapter.competitor_key
+        listing, state, event = _sql_aliases(key)
+        name_fallbacks.append(f"{state}.product_name")
+        joins.append(
+            f"LEFT JOIN competitor_listings {listing} ON {listing}.product_id=p.product_id "
+            f"AND {listing}.competitor_id=(SELECT competitor_id FROM competitors WHERE competitor_code='{key}')"
+        )
+        joins.append(f"LEFT JOIN current_listing_state {state} ON {state}.listing_id={listing}.listing_id")
+        joins.append(
+            f"LEFT JOIN scan_events {event} ON {event}.scan_event_id="
+            f"(SELECT MAX(evt.scan_event_id) FROM scan_events evt WHERE evt.listing_id={listing}.listing_id)"
+        )
+
+        if key == "motosport":
+            # MotoSport is the one competitor that can hide its price behind the
+            # cart, so it falls back to the probe results table.
+            columns.append(f"""
+                   COALESCE({state}.selling_price_cents, mp.selling_price_cents) motosport_selling_price_cents,
+                   COALESCE({state}.reference_price_cents, mp.reference_price_cents) motosport_reference_price_cents,
+                   {state}.savings_percent motosport_savings_percent,
+                   {event}.page_classification motosport_page_classification,
+                   {event}.price_parse_confidence motosport_parse_confidence,
+                   CASE WHEN {state}.selling_price_cents IS NOT NULL THEN 'visible' ELSE mp.price_visibility END motosport_price_visibility,
+                   COALESCE({state}.price_display_type, mp.price_display_type) motosport_price_display_type,
+                   CASE WHEN {state}.selling_price_cents IS NOT NULL THEN 'cart_price_found' ELSE mp.result_type END motosport_result_type,
+                   CASE WHEN {state}.selling_price_cents IS NOT NULL THEN 'production' WHEN mp.probe_result_id IS NOT NULL THEN 'probe' ELSE '' END motosport_source""")
+        else:
+            columns.append(f"""
+                   {state}.selling_price_cents {key}_selling_price_cents,
+                   {state}.reference_price_cents {key}_reference_price_cents,
+                   {state}.savings_percent {key}_savings_percent,
+                   {event}.page_classification {key}_page_classification,
+                   {event}.price_parse_confidence {key}_parse_confidence,
+                   {state}.price_display_type {key}_price_display_type""")
+
+        if index == 0:
+            # Unprefixed fields kept for the primary competitor, as other code reads them.
+            columns.append(f"""
+                   {state}.price_display_type,
+                   {state}.last_successful_check_at""")
+
+    product_name = "COALESCE(" + ", ".join([*name_fallbacks, "p.product_name"]) + ") product_name"
+    return ",".join(columns), "\n            ".join(joins), product_name
+
+
 def comparison_rows(database: Path, filters: ComparisonFilters = ComparisonFilters()) -> list[dict[str, Any]]:
     where, params = _where(filters)
+    columns_sql, joins_sql, product_name_sql = competitor_sql_parts()
     with connect_readonly(database) as conn:
         rows = conn.execute(f"""
             SELECT p.product_id, p.internal_sku product_internal_sku, p.manufacturer, p.oem_part_number,
-                   COALESCE(ps.product_name, ms.product_name, p.product_name) product_name,
+                   {product_name_sql},
                    ips.internal_sku, ips.our_current_price_cents, ips.current_cost_cents,
                    ips.product_category, ips.units_sold_12m, ips.inventory_qty, ips.scan_priority,
-                   ps.selling_price_cents partzilla_selling_price_cents,
-                   ps.reference_price_cents partzilla_reference_price_cents,
-                   ps.savings_percent partzilla_savings_percent,
-                   ps.price_display_type, ps.last_successful_check_at,
-                   COALESCE(ms.selling_price_cents, mp.selling_price_cents) motosport_selling_price_cents,
-                   COALESCE(ms.reference_price_cents, mp.reference_price_cents) motosport_reference_price_cents,
-                   mse.page_classification motosport_page_classification,
-                   mse.price_parse_confidence motosport_parse_confidence,
-                   CASE WHEN ms.selling_price_cents IS NOT NULL THEN 'visible' ELSE mp.price_visibility END motosport_price_visibility,
-                   COALESCE(ms.price_display_type, mp.price_display_type) motosport_price_display_type,
-                   CASE WHEN ms.selling_price_cents IS NOT NULL THEN 'cart_price_found' ELSE mp.result_type END motosport_result_type,
-                   CASE WHEN ms.selling_price_cents IS NOT NULL THEN 'production' WHEN mp.probe_result_id IS NOT NULL THEN 'probe' ELSE '' END motosport_source,
-                   cs.selling_price_cents chaparral_selling_price_cents,
-                   cs.reference_price_cents chaparral_reference_price_cents,
-                   cs.savings_percent chaparral_savings_percent,
-                   cse.page_classification chaparral_page_classification,
-                   cse.price_parse_confidence chaparral_parse_confidence,
-                   cs.price_display_type chaparral_price_display_type,
+                   {columns_sql},
                    prd.review_status, prd.original_price_cents, prd.suggested_new_price_cents, prd.applied_rule_codes_json,
                    prd.notes, prd.reviewer, prd.reviewed_at
             FROM products p
             JOIN internal_product_state ips ON ips.product_id=p.product_id
-            LEFT JOIN competitor_listings pl ON pl.product_id=p.product_id AND pl.competitor_id=(SELECT competitor_id FROM competitors WHERE competitor_code='partzilla')
-            LEFT JOIN current_listing_state ps ON ps.listing_id=pl.listing_id
-            LEFT JOIN competitor_listings ml ON ml.product_id=p.product_id AND ml.competitor_id=(SELECT competitor_id FROM competitors WHERE competitor_code='motosport')
-            LEFT JOIN current_listing_state ms ON ms.listing_id=ml.listing_id
-            LEFT JOIN scan_events mse ON mse.scan_event_id=(SELECT MAX(mse2.scan_event_id) FROM scan_events mse2 WHERE mse2.listing_id=ml.listing_id)
-            LEFT JOIN competitor_listings cl ON cl.product_id=p.product_id AND cl.competitor_id=(SELECT competitor_id FROM competitors WHERE competitor_code='chaparral')
-            LEFT JOIN current_listing_state cs ON cs.listing_id=cl.listing_id
-            LEFT JOIN scan_events cse ON cse.scan_event_id=(SELECT MAX(cse2.scan_event_id) FROM scan_events cse2 WHERE cse2.listing_id=cl.listing_id)
+            {joins_sql}
             LEFT JOIN competitor_probe_results mp ON mp.probe_result_id=(
                 SELECT MAX(mp2.probe_result_id)
                 FROM competitor_probe_results mp2
@@ -99,7 +156,9 @@ def _where(filters: ComparisonFilters) -> tuple[str, list[Any]]:
         clauses.append("ips.scan_priority=?")
         params.append(filters.scan_priority)
     if filters.missing_competitor_price:
-        clauses.append("ps.selling_price_cents IS NULL AND ms.selling_price_cents IS NULL AND mp.selling_price_cents IS NULL AND cs.selling_price_cents IS NULL")
+        no_price = [f"{alias}.selling_price_cents IS NULL" for alias in competitor_state_aliases().values()]
+        no_price.append("mp.selling_price_cents IS NULL")
+        clauses.append("(" + " AND ".join(no_price) + ")")
     if filters.hidden_competitor_price:
         clauses.append(
             """
@@ -136,18 +195,20 @@ def _comparison_row(row: dict[str, Any]) -> dict[str, Any]:
     diff = None if our is None or competitor is None else our - competitor
     row["our_current_price"] = cents_to_money(comparison_price_cents)
     row["current_cost"] = cents_to_money(row["current_cost_cents"])
-    row["partzilla_selling_price"] = cents_to_money(row["partzilla_selling_price_cents"])
-    row["partzilla_reference_price"] = cents_to_money(row["partzilla_reference_price_cents"])
-    row["motosport_selling_price"] = cents_to_money(row.get("motosport_selling_price_cents"))
-    row["motosport_reference_price"] = cents_to_money(row.get("motosport_reference_price_cents"))
-    row["chaparral_selling_price"] = cents_to_money(row.get("chaparral_selling_price_cents"))
-    row["chaparral_reference_price"] = cents_to_money(row.get("chaparral_reference_price_cents"))
-    if row["chaparral_selling_price"]:
-        row["chaparral_status"] = "Production"
-    elif row.get("chaparral_page_classification"):
-        row["chaparral_status"] = row.get("chaparral_page_classification")
-    else:
-        row["chaparral_status"] = ""
+    # Every registered competitor gets its money fields and status derived here,
+    # so adding an adapter needs no changes in this function.
+    for adapter in list_competitors():
+        key = adapter.competitor_key
+        row[f"{key}_selling_price"] = cents_to_money(row.get(f"{key}_selling_price_cents"))
+        row[f"{key}_reference_price"] = cents_to_money(row.get(f"{key}_reference_price_cents"))
+        if key == "motosport":
+            continue  # Handled below: MotoSport can hide its price behind the cart.
+        if row[f"{key}_selling_price"]:
+            row[f"{key}_status"] = "Production"
+        elif row.get(f"{key}_page_classification"):
+            row[f"{key}_status"] = row.get(f"{key}_page_classification")
+        else:
+            row[f"{key}_status"] = ""
     row["motosport_hidden_price"] = row.get("motosport_price_visibility") == "see_price_in_cart" or row.get("motosport_result_type") == "price_hidden_in_cart"
     if row["motosport_hidden_price"]:
         row["motosport_status"] = "Needs Review / Hidden Price"
@@ -157,11 +218,13 @@ def _comparison_row(row: dict[str, Any]) -> dict[str, Any]:
         row["motosport_status"] = row.get("motosport_page_classification")
     else:
         row["motosport_status"] = ""
-    competitor_prices = {
-        "Partzilla": _money(row["partzilla_selling_price_cents"]),
-        "MotoSport": None if row["motosport_hidden_price"] else _money(row.get("motosport_selling_price_cents")),
-        "Chaparral": _money(row.get("chaparral_selling_price_cents")),
-    }
+    competitor_prices: dict[str, Decimal | None] = {}
+    for adapter in list_competitors():
+        key = adapter.competitor_key
+        price = _money(row.get(f"{key}_selling_price_cents"))
+        if key == "motosport" and row["motosport_hidden_price"]:
+            price = None  # A cart-gated price is not a comparable price.
+        competitor_prices[short_display_name(adapter)] = price
     available = {name: price for name, price in competitor_prices.items() if price is not None}
     lowest_name = min(available, key=available.get) if available else ""
     lowest_price = available[lowest_name] if lowest_name else None
@@ -184,6 +247,20 @@ def _comparison_row(row: dict[str, Any]) -> dict[str, Any]:
         row["our_price_class"] = "price-below-competitors"
     else:
         row["our_price_class"] = ""
+    # Ordered cells for the UI, so templates iterate competitors instead of
+    # naming them column by column.
+    row["competitors"] = [
+        {
+            "key": adapter.competitor_key,
+            "display_name": adapter.display_name,
+            "short_name": short_display_name(adapter),
+            "selling_price": row.get(f"{adapter.competitor_key}_selling_price"),
+            "hidden_price": bool(row.get(f"{adapter.competitor_key}_hidden_price")),
+            "status": row.get(f"{adapter.competitor_key}_status") or "",
+            "is_lowest": row["lowest_competitor_key"] == adapter.competitor_key,
+        }
+        for adapter in list_competitors()
+    ]
     row["price_difference_dollars"] = _format_decimal(diff)
     row["price_difference_cents"] = int(diff * Decimal("100")) if diff is not None else None
     row["price_difference_pct"] = _percent((our / competitor) - 1) if our is not None and competitor not in (None, Decimal("0")) else ""

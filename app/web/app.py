@@ -39,7 +39,7 @@ from app.collection_jobs import (
 )
 from app.collector_bridge import import_collection_summary, selected_parts_csv
 from app.comparison import ComparisonFilters
-from app.competitors.registry import list_competitors, select_competitors
+from app.competitors.registry import list_competitors, select_competitors, short_display_name
 from app.config import OUTPUT_DIR
 from app.exports.review_export import export_review
 from app.imports import (
@@ -112,6 +112,10 @@ templates.env.filters["humanize"] = humanize_status
 templates.env.filters["price"] = lambda value: _format_price(value)
 templates.env.filters["short_competitor"] = short_competitor_name
 templates.env.globals["page_size_options"] = PAGE_SIZE_OPTIONS
+templates.env.globals["competitor_columns"] = [
+    {"key": adapter.competitor_key, "short_name": short_display_name(adapter), "display_name": adapter.display_name}
+    for adapter in list_competitors()
+]
 
 
 def create_app(database: Path) -> FastAPI:

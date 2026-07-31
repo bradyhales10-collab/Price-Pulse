@@ -17,6 +17,7 @@ SCHEMA_VERSION = 9
 PARTZILLA_CODE = "partzilla"
 MOTOSPORT_CODE = "motosport"
 CHAPARRAL_CODE = "chaparral"
+REVZILLA_CODE = "revzilla"
 
 
 def utc_now() -> str:
@@ -164,6 +165,7 @@ def seed_partzilla(conn: sqlite3.Connection) -> int:
     _seed_partzilla_mappings(conn)
     seed_motosport(conn)
     seed_chaparral(conn)
+    seed_revzilla(conn)
     return int(conn.execute("SELECT competitor_id FROM competitors WHERE competitor_code = ?", (PARTZILLA_CODE,)).fetchone()[0])
 
 
@@ -190,6 +192,40 @@ def seed_motosport(conn: sqlite3.Connection) -> int:
         (MOTOSPORT_CODE, "MotoSport", "https://www.motosport.com", "Production competitor collector with public product and cart-price support.", now, now),
     )
     return int(conn.execute("SELECT competitor_id FROM competitors WHERE competitor_code = ?", (MOTOSPORT_CODE,)).fetchone()[0])
+
+
+def seed_revzilla(conn: sqlite3.Connection) -> int:
+    now = utc_now()
+    conn.execute(
+        """
+        INSERT INTO competitors(competitor_code, competitor_name, base_url, is_active, status, requires_login,
+            supports_public_price, supports_direct_part_url, notes, legal_review_status, cart_price_probe_status, created_at, updated_at)
+        VALUES (?, ?, ?, 1, 'experimental_probe', 0, 1, 0, ?, 'review_needed', 'disabled', ?, ?)
+        ON CONFLICT(competitor_code) DO UPDATE SET
+            competitor_name=excluded.competitor_name,
+            base_url=excluded.base_url,
+            status=excluded.status,
+            requires_login=excluded.requires_login,
+            supports_public_price=excluded.supports_public_price,
+            supports_direct_part_url=excluded.supports_direct_part_url,
+            notes=excluded.notes,
+            legal_review_status=COALESCE(competitors.legal_review_status, excluded.legal_review_status),
+            cart_price_probe_status=COALESCE(competitors.cart_price_probe_status, excluded.cart_price_probe_status),
+            is_active=1,
+            updated_at=excluded.updated_at
+        """,
+        (
+            REVZILLA_CODE,
+            "RevZilla",
+            "https://www.revzilla.com",
+            "Experimental. OEM parts fulfilled by Montgomeryville Cycle Center; motorcycle brands only, no Polaris. "
+            "Search-based lookup because product URLs embed a description slug. Prices on discontinued or "
+            "out-of-stock listings are ignored.",
+            now,
+            now,
+        ),
+    )
+    return int(conn.execute("SELECT competitor_id FROM competitors WHERE competitor_code = ?", (REVZILLA_CODE,)).fetchone()[0])
 
 
 def seed_chaparral(conn: sqlite3.Connection) -> int:

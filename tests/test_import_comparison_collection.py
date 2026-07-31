@@ -392,6 +392,7 @@ def test_comparison_layout_is_compact_and_highlights_lowest_our_price() -> None:
         "Partzilla",
         "MotoSport",
         "Chaparral",
+        "RevZilla",
         "Our Price",
         "Gap vs Lowest",
         "Calc Cost",

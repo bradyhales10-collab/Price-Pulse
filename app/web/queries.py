@@ -328,17 +328,16 @@ PAGE_SIZE_OPTIONS = (25, 50, 100, 200)
 DEFAULT_PAGE_SIZE = 50
 
 
-COMPETITOR_SHORT_NAMES = {
-    "Chaparral Motorsports": "Chaparral",
-}
-
-
 def short_competitor_name(value: Any) -> str:
     """Shorten long competitor names for table cells, matching the column
-    headings used on the Price Check screen."""
+    headings used on the Price Check screen. Names come from the adapter
+    registry, so a new competitor only declares its own short name."""
     if not value:
         return ""
-    return COMPETITOR_SHORT_NAMES.get(str(value).strip(), str(value))
+    # Imported here to avoid a circular import at module load.
+    from app.competitors.registry import competitor_short_names
+
+    return competitor_short_names().get(str(value).strip(), str(value))
 
 
 def manufacturer_options(database: Path) -> list[str]:
