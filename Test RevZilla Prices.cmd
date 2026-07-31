@@ -26,6 +26,29 @@ if not exist ".venv\Scripts\python.exe" (
   exit /b 1
 )
 
+echo Getting the latest version first, so the test uses current code...
+where git >nul 2>&1
+if errorlevel 1 (
+  echo   WARNING: Git is not installed, so this may be testing an old version.
+) else (
+  git pull origin main
+  if errorlevel 1 (
+    echo.
+    echo   WARNING: Could not update. This may be testing an OLD version,
+    echo   which will give misleading results. Consider running
+    echo   "Repair Part Pulse.cmd" before trusting the output.
+    echo.
+    pause
+  ) else (
+    echo   Up to date.
+  )
+)
+echo.
+
+for /f "delims=" %%v in ('git rev-parse --short HEAD 2^>nul') do set "PP_VER=%%v"
+echo Testing code version: %PP_VER%
+echo.
+
 ".venv\Scripts\python.exe" probe_competitor.py --competitor revzilla --file "data\input\RevZilla_Probe_Parts.csv" --max-parts 7 --delay-seconds 6
 
 echo.

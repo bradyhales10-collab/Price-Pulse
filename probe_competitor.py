@@ -4,6 +4,7 @@ import argparse
 import csv
 import json
 import re
+import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
@@ -189,6 +190,21 @@ def main() -> int:
     return 0
 
 
+def _code_version() -> str:
+    """Short git revision, so a probe report identifies the code that produced it."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=Path(__file__).resolve().parent,
+        )
+        return result.stdout.strip() or "unknown"
+    except Exception:
+        return "unknown"
+
+
 def _write_outputs(output_dir: Path, run: ProbeRun, args: argparse.Namespace) -> None:
     diagnostics_dir = output_dir / "diagnostics"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
@@ -210,6 +226,7 @@ def _write_outputs(output_dir: Path, run: ProbeRun, args: argparse.Namespace) ->
                 "delay_seconds": args.delay_seconds,
                 "saved_to_database": bool(args.save_probe_to_database),
                 "stop_reason": run.stop_reason,
+                "code_version": _code_version(),
             },
             indent=2,
         )
@@ -274,6 +291,7 @@ def _review_text(run: ProbeRun) -> str:
     lines = [
         f"{run.competitor_key.upper()} COMPETITOR PROBE",
         "",
+        f"Code version: {_code_version()}",
         f"Started: {run.started_at}",
         f"Completed: {run.completed_at or ''}",
         f"Parts requested: {len(rows)}",
