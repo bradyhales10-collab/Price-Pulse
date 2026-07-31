@@ -80,9 +80,17 @@ if errorlevel 1 (
 )
 echo.
 
+for /f "delims=" %%v in ('git rev-parse --short HEAD 2^>nul') do set "PP_VER=%%v"
+for /f "delims=" %%d in ('git log -1 --format^=%%cd --date^=short 2^>nul') do set "PP_DATE=%%d"
+
 echo ===============================
 echo   Repair finished.
 echo ===============================
+echo.
+echo   Program version now on this computer: %PP_VER%  (%PP_DATE%)
+echo.
+echo If you were asked to update before running a test, the version above
+echo is what you are now running. Quote it if something looks wrong.
 echo.
 echo Now double-click "Start Part Pulse.cmd" to run Part Pulse.
 echo.

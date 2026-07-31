@@ -26,6 +26,10 @@ if errorlevel 1 (
 )
 echo.
 
+for /f "delims=" %%v in ('git rev-parse --short HEAD 2^>nul') do set "PP_VER=%%v"
+if defined PP_VER echo   Program version: %PP_VER%
+echo.
+
 echo [2 of 5] Checking Python setup...
 if not exist ".venv\Scripts\python.exe" (
   echo   First-time setup. This will take a few minutes...
