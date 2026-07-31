@@ -336,9 +336,27 @@ def _review_text(run: ProbeRun) -> str:
                 "",
             ]
         )
+    # A competitor can be read perfectly and still yield no prices, because
+    # every tested listing was discontinued or out of stock. That is an
+    # inventory finding, not a parser failure, and must not be reported as one.
+    supported_rows = [row for row in rows if row.observation.page_classification != "manufacturer_not_carried"]
+    gated_unavailable = [
+        row
+        for row in supported_rows
+        if any(warning.startswith("price_ignored_") for warning in row.observation.warnings)
+    ]
+    all_unavailable = bool(supported_rows) and len(gated_unavailable) == len(supported_rows)
+
     recommendation = "Continue fixture review before any production consideration."
     if rows and successful == len(rows) and not warnings and not blocked and not challenges:
         recommendation = "Controlled probe is clean; next step is a larger manual validation set, not production activation."
+    if all_unavailable and not global_promo_leak_suspected:
+        recommendation = (
+            "Pages were read correctly and part numbers matched, but every tested part was "
+            "discontinued or out of stock, so no comparable price exists. Re-run against parts "
+            "that are currently in stock before judging this competitor. If most listings are "
+            "unavailable, this competitor has little pricing value regardless of parser quality."
+        )
     access_feasibility = "promising" if rows and not blocked and not challenges and not errors else "needs_review"
     if not rows:
         access_feasibility = "not_evaluated"
@@ -346,6 +364,8 @@ def _review_text(run: ProbeRun) -> str:
     parser_quality = "failed_pending_fix" if global_promo_leak_suspected or (rows and successful == 0) else "needs_validation"
     if rows and successful == len(rows) and not warnings:
         parser_quality = "promising"
+    if all_unavailable and not global_promo_leak_suspected:
+        parser_quality = "working_no_sellable_inventory"
     lines.extend(
         [
             f"{run.competitor_key.upper()} COVERAGE SUMMARY",
@@ -361,6 +381,7 @@ def _review_text(run: ProbeRun) -> str:
             f"High-confidence visible price rate: {_rate(high_confidence_prices, len(rows))}",
             f"Parser warning rate: {_rate(warnings, len(rows))}",
             f"Availability coverage rate: {_rate(sum(1 for row in rows if row.observation.availability_raw), len(rows))}",
+            f"Unavailable-listing rate: {_rate(len(gated_unavailable), len(supported_rows))}",
             "",
             "Manufacturer-level summary:",
             "Manufacturer | Attempted | HTTP 200 product pages | Visible prices | Cart-hidden prices | Not found | Ambiguous | Warnings",
@@ -377,7 +398,7 @@ def _review_text(run: ProbeRun) -> str:
             "Price visibility: evaluated from public page content only.",
             f"Parser quality: {parser_quality}. See per-part confidence and diagnostics above.",
             "Discounted-price handling: uses current/reference price roles plus % off and Save $ evidence.",
-            "Availability handling: captures In Stock and Expected to Ship messages.",
+            "Availability handling: prices are only accepted for listings that are positively in stock.",
             f"Observed access problems: {run.stop_reason or 'None recorded by this probe.'}",
             f"Recommended next step: {recommendation}",
             "",

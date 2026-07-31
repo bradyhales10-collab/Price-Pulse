@@ -377,3 +377,91 @@ def test_part_association_is_reported_to_the_probe() -> None:
     association = observation.raw_evidence_summary["product_association"]
     assert association["confirmed"] is True
     assert association["observed_part_number"] == "11060-1234"
+
+
+# --- Probe reporting and own-catalog export ----------------------------------
+
+
+def test_all_listings_unavailable_is_reported_as_inventory_not_parser_failure() -> None:
+    """The live probe read every page correctly and still produced no prices,
+    because every part was out of stock. The report said the parser failed,
+    which would send us fixing working code."""
+    import probe_competitor
+    from app.competitors.base import CompetitorObservation
+
+    def _row(order: int, part: str) -> probe_competitor.ProbeRow:
+        observation = CompetitorObservation(
+            competitor_key="revzilla",
+            manufacturer="Kawasaki",
+            oem_part_number=part,
+            observed_part_number=part,
+            page_classification="normal_product",
+            availability_status="out_of_stock",
+            warnings=["price_ignored_out_of_stock"],
+            raw_evidence_summary={"product_association": {"confirmed": True}},
+        )
+        return probe_competitor.ProbeRow(order, "Kawasaki", part, "url", "now", observation)
+
+    run = probe_competitor.ProbeRun(
+        competitor_key="revzilla",
+        started_at="2026-07-31T00:00:00Z",
+        completed_at="2026-07-31T00:02:00Z",
+        rows=[_row(1, "41080-0162"), _row(2, "41080-0170")],
+    )
+    review = probe_competitor._review_text(run)
+
+    assert "working_no_sellable_inventory" in review
+    assert "failed_pending_fix" not in review
+    assert "currently in stock" in review
+    assert "Unavailable-listing rate: 100.0% (2/2)" in review
+
+
+def test_own_catalog_export_respects_competitor_manufacturer_coverage() -> None:
+    """RevZilla carries no Polaris, so Polaris parts must never be exported for
+    it even though they sit in our catalog."""
+    import sys
+    from pathlib import Path as _Path
+
+    sys.path.insert(0, str(_Path(__file__).parent))
+    from test_import_comparison_collection import _comparison_db  # noqa: PLC0415
+
+    from export_probe_input import select_parts
+
+    db = _comparison_db("export_coverage.db")
+    revzilla = {part["manufacturer"] for part in select_parts(db, "revzilla", 25)}
+
+    assert "Polaris" not in revzilla
+    assert revzilla <= {"Honda", "Yamaha", "Kawasaki", "Suzuki"}
+
+
+def test_own_catalog_export_produces_valid_probe_input() -> None:
+    import sys
+    import tempfile
+    from pathlib import Path as _Path
+
+    sys.path.insert(0, str(_Path(__file__).parent))
+    from test_import_comparison_collection import _comparison_db  # noqa: PLC0415
+
+    from app.input_loader import load_parts_csv
+    from export_probe_input import select_parts, write_probe_file
+
+    db = _comparison_db("export_roundtrip.db")
+    parts = select_parts(db, "revzilla", 25)
+    assert parts, "expected at least one exportable part"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = _Path(tmp) / "probe.csv"
+        write_probe_file(path, "revzilla", parts)
+        loaded = load_parts_csv(path)
+
+    assert len(loaded.records) == len(parts)
+
+
+def test_own_catalog_export_rejects_an_unknown_competitor() -> None:
+    from app.competitors.registry import get_competitor
+
+    try:
+        get_competitor("not-a-competitor")
+    except ValueError:
+        return
+    raise AssertionError("unknown competitor should be rejected")
