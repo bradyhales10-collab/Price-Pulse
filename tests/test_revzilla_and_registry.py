@@ -241,13 +241,32 @@ def test_probe_safety_limits_still_apply_to_revzilla() -> None:
 
     for bad in (
         argparse.Namespace(competitor="revzilla", max_parts=26, delay_seconds=6),
-        argparse.Namespace(competitor="revzilla", max_parts=1, delay_seconds=4),
+        argparse.Namespace(competitor="revzilla", max_parts=1, delay_seconds=0),
     ):
         try:
             probe_competitor.validate_probe_args(bad)
         except ValueError:
             continue
         raise AssertionError(f"probe limits not enforced for {bad}")
+
+    probe_competitor.validate_probe_args(
+        argparse.Namespace(competitor="revzilla", max_parts=25, delay_seconds=1)
+    )
+
+
+def test_other_competitor_probes_keep_the_five_second_minimum() -> None:
+    import argparse
+
+    import probe_competitor
+
+    try:
+        probe_competitor.validate_probe_args(
+            argparse.Namespace(competitor="motosport", max_parts=1, delay_seconds=1)
+        )
+    except ValueError as exc:
+        assert "at least 5" in str(exc)
+    else:
+        raise AssertionError("non-RevZilla probe accepted the reduced delay")
 
 
 def test_search_result_resolver_only_follows_the_requested_part() -> None:
@@ -266,6 +285,21 @@ def test_search_result_resolver_only_follows_the_requested_part() -> None:
     assert select_search_result(page, "12345-6789") is None
     assert select_search_result("", "41080-1186") is None
     assert select_search_result(page, "") is None
+
+
+def test_search_page_without_exact_oem_match_is_not_an_operational_error() -> None:
+    observation = RevzillaAdapter().parse_product_page(
+        '<html><body><a href="/dirt-bike/hiflofiltro-premium-oil-filter-hf114">Replaces OEM 15412-HP7-A01</a></body></html>',
+        _part("15412-HP7-A01", manufacturer="Honda"),
+        visible_text="HiFloFiltro Premium Oil Filter HF114 Replaces OEM 15412-HP7-A01",
+        final_url="https://www.revzilla.com/search?query=15412-HP7-A01",
+        http_status=200,
+    )
+
+    assert observation.page_classification == "not_found"
+    assert observation.raw_evidence_summary["lookup_status"] == "part_not_found"
+    assert observation.selling_price is None
+    assert observation.warnings == ["search_no_exact_oem_match"]
 
 
 def test_probe_input_file_is_well_formed_and_includes_a_polaris_control() -> None:

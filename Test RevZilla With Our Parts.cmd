@@ -55,9 +55,9 @@ if errorlevel 1 (
 echo.
 
 echo [3 of 3] Checking those parts on RevZilla...
-echo   This waits 6 seconds between parts, so it will take a few minutes.
+echo   This waits 1 second between parts.
 echo.
-".venv\Scripts\python.exe" probe_competitor.py --competitor revzilla --file "data\input\revzilla_own_catalog_probe.csv" --max-parts 15 --delay-seconds 6
+".venv\Scripts\python.exe" probe_competitor.py --competitor revzilla --file "data\input\revzilla_own_catalog_probe.csv" --max-parts 15 --delay-seconds 1
 
 echo.
 echo ===============================

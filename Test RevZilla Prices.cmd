@@ -9,7 +9,7 @@ echo.
 echo This is a TEST, not a real price check.
 echo.
 echo It will open a browser and look up a small number of Kawasaki parts
-echo on RevZilla, waiting 6 seconds between each one. Nothing is saved to
+echo on RevZilla, waiting 1 second between each one. Nothing is saved to
 echo your database and no prices are changed.
 echo.
 echo A browser window will open and move on its own. That is expected.
@@ -49,7 +49,7 @@ for /f "delims=" %%v in ('git rev-parse --short HEAD 2^>nul') do set "PP_VER=%%v
 echo Testing code version: %PP_VER%
 echo.
 
-".venv\Scripts\python.exe" probe_competitor.py --competitor revzilla --file "data\input\RevZilla_Probe_Parts.csv" --max-parts 7 --delay-seconds 6
+".venv\Scripts\python.exe" probe_competitor.py --competitor revzilla --file "data\input\RevZilla_Probe_Parts.csv" --max-parts 7 --delay-seconds 1
 
 echo.
 echo ===============================

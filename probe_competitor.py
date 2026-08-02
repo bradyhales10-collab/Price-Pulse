@@ -30,6 +30,7 @@ from app.manufacturer_registry import manufacturer_support_metadata, normalize_m
 DEFAULT_PROBE_MAX_PARTS = 10
 HARD_PROBE_MAX_PARTS = 25
 MIN_PROBE_DELAY_SECONDS = 5
+REVZILLA_MIN_PROBE_DELAY_SECONDS = 1
 STOP_CLASSIFICATIONS = {"blocked", "challenge"}
 STOP_STATUSES = {401, 403, 429}
 PLACEHOLDER_PART_RE = re.compile(r"(^12345$|-MISSING$|^[A-Z]-100$)")
@@ -101,9 +102,14 @@ def validate_probe_args(args: argparse.Namespace) -> None:
         raise ValueError(f"--max-parts must be {HARD_PROBE_MAX_PARTS} or fewer for competitor probes.")
     if args.max_parts < 1:
         raise ValueError("--max-parts must be at least 1.")
-    if args.delay_seconds < MIN_PROBE_DELAY_SECONDS:
-        raise ValueError(f"--delay-seconds must be at least {MIN_PROBE_DELAY_SECONDS}.")
+    minimum_delay = _minimum_probe_delay(args.competitor)
+    if args.delay_seconds < minimum_delay:
+        raise ValueError(f"--delay-seconds must be at least {minimum_delay} for {args.competitor}.")
     select_competitors([args.competitor], probe_mode=True)
+
+
+def _minimum_probe_delay(competitor_key: str) -> int:
+    return REVZILLA_MIN_PROBE_DELAY_SECONDS if competitor_key == "revzilla" else MIN_PROBE_DELAY_SECONDS
 
 
 def main() -> int:
@@ -164,7 +170,6 @@ def main() -> int:
                 if resolver is not None and status not in STOP_STATUSES:
                     followed_url = resolver(html, record)
                     if followed_url and followed_url != final_url:
-                        time.sleep(args.delay_seconds)
                         response = page.goto(followed_url, wait_until="domcontentloaded", timeout=settings.timeout)
                         status = response.status if response is not None else status
                         page.wait_for_timeout(settings.render_settle_ms)

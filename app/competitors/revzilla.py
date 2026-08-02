@@ -22,7 +22,7 @@ import re
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from app.competitors.base import CompetitorCapabilities, CompetitorObservation
 from app.manufacturer_registry import competitor_manufacturers, normalize_manufacturer
@@ -134,14 +134,16 @@ class RevzillaAdapter:
 
         match = extract_match(html=html, text=text, requested_part_number=product.oem_part_number, final_url=final_url)
         if match is None or match.part_number is None:
-            status = "part_not_found" if NOT_FOUND_RE.search(text) else "lookup_failed"
+            exact_search_exhausted = _is_search_results_url(final_url)
+            status = "part_not_found" if NOT_FOUND_RE.search(text) or exact_search_exhausted else "lookup_failed"
+            warning = "search_no_exact_oem_match" if exact_search_exhausted else status
             return _empty_observation(
                 product,
                 final_url=final_url or self.lookup_url,
                 http_status=http_status,
                 page_classification="not_found" if status == "part_not_found" else "unknown",
                 lookup_status=status,
-                warnings=[status],
+                warnings=[warning],
             )
 
         warnings: list[str] = []
@@ -249,6 +251,13 @@ def build_search_url(part_number: str) -> str:
     if not part_number.strip():
         raise ValueError("Part number cannot be blank.")
     return f"{SEARCH_URL}?{urlencode({'query': part_number.strip()})}"
+
+
+def _is_search_results_url(value: str | None) -> bool:
+    if not value:
+        return False
+    parsed = urlparse(value)
+    return parsed.netloc.lower() in {"revzilla.com", "www.revzilla.com"} and parsed.path.rstrip("/") == "/search"
 
 
 def normalize_part_number_for_match(value: str) -> str:
