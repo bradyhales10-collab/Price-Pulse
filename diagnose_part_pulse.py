@@ -8,6 +8,7 @@ screen said so. This checks each piece in turn and names the fix.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -72,6 +73,51 @@ def _age_seconds(value: str) -> float | None:
     except (ValueError, TypeError):
         return None
     return (datetime.now(UTC) - stamp.astimezone(UTC)).total_seconds()
+
+
+def _running_part_pulse_processes() -> list[dict[str, str]]:
+    """Every Python process that looks like it belongs to Part Pulse, with
+    where it is actually running from and when it started.
+
+    This exists because code being correct in this folder does not prove a
+    price check ran from this folder. A process started earlier - especially
+    one that auto-starts at login - can keep running from an old or
+    different copy indefinitely, and nothing about a healthy check here would
+    reveal that on its own.
+    """
+    if os.name != "nt":
+        return []
+    try:
+        result = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                "Get-CimInstance Win32_Process | "
+                "Where-Object { $_.Name -match 'python' } | "
+                "Select-Object ProcessId, CreationDate, CommandLine | ConvertTo-Json",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        raw = result.stdout.strip()
+        if not raw:
+            return []
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            parsed = [parsed]
+        return [
+            {
+                "pid": str(item.get("ProcessId", "")),
+                "started": str(item.get("CreationDate", "")),
+                "command": str(item.get("CommandLine", "")),
+            }
+            for item in parsed
+            if isinstance(item, dict)
+        ]
+    except Exception:
+        return []
 
 
 def main() -> int:
@@ -180,6 +226,30 @@ def main() -> int:
     except Exception as exc:
         _line(False, "Could not check the price-check code", str(exc))
         problems.append('Double-click "Repair Part Pulse.cmd".')
+
+    # 7. Any Part Pulse process running from somewhere other than here.
+    processes = _running_part_pulse_processes()
+    relevant = [
+        proc
+        for proc in processes
+        if "local_collector_agent.py" in proc["command"] or "dashboard.py" in proc["command"]
+    ]
+    if relevant:
+        elsewhere = [proc for proc in relevant if str(ROOT) not in proc["command"]]
+        if elsewhere:
+            _line(False, f"{len(elsewhere)} Part Pulse process(es) running from a different folder")
+            for proc in elsewhere:
+                print(f"           pid {proc['pid']}, started {proc['started']}")
+                print(f"           {proc['command']}")
+            problems.append(
+                "A Part Pulse process is running from a different copy of the program than this "
+                "one. Close that window (or end that process in Task Manager), then double-click "
+                '"Start Part Pulse.cmd" from this folder.'
+            )
+        else:
+            _line(True, f"{len(relevant)} Part Pulse process(es) running, all from this folder")
+    elif os.name == "nt":
+        _line(True, "No leftover Part Pulse processes running from elsewhere")
 
     print("")
     print("===============================")

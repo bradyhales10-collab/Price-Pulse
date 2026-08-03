@@ -254,3 +254,55 @@ def test_repair_clears_stale_python_bytecode_cache() -> None:
 
     assert "__pycache__" in repair
     assert "rmdir" in repair
+
+
+def test_diagnostic_flags_a_part_pulse_process_running_from_a_different_folder(monkeypatch) -> None:
+    """Code being correct in this folder does not prove a price check ran
+    from this folder. A process started earlier from a different or older
+    copy can keep running indefinitely, which would explain the same bug
+    persisting even after the code here was confirmed fixed."""
+    import diagnose_part_pulse as diagnose
+
+    monkeypatch.setattr(
+        diagnose,
+        "_running_part_pulse_processes",
+        lambda: [
+            {
+                "pid": "1234",
+                "started": "20260101000000.000000+000",
+                "command": r"C:\Old\Copy\Price-Pulse\.venv\Scripts\python.exe local_collector_agent.py",
+            }
+        ],
+    )
+    monkeypatch.setattr(diagnose, "ROOT", diagnose.Path(r"C:\Users\brady\Documents\Price-Pulse"))
+
+    processes = diagnose._running_part_pulse_processes()
+    relevant = [p for p in processes if "local_collector_agent.py" in p["command"]]
+    elsewhere = [p for p in relevant if str(diagnose.ROOT) not in p["command"]]
+
+    assert len(elsewhere) == 1
+    assert "Old" in elsewhere[0]["command"]
+
+
+def test_diagnostic_does_not_flag_a_process_running_from_the_right_folder(monkeypatch) -> None:
+    import diagnose_part_pulse as diagnose
+
+    root = diagnose.Path(r"C:\Users\brady\Documents\Price-Pulse")
+    monkeypatch.setattr(
+        diagnose,
+        "_running_part_pulse_processes",
+        lambda: [{"pid": "1", "started": "x", "command": rf"{root}\.venv\Scripts\python.exe local_collector_agent.py"}],
+    )
+    monkeypatch.setattr(diagnose, "ROOT", root)
+
+    processes = diagnose._running_part_pulse_processes()
+    elsewhere = [p for p in processes if str(root) not in p["command"]]
+
+    assert elsewhere == []
+
+
+def test_process_check_is_skipped_gracefully_on_non_windows() -> None:
+    import diagnose_part_pulse as diagnose
+
+    if diagnose.os.name != "nt":
+        assert diagnose._running_part_pulse_processes() == []
