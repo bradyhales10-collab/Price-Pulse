@@ -419,7 +419,7 @@ function pollJob() {
     .then((job) => {
       renderProgress(job);
       const status = job.status === "retrying_visible" ? job.status : ((job.progress && job.progress.status) || job.status || "");
-      if (!["completed", "failed", "completed_with_warnings", "stopped_blocked", "stopped_challenge"].includes(status)) {
+      if (!["completed", "failed", "completed_with_warnings", "stopped_blocked", "stopped_challenge", "cancelled"].includes(status)) {
         window.setTimeout(pollJob, 2000);
       } else {
         returnToPriceCheckAfterJob(job);

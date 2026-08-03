@@ -8,7 +8,19 @@
 
 {% if job %}
 <section class="card workflow-card active-step" data-job-status data-job-id="{{ job.job_id }}">
-  <div class="section-title"><div><span class="step-label">Step 3</span><h2>Checking Prices</h2></div>{{ badge(job.status|humanize, 'blue') }}</div>
+  <div class="section-title">
+    <div><span class="step-label">Step 3</span><h2>Checking Prices</h2></div>
+    <div class="quick-actions">
+      {{ badge(job.status|humanize, 'blue') }}
+      {% if job.status in ['queued_local', 'running'] and not job.cancel_requested %}
+      <form method="post" action="/imports/jobs/{{ job.job_id }}/cancel">
+        <button type="submit" class="button danger-button">Cancel Price Check</button>
+      </form>
+      {% elif job.cancel_requested and job.status in ['queued_local', 'running'] %}
+      <span class="muted">Cancelling...</span>
+      {% endif %}
+    </div>
+  </div>
   <div class="metrics">
     <span>Status <b data-status>{{ job.status }}</b></span>
     <span>Competitor <b data-competitor>{{ job.progress.competitor if job.progress else '' }}</b></span>

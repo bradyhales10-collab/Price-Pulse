@@ -24,6 +24,7 @@ from app.collection_jobs import (
     claim_next_local_login_refresh,
     complete_local_job,
     current_active_job,
+    is_job_cancelled,
     job_status,
     latest_job_for_import,
     local_agent_status,
@@ -33,6 +34,7 @@ from app.collection_jobs import (
     queue_local_collection_job,
     queue_local_login_refresh,
     register_local_agent,
+    request_job_cancellation,
     start_price_collection_job,
     update_local_job_progress,
     validate_collection_request,
@@ -780,6 +782,14 @@ def create_app(database: Path) -> FastAPI:
             return RedirectResponse(f"/imports?import_batch_id={result.import_batch_id}", status_code=303)
         return RedirectResponse(f"/imports/{result.import_batch_id}/map", status_code=303)
 
+    @app.post("/imports/jobs/{job_id}/cancel")
+    def import_cancel_job(job_id: str):
+        request_job_cancellation(job_id)
+        return RedirectResponse(
+            f"/imports?job_id={job_id}&message=Cancelling+this+price+check...",
+            status_code=303,
+        )
+
     @app.post("/imports/history/clear")
     def imports_clear_history():
         clear_import_history(app.state.database)
@@ -974,6 +984,10 @@ def create_app(database: Path) -> FastAPI:
     @app.get("/collector/agent/status")
     def collector_agent_status():
         return JSONResponse(local_agent_status())
+
+    @app.get("/collector/agent/jobs/{job_id}/cancelled")
+    def collector_agent_job_cancelled(job_id: str):
+        return JSONResponse({"cancelled": is_job_cancelled(job_id)})
 
     @app.get("/collector/agent/jobs/{job_id}/input.csv")
     def collector_agent_job_input(job_id: str):

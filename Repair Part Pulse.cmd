@@ -22,6 +22,7 @@ echo.
 
 echo [1 of 4] Stopping Part Pulse...
 powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'python' -and $_.CommandLine -like ('*' + $env:PP_ROOT + '*') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+if exist ".venv\Scripts\python.exe" ".venv\Scripts\python.exe" clear_stuck_jobs.py
 echo   Done.
 echo.
 

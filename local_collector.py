@@ -190,6 +190,10 @@ def prepare_local_database(input_path: Path, local_db: Path, competitors: list[s
     return 1
 
 
+class CollectionCancelled(Exception):
+    """Raised when a run is stopped by request rather than failing on its own."""
+
+
 def _run_competitor(
     input_path: Path,
     local_db: Path,
@@ -199,6 +203,7 @@ def _run_competitor(
     *,
     expected_run_id: int,
     progress_callback: Callable[[dict[str, object]], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> Path:
     progress_file = BRIDGE_DIR / f"progress-{expected_run_id}-{competitor}.json"
     progress_file.unlink(missing_ok=True)
@@ -226,10 +231,31 @@ def _run_competitor(
         command.append("--headless")
     process = subprocess.Popen(command, cwd=ROOT)
     last_progress = ""
+    cancel_check_interval = 3.0
+    since_last_cancel_check = 0.0
+    cancelled = False
     while process.poll() is None:
         last_progress = _forward_progress(progress_file, progress_callback, last_progress)
+        if should_cancel is not None and since_last_cancel_check >= cancel_check_interval:
+            since_last_cancel_check = 0.0
+            try:
+                if should_cancel():
+                    cancelled = True
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                    break
+            except Exception:
+                # A failed cancellation check should not stop a run that is
+                # otherwise progressing normally.
+                pass
         time.sleep(0.75)
+        since_last_cancel_check += 0.75
     last_progress = _forward_progress(progress_file, progress_callback, last_progress)
+    if cancelled:
+        raise CollectionCancelled(f"{competitor} was cancelled.")
     if process.returncode:
         raise subprocess.CalledProcessError(process.returncode, command)
     summary = ROOT / "data" / "output" / "collection_runs" / str(expected_run_id) / "collection_summary.csv"

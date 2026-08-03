@@ -31,6 +31,64 @@ ACTIVE_JOB_STATUSES = {"queued_local", "running"}
 _LOCAL_JOB_LOCK = threading.Lock()
 
 
+def request_job_cancellation(job_id: str) -> dict[str, object]:
+    """Ask a queued or running job to stop.
+
+    This only sets a flag. The job actually stops once the collector agent
+    notices it on its next check and finalizes the job as cancelled, or once
+    the person restarts the Browser Helper, since that also frees it up to
+    pick up a new job regardless of what this one is doing.
+    """
+    path = JOB_DIR / job_id / "job.json"
+    if not path.exists():
+        return {"status": "not_found", "job_id": job_id}
+    with _LOCAL_JOB_LOCK:
+        metadata = _read_json(path)
+        if str(metadata.get("status") or "") not in ACTIVE_JOB_STATUSES:
+            return metadata
+        metadata["cancel_requested"] = True
+        metadata["cancel_requested_at"] = utc_now()
+        metadata["message"] = "Cancelling this price check. This finishes within a few seconds."
+        _write_json(path, metadata)
+        return metadata
+
+
+def is_job_cancelled(job_id: str) -> bool:
+    path = JOB_DIR / job_id / "job.json"
+    if not path.exists():
+        return False
+    return bool(_read_json(path).get("cancel_requested"))
+
+
+CANCEL_GRACE_SECONDS = 10
+
+
+def _finalize_cancellation_if_due(path: Path, metadata: dict[str, object]) -> dict[str, object]:
+    """Finish a cancellation ourselves if the agent has not acknowledged it.
+
+    The agent checks for a cancellation between parts, so acknowledging it
+    normally takes a moment. This is the backstop: if the agent is stuck,
+    closed, or simply never checks again, the person still gets unstuck
+    rather than waiting on cooperation from a process that may not respond.
+    """
+    if not metadata.get("cancel_requested"):
+        return metadata
+    if str(metadata.get("status") or "") not in ACTIVE_JOB_STATUSES:
+        return metadata
+    requested_at = str(metadata.get("cancel_requested_at") or "")
+    try:
+        stamp = datetime.fromisoformat(requested_at.replace("Z", "+00:00"))
+    except ValueError:
+        stamp = None
+    if stamp is None or (datetime.now(UTC) - stamp.astimezone(UTC)).total_seconds() >= CANCEL_GRACE_SECONDS:
+        metadata["status"] = "cancelled"
+        metadata["message"] = "Price check cancelled."
+        metadata["updated_at"] = utc_now()
+        metadata["finished_at"] = utc_now()
+        _write_json(path, metadata)
+    return metadata
+
+
 @dataclass(frozen=True)
 class PlannedCollectionPart:
     manufacturer: str
@@ -462,7 +520,15 @@ def complete_local_job(job_id: str, *, status: str, message: str, agent_id: str)
     metadata = _read_json(job_json)
     if not metadata:
         raise FileNotFoundError(f"Collection job {job_id} was not found.")
-    allowed = {"completed", "completed_with_warnings", "failed", "login_required", "stopped_blocked", "stopped_challenge"}
+    allowed = {
+        "completed",
+        "completed_with_warnings",
+        "failed",
+        "login_required",
+        "stopped_blocked",
+        "stopped_challenge",
+        "cancelled",
+    }
     metadata["status"] = status if status in allowed else "failed"
     metadata["message"] = message
     metadata["agent_id"] = agent_id
@@ -478,6 +544,7 @@ def job_status(job_id: str) -> dict[str, object]:
     if not path.exists():
         return {"status": "not_found", "job_id": job_id}
     metadata = json.loads(path.read_text(encoding="utf-8"))
+    metadata = _finalize_cancellation_if_due(path, metadata)
     if metadata.get("status") == "running" and not _running_job_is_active(path, metadata):
         metadata = json.loads(path.read_text(encoding="utf-8"))
     if "manual_command" not in metadata and metadata.get("input_file") and metadata.get("database"):
@@ -510,12 +577,38 @@ def job_status(job_id: str) -> dict[str, object]:
     return metadata
 
 
+def cancel_all_active_jobs(reason: str = "Part Pulse was restarted.") -> int:
+    """Finalize every queued or running job as cancelled.
+
+    Used when Part Pulse restarts: no Browser Helper is running at that
+    moment to contest it, so it is safe to finalize immediately rather than
+    wait out the normal grace period. Restarting should mean a clean slate,
+    not a stuck job silently kept alive for up to two hours.
+    """
+    if not JOB_DIR.exists():
+        return 0
+    cleared = 0
+    with _LOCAL_JOB_LOCK:
+        for job_json in JOB_DIR.glob("*/job.json"):
+            metadata = _read_json(job_json)
+            if str(metadata.get("status") or "") not in ACTIVE_JOB_STATUSES:
+                continue
+            metadata["status"] = "cancelled"
+            metadata["message"] = reason
+            metadata["updated_at"] = utc_now()
+            metadata["finished_at"] = utc_now()
+            _write_json(job_json, metadata)
+            cleared += 1
+    return cleared
+
+
 def current_active_job() -> dict[str, object] | None:
     if not JOB_DIR.exists():
         return None
     matching: list[tuple[float, str]] = []
     for job_json in JOB_DIR.glob("*/job.json"):
         metadata = _read_json(job_json)
+        metadata = _finalize_cancellation_if_due(job_json, metadata)
         if str(metadata.get("status") or "") not in ACTIVE_JOB_STATUSES:
             continue
         if metadata.get("status") == "running" and not _running_job_is_active(job_json, metadata):
@@ -829,11 +922,19 @@ def _aggregate_progress(progress_by_competitor: dict[str, dict[str, object]], me
     rows = rows[-50:]
     statuses = {str(progress.get("run_status") or progress.get("status") or "") for progress in progresses if progress}
     has_all_progress = len([progress for progress in progresses if progress]) == len(competitors)
-    terminal_statuses = {"completed", "completed_with_warnings", "failed", "stopped_blocked", "stopped_challenge"}
-    if not has_all_progress or any(status not in terminal_statuses for status in statuses):
+    terminal_statuses = {"completed", "completed_with_warnings", "failed", "stopped_blocked", "stopped_challenge", "cancelled"}
+    job_status_value = str(metadata.get("status") or "")
+    if job_status_value == "cancelled":
+        # The job was cancelled at the top level, which can happen even when a
+        # competitor never reported back (an unresponsive Browser Helper). That
+        # must win over whatever the per-competitor progress files still say.
+        status = "cancelled"
+    elif not has_all_progress or any(status not in terminal_statuses for status in statuses):
         status = "running"
     elif any(status in {"failed", "stopped_blocked", "stopped_challenge"} for status in statuses):
         status = "failed" if "failed" in statuses else sorted(statuses)[0]
+    elif "cancelled" in statuses:
+        status = "cancelled"
     elif all(str(progress.get("run_status") or progress.get("status") or "") in {"completed", "completed_with_warnings"} for progress in progresses):
         status = "completed_with_warnings" if "completed_with_warnings" in statuses else "completed"
     else:

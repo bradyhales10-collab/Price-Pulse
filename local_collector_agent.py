@@ -22,6 +22,7 @@ from app.local_agent_credentials import unprotect_password
 from app.models import PartRecord
 from local_collector import (
     BRIDGE_DIR,
+    CollectionCancelled,
     _auth_header,
     _download,
     _run_competitor,
@@ -201,15 +202,38 @@ def _run_job(job: dict[str, object], config: dict[str, object], server_url: str,
             )
             return progress
 
-        summary = _run_competitor(
-            input_path,
-            local_db,
-            max_parts,
-            competitor,
-            runner_args,
-            expected_run_id=expected_run_id,
-            progress_callback=send_progress,
-        )
+        def should_cancel() -> bool:
+            try:
+                result = _request_json(
+                    f"{server_url}/collector/agent/jobs/{job_id}/cancelled", auth_header
+                )
+            except Exception:
+                return False
+            return bool(result and result.get("cancelled"))
+
+        try:
+            summary = _run_competitor(
+                input_path,
+                local_db,
+                max_parts,
+                competitor,
+                runner_args,
+                expected_run_id=expected_run_id,
+                progress_callback=send_progress,
+                should_cancel=should_cancel,
+            )
+        except CollectionCancelled:
+            progress = {
+                "status": "cancelled",
+                "message": "Cancelled.",
+                "competitor": competitor,
+                "competitor_key": competitor,
+                "rows": [],
+                "completed": 0,
+                "total": max_parts,
+            }
+            send_progress(progress)
+            return progress
         upload_result = _upload(
             f"{server_url}/collector/results/upload?{urllib.parse.urlencode({'competitor': competitor, 'filename': summary.name, 'job_id': job_id})}",
             summary,
@@ -258,13 +282,17 @@ def _run_job(job: dict[str, object], config: dict[str, object], server_url: str,
 
     failed = [key for key, value in outcomes.items() if value.get("status") == "failed"]
     needs_login = [key for key, value in outcomes.items() if value.get("status") == "login_required"]
+    cancelled = [key for key, value in outcomes.items() if value.get("status") == "cancelled"]
     warned = [
         key
         for key, value in outcomes.items()
         if str(value.get("run_status") or value.get("status") or "")
-        not in {"completed", "running", "login_required"}
+        not in {"completed", "running", "login_required", "cancelled"}
     ]
-    if needs_login and not failed:
+    if cancelled:
+        status = "cancelled"
+        message = "Price check cancelled."
+    elif needs_login and not failed:
         names = ", ".join(get_competitor(key).display_name for key in needs_login)
         status = "login_required"
         message = (
