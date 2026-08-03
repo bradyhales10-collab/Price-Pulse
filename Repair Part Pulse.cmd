@@ -51,6 +51,10 @@ if errorlevel 1 (
 )
 echo   Done.
 echo.
+echo [2b of 4] Clearing old cached code...
+for /f "delims=" %%d in ('dir /s /b /ad __pycache__ 2^>nul') do rmdir /s /q "%%d" 2>nul
+echo   Done.
+echo.
 
 echo [3 of 4] Reinstalling what Part Pulse needs...
 echo   This can take a few minutes. Please wait.

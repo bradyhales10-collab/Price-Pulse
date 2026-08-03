@@ -204,3 +204,53 @@ def test_repair_restarts_part_pulse_rather_than_leaving_it_stopped() -> None:
     assert "Stop-Process" in repair
     assert "Start Part Pulse.cmd" in repair
     assert "start " in repair
+
+
+def test_diagnostic_reports_when_a_competitor_collector_cannot_find_what_it_calls(
+    tmp_path, monkeypatch
+) -> None:
+    """Reproduces the real bug reported: a collector's code referencing a name
+    that turned out not to exist at runtime, surfacing as a NameError only
+    once a live price check reached that competitor. This must be caught by
+    inspection, without needing a live browser."""
+    import shutil
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    project_root = Path(__file__).resolve().parent.parent
+    broken_copy = tmp_path / "broken_pp"
+    shutil.copytree(
+        project_root,
+        broken_copy,
+        ignore=shutil.ignore_patterns(".venv", ".git", "__pycache__", "data"),
+    )
+    source = (broken_copy / "collect_parts.py").read_text(encoding="utf-8")
+    assert "def collect_one_search_based_part(" in source
+    broken = source.replace(
+        "def collect_one_search_based_part(", "def RENAMED_collect_one_search_based_part("
+    )
+    (broken_copy / "collect_parts.py").write_text(broken, encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, "diagnose_part_pulse.py"],
+        capture_output=True,
+        text=True,
+        cwd=broken_copy,
+        timeout=30,
+    )
+
+    assert "Some competitors are not wired up correctly" in result.stdout
+    assert "revzilla" in result.stdout
+    assert "collect_one_search_based_part" in result.stdout
+
+
+def test_repair_clears_stale_python_bytecode_cache() -> None:
+    """A stale __pycache__ was the leading suspect for code that had already
+    been fixed on GitHub still misbehaving on the machine that pulled it."""
+    from pathlib import Path
+
+    repair = Path("Repair Part Pulse.cmd").read_text(encoding="utf-8")
+
+    assert "__pycache__" in repair
+    assert "rmdir" in repair

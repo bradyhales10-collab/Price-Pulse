@@ -149,6 +149,38 @@ def main() -> int:
         else:
             _line(True, "A price check was just queued and should start shortly")
 
+    # 6. Every production collector's code can actually find what it calls.
+    # A NameError like this only shows up when the collector actually runs
+    # mid price-check; checking the referenced names here catches it before
+    # that, without needing a live browser.
+    try:
+        import collect_parts
+
+        broken = []
+        for key, collector in collect_parts.PRODUCTION_COLLECTORS.items():
+            code = getattr(collector, "__code__", None)
+            if code is None:
+                broken.append(f"{key}: not a function")
+                continue
+            missing = [
+                name
+                for name in code.co_names
+                if name not in collect_parts.__dict__ and name not in dir(__builtins__)
+            ]
+            if missing:
+                broken.append(f"{key}: cannot find {', '.join(missing)}")
+        if broken:
+            _line(False, "Some competitors are not wired up correctly", "; ".join(broken))
+            problems.append(
+                'Double-click "Repair Part Pulse.cmd". This resets the program files from GitHub '
+                "and clears any stale cached code, which is the usual cause of this."
+            )
+        else:
+            _line(True, "All competitors are wired up correctly")
+    except Exception as exc:
+        _line(False, "Could not check the price-check code", str(exc))
+        problems.append('Double-click "Repair Part Pulse.cmd".')
+
     print("")
     print("===============================")
     if problems:
