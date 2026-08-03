@@ -5,6 +5,7 @@ import json
 import re
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from playwright.sync_api import Error as PlaywrightError
@@ -22,7 +23,9 @@ from app.browser_probe import detect_page_signals
 from app.collection import (
     CollectionRow,
     CollectionRunResult,
+    effective_delay_seconds,
     fingerprint_file,
+    jittered_delay,
     normalize_result_type,
     plan_collection,
     print_plan,
@@ -123,6 +126,27 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+PRODUCTION_COLLECTORS: dict[str, Callable[..., CollectionRow]] = {
+    "partzilla": lambda *a: collect_one_part(*a),
+    "motosport": lambda *a: collect_one_motosport_part(*a),
+    "chaparral": lambda *a: collect_one_chaparral_part(*a),
+}
+
+
+def assert_production_collector_exists(competitor_key: str) -> None:
+    """Refuse a production run for a competitor with no collector of its own.
+
+    Without this, an unrecognised competitor fell through to the Partzilla
+    collector, which builds partzilla.com URLs. The run would have scraped the
+    wrong site and stored the results under the new competitor's name.
+    """
+    if competitor_key not in PRODUCTION_COLLECTORS:
+        raise ValueError(
+            f"{competitor_key} has no production collector yet, so it cannot be used for a real "
+            f"price check. Use probe_competitor.py for it instead."
+        )
+
+
 def main() -> int:
     args = parse_args()
     ensure_data_directories()
@@ -205,16 +229,19 @@ def run_collection(args, plan) -> int:
             page = context.new_page()
             page.set_default_timeout(settings.timeout)
             page.set_default_navigation_timeout(settings.timeout)
+            assert_production_collector_exists(competitor_key)
+            run_delay_seconds = effective_delay_seconds(args.delay_seconds, len(plan.planned_parts))
+            if run_delay_seconds != args.delay_seconds:
+                print(
+                    f"Using a {run_delay_seconds}s gap between parts instead of "
+                    f"{args.delay_seconds}s, because this run covers {len(plan.planned_parts)} parts."
+                )
             for planned in plan.planned_parts:
                 if result.rows and competitor_supports_manufacturer(competitor_key, planned.manufacturer):
-                    time.sleep(args.delay_seconds)
+                    time.sleep(jittered_delay(run_delay_seconds))
                 try:
-                    if competitor_key == "motosport":
-                        row = collect_one_motosport_part(args.database, page, planned, scan_run_id, settings)
-                    elif competitor_key == "chaparral":
-                        row = collect_one_chaparral_part(args.database, page, planned, scan_run_id, settings)
-                    else:
-                        row = collect_one_part(args.database, page, planned, scan_run_id, settings)
+                    collector = PRODUCTION_COLLECTORS[competitor_key]
+                    row = collector(args.database, page, planned, scan_run_id, settings)
                 except Exception as exc:
                     row = collection_error_row(args.database, planned, scan_run_id, competitor_key, exc)
                 result.rows.append(row)

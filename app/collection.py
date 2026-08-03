@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import random
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -10,6 +11,19 @@ from app.config import OUTPUT_DIR
 from app.database import cents_to_money
 
 MIN_DELAY_SECONDS = 1
+
+# A one second gap is fine for a handful of parts, but a run of thousands at
+# that rate is a steady stream of requests to one site for the better part of an
+# hour, which is what gets an address blocked. The floor therefore scales with
+# how many parts the run will touch.
+MEDIUM_RUN_PART_COUNT = 25
+MEDIUM_RUN_MIN_DELAY_SECONDS = 2
+LARGE_RUN_PART_COUNT = 200
+LARGE_RUN_MIN_DELAY_SECONDS = 3
+
+# Perfectly even timing is itself a signal that traffic is automated, so each
+# gap is spread either side of the target by this fraction.
+DELAY_JITTER_FRACTION = 0.25
 
 
 @dataclass(frozen=True)
@@ -90,9 +104,37 @@ class CollectionRunResult:
     export_warning: str | None = None
 
 
-def validate_delay(delay_seconds: int) -> None:
+def minimum_delay_for_run(part_count: int) -> int:
+    """Smallest gap between parts that is acceptable for a run of this size."""
+    if part_count > LARGE_RUN_PART_COUNT:
+        return LARGE_RUN_MIN_DELAY_SECONDS
+    if part_count > MEDIUM_RUN_PART_COUNT:
+        return MEDIUM_RUN_MIN_DELAY_SECONDS
+    return MIN_DELAY_SECONDS
+
+
+def effective_delay_seconds(delay_seconds: int, part_count: int) -> int:
+    """Raise the configured gap to the floor for this run size."""
+    return max(int(delay_seconds), minimum_delay_for_run(part_count))
+
+
+def jittered_delay(delay_seconds: float) -> float:
+    """Spread the gap around the target so the timing is not metronomic."""
+    if delay_seconds <= 0:
+        return 0.0
+    spread = delay_seconds * DELAY_JITTER_FRACTION
+    return max(0.0, random.uniform(delay_seconds - spread, delay_seconds + spread))
+
+
+def validate_delay(delay_seconds: int, part_count: int | None = None) -> None:
     if delay_seconds < MIN_DELAY_SECONDS:
         raise ValueError(f"--delay-seconds must be at least {MIN_DELAY_SECONDS}.")
+    if part_count is not None:
+        required = minimum_delay_for_run(part_count)
+        if delay_seconds < required:
+            raise ValueError(
+                f"--delay-seconds must be at least {required} for a run of {part_count} parts."
+            )
 
 
 def fingerprint_file(path: Path) -> str:

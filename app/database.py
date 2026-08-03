@@ -200,7 +200,7 @@ def seed_revzilla(conn: sqlite3.Connection) -> int:
         """
         INSERT INTO competitors(competitor_code, competitor_name, base_url, is_active, status, requires_login,
             supports_public_price, supports_direct_part_url, notes, legal_review_status, cart_price_probe_status, created_at, updated_at)
-        VALUES (?, ?, ?, 1, 'active', 0, 1, 0, ?, 'approved_for_monitoring', 'disabled', ?, ?)
+        VALUES (?, ?, ?, 1, 'experimental_probe', 0, 1, 0, ?, 'approved_for_monitoring', 'disabled', ?, ?)
         ON CONFLICT(competitor_code) DO UPDATE SET
             competitor_name=excluded.competitor_name,
             base_url=excluded.base_url,
@@ -218,6 +218,7 @@ def seed_revzilla(conn: sqlite3.Connection) -> int:
             REVZILLA_CODE,
             "RevZilla",
             "https://www.revzilla.com",
+            "Probe-verified but awaiting a production collector for its search-based lookup. "
             "OEM parts fulfilled by Montgomeryville Cycle Center; motorcycle brands only, no Polaris. "
             "Search-based lookup because product URLs embed a description slug. Prices on discontinued or "
             "out-of-stock listings are ignored.",

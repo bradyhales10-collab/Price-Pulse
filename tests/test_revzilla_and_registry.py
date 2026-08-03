@@ -157,12 +157,13 @@ def test_polaris_is_not_claimed_because_revzilla_has_no_polaris_oem_fiche() -> N
     assert set(makers) == {"Honda", "Yamaha", "Kawasaki", "Suzuki"}
 
 
-def test_revzilla_is_now_a_production_collector() -> None:
-    """Promoted after a live probe of 15 of our own best sellers returned 14
-    prices, all with cents, all in stock, with no blocking."""
+def test_revzilla_reads_prices_correctly_but_is_not_production_yet() -> None:
+    """A live probe of 15 of our own best sellers returned 14 correct prices,
+    so the parser is proven. It stays probe-only because production collection
+    has no path for its search-then-open lookup."""
     capabilities = RevzillaAdapter().capabilities
 
-    assert capabilities.status == "active"
+    assert capabilities.status == "experimental_probe"
     assert capabilities.legal_review_status == "approved_for_monitoring"
 
 
@@ -217,18 +218,22 @@ def test_unsafe_competitor_keys_are_rejected_before_reaching_sql() -> None:
 # --- Probe wiring ------------------------------------------------------------
 
 
-def test_revzilla_can_now_be_used_in_a_normal_price_check_and_still_probed() -> None:
+def test_revzilla_is_probeable_but_refused_for_a_production_run() -> None:
     import argparse
 
     import probe_competitor
     from app.competitors.registry import select_competitors
 
-    # Still probeable.
     probe_competitor.validate_probe_args(
         argparse.Namespace(competitor="revzilla", max_parts=7, delay_seconds=6)
     )
-    # And no longer refused for a production run.
-    assert [adapter.competitor_key for adapter in select_competitors(["revzilla"])] == ["revzilla"]
+
+    try:
+        select_competitors(["revzilla"])
+    except ValueError as exc:
+        assert "experimental" in str(exc).lower()
+    else:
+        raise AssertionError("revzilla has no production collector and must be refused")
 
 
 def test_an_experimental_competitor_is_still_refused_for_a_production_run() -> None:

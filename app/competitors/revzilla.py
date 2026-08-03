@@ -92,7 +92,7 @@ class RevzillaAdapter:
         requires_login=False,
         supports_public_price=True,
         supports_direct_part_url=False,
-        status="active",
+        status="experimental_probe",
         legal_review_status="approved_for_monitoring",
     )
 

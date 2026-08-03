@@ -14,6 +14,7 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
+from app.collection import jittered_delay
 from app.competitors.base import CompetitorObservation
 from app.competitors.registry import get_competitor, select_competitors
 from app.config import (
@@ -170,6 +171,11 @@ def main() -> int:
                 if resolver is not None and status not in STOP_STATUSES:
                     followed_url = resolver(html, record)
                     if followed_url and followed_url != final_url:
+                        # A search-based lookup is two requests, so the gap is
+                        # applied between them as well. Without this, each part
+                        # produces a back-to-back burst, which is the pattern a
+                        # rate limiter notices first.
+                        time.sleep(jittered_delay(args.delay_seconds))
                         response = page.goto(followed_url, wait_until="domcontentloaded", timeout=settings.timeout)
                         status = response.status if response is not None else status
                         page.wait_for_timeout(settings.render_settle_ms)
