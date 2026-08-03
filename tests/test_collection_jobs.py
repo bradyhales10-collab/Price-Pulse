@@ -142,3 +142,65 @@ def test_a_competitor_without_a_production_collector_cannot_run_a_price_check() 
             assert "production collector" in str(exc)
         else:
             raise AssertionError(f"{key} should be refused for a production run")
+
+
+# --- Diagnostics -------------------------------------------------------------
+
+
+def test_diagnostic_reports_a_stuck_price_check(tmp_path, monkeypatch) -> None:
+    """A price check sat on 'waiting' with nothing on screen explaining that no
+    Browser Helper was running. The check must name that case."""
+    import json
+    from datetime import UTC, datetime, timedelta
+
+    import diagnose_part_pulse as diagnose
+
+    job_dir = tmp_path / "jobs"
+    job = job_dir / "job-stuck"
+    job.mkdir(parents=True)
+    stale = (datetime.now(UTC) - timedelta(minutes=7)).isoformat().replace("+00:00", "Z")
+    (job / "job.json").write_text(
+        json.dumps({"job_id": "job-stuck", "status": "queued_local", "updated_at": stale}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(diagnose, "JOB_DIR", job_dir)
+
+    queued = [meta for _, meta in diagnose._queued_jobs() if meta.get("status") == "queued_local"]
+
+    assert len(queued) == 1
+    age = diagnose._age_seconds(queued[0]["updated_at"])
+    assert age is not None and age > diagnose.STUCK_AFTER_SECONDS
+
+
+def test_diagnostic_handles_a_missing_or_unreadable_timestamp() -> None:
+    import diagnose_part_pulse as diagnose
+
+    assert diagnose._age_seconds("") is None
+    assert diagnose._age_seconds("not-a-date") is None
+    assert diagnose._age_seconds(None) is None
+
+
+def test_diagnostic_runs_without_crashing_on_a_bare_machine() -> None:
+    """It has to work when nothing is set up, since that is when it is needed."""
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "diagnose_part_pulse.py"], capture_output=True, text=True, timeout=60
+    )
+
+    assert "Part Pulse Check" in result.stdout
+    # Exit code 1 simply means it found something to fix.
+    assert result.returncode in {0, 1}
+
+
+def test_repair_restarts_part_pulse_rather_than_leaving_it_stopped() -> None:
+    """Repair stops every Part Pulse process. If it does not start them again,
+    price checks queue with nothing to run them."""
+    from pathlib import Path
+
+    repair = Path("Repair Part Pulse.cmd").read_text(encoding="utf-8")
+
+    assert "Stop-Process" in repair
+    assert "Start Part Pulse.cmd" in repair
+    assert "start " in repair

@@ -92,6 +92,10 @@ echo.
 echo If you were asked to update before running a test, the version above
 echo is what you are now running. Quote it if something looks wrong.
 echo.
-echo Now double-click "Start Part Pulse.cmd" to run Part Pulse.
+echo Starting Part Pulse again for you...
+echo.
+start "" "%PP_ROOT%\Start Part Pulse.cmd"
+echo.
+echo A new window has opened to start Part Pulse. You can close this one.
 echo.
 pause

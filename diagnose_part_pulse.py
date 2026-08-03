@@ -1,0 +1,171 @@
+"""Report what is and is not running, in plain English.
+
+Written after a price check sat on "waiting" with no browser opening. That
+symptom has one common cause, the Browser Helper not running, but nothing on
+screen said so. This checks each piece in turn and names the fix.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
+
+from app.collection_jobs import JOB_DIR, local_agent_status
+from app.config import DATA_DIR, DEFAULT_DATABASE_PATH
+
+ROOT = Path(__file__).resolve().parent
+AGENT_CONFIG = DATA_DIR / "private" / "local_collector_agent.json"
+STUCK_AFTER_SECONDS = 60
+
+
+def _line(ok: bool, label: str, detail: str = "") -> None:
+    mark = "  OK  " if ok else "NOT OK"
+    print(f"  [{mark}] {label}")
+    if detail:
+        print(f"           {detail}")
+
+
+def _code_version() -> str:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=ROOT,
+        )
+        return result.stdout.strip() or "unknown"
+    except Exception:
+        return "unknown"
+
+
+def _playwright_browser_installed() -> bool:
+    """Playwright keeps downloaded browsers under the user's local app data."""
+    candidates = [
+        Path.home() / "AppData" / "Local" / "ms-playwright",
+        Path.home() / ".cache" / "ms-playwright",
+    ]
+    for base in candidates:
+        if base.exists() and any(base.glob("chromium*")):
+            return True
+    return False
+
+
+def _queued_jobs() -> list[tuple[str, dict]]:
+    if not JOB_DIR.exists():
+        return []
+    jobs: list[tuple[str, dict]] = []
+    for job_json in sorted(JOB_DIR.glob("*/job.json")):
+        try:
+            jobs.append((job_json.parent.name, json.loads(job_json.read_text(encoding="utf-8"))))
+        except Exception:
+            continue
+    return jobs
+
+
+def _age_seconds(value: str) -> float | None:
+    try:
+        stamp = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    return (datetime.now(UTC) - stamp.astimezone(UTC)).total_seconds()
+
+
+def main() -> int:
+    print("===============================")
+    print("  Part Pulse Check")
+    print("===============================")
+    print("")
+    print(f"  Program version: {_code_version()}")
+    print("")
+
+    problems: list[str] = []
+
+    # 1. Browser Helper set up at all.
+    if AGENT_CONFIG.exists():
+        _line(True, "Browser Helper is set up on this computer")
+    else:
+        _line(False, "Browser Helper has never been set up")
+        problems.append('Double-click "Setup Part Pulse Collector.cmd" once.')
+
+    # 2. Browser Helper actually running right now.
+    status = local_agent_status()
+    if status.get("connected"):
+        _line(True, "Browser Helper is running and connected")
+    else:
+        last_seen = str(status.get("last_seen") or "")
+        age = _age_seconds(last_seen) if AGENT_CONFIG.exists() else None
+        if age is None:
+            detail = "It has not connected since this database was created."
+        elif age < 3600:
+            detail = f"Last seen about {int(age / 60)} minutes ago."
+        else:
+            detail = f"Last seen about {int(age / 3600)} hours ago."
+        _line(False, "Browser Helper is NOT running", detail)
+        problems.append('Double-click "Start Part Pulse.cmd". This is the usual fix.')
+
+    # 3. The controlled browser is downloaded.
+    if _playwright_browser_installed():
+        _line(True, "The browser Part Pulse controls is installed")
+    else:
+        _line(False, "The browser Part Pulse controls is missing")
+        problems.append('Double-click "Repair Part Pulse.cmd" to reinstall it.')
+
+    # 4. Database present.
+    if DEFAULT_DATABASE_PATH.exists():
+        _line(True, f"Database found ({DEFAULT_DATABASE_PATH.name})")
+    else:
+        _line(False, "No database yet")
+        problems.append("Upload a parts file in Part Pulse first.")
+
+    # 5. Jobs waiting with nobody to run them.
+    waiting = [
+        (job_id, meta)
+        for job_id, meta in _queued_jobs()
+        if meta.get("status") == "queued_local"
+    ]
+    if not waiting:
+        _line(True, "No price checks are stuck waiting")
+    else:
+        stale = []
+        for job_id, meta in waiting:
+            age = _age_seconds(meta.get("updated_at") or meta.get("created_at") or "")
+            if age is None or age > STUCK_AFTER_SECONDS:
+                stale.append((job_id, age))
+        if stale:
+            job_id, age = stale[0]
+            detail = f"Job {job_id} has been waiting"
+            if age is not None:
+                detail += f" about {int(age / 60)} minutes"
+            detail += "."
+            _line(False, f"{len(stale)} price check(s) stuck waiting", detail)
+            problems.append(
+                "A waiting price check means no Browser Helper picked it up. "
+                'Start Part Pulse, then press "Start Checking Prices" again.'
+            )
+        else:
+            _line(True, "A price check was just queued and should start shortly")
+
+    print("")
+    print("===============================")
+    if problems:
+        print("  What to do")
+        print("===============================")
+        print("")
+        for index, fix in enumerate(dict.fromkeys(problems), start=1):
+            print(f"  {index}. {fix}")
+    else:
+        print("  Everything looks healthy.")
+        print("===============================")
+        print("")
+        print("  If a price check still will not start, send this window")
+        print("  to Claude along with what you clicked.")
+    print("")
+    return 0 if not problems else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
