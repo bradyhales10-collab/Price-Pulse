@@ -243,3 +243,39 @@ def test_unsupported_manufacturer_costs_no_requests() -> None:
 def test_revzilla_now_has_a_production_collector() -> None:
     collect_parts.assert_production_collector_exists("revzilla")
     assert "revzilla" in collect_parts.PRODUCTION_COLLECTORS
+
+
+def test_an_unexpected_parser_exception_is_recorded_not_left_unhandled() -> None:
+    """A page structure the parser has never seen should produce a clear
+    recorded row, not an unhandled exception that counts toward the
+    two-consecutive-errors stop after just two occurrences."""
+    with tempfile.TemporaryDirectory() as tmp:
+        database, planned = _database(tmp)
+
+        class BrokenAdapter:
+            competitor_key = "revzilla"
+            display_name = "RevZilla"
+            supported_manufacturers = ("Suzuki",)
+
+            def build_product_url(self, record):
+                return "https://www.revzilla.com/search"
+
+            def search_result_product_url(self, html, record):
+                return f"https://www.revzilla.com{PRODUCT_PATH}"
+
+            def parse_product_page(self, *args, **kwargs):
+                raise KeyError("sku")
+
+        row = collect_parts.collect_one_search_based_part(
+            database,
+            FakePage(),
+            planned,
+            1,
+            ProbeSettings(timeout=5000, render_settle_ms=0),
+            adapter=BrokenAdapter(),
+            delay_seconds=0,
+        )
+
+        assert row.result_type != "error"
+        assert "sku" in (row.status_reason or "")
+        assert row.selling_price is None

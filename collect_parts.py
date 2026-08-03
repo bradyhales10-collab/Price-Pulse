@@ -33,6 +33,7 @@ from app.collection import (
     validate_delay,
     write_collection_outputs,
 )
+from app.competitors.base import CompetitorObservation
 from app.competitors.chaparral import ChaparralAdapter, build_search_url, normalize_part_number_for_match
 from app.competitors.motosport import MotoSportAdapter
 from app.competitors.registry import get_competitor, select_competitors
@@ -1347,6 +1348,7 @@ def collect_one_search_based_part(
     checked_at = utc_now()
     resolved_url = None
     used_cache = False
+    observation = None
 
     cached_url = cached_product_url(database_path, competitor_key, planned.manufacturer, planned.oem_part_number)
     try:
@@ -1371,27 +1373,42 @@ def collect_one_search_based_part(
             status, final_url, html, text, resolved_url = _open_search_based_product_page(
                 page, adapter, record, planned, settings, delay_seconds
             )
-    except (PlaywrightTimeoutError, PlaywrightError, Exception) as exc:
-        exception_message = str(exc)
 
-    observation = adapter.parse_product_page(
-        html, record, visible_text=text, final_url=final_url, http_status=status
-    )
+        observation = adapter.parse_product_page(
+            html, record, visible_text=text, final_url=final_url, http_status=status
+        )
+
+        # Only remember a URL that actually showed the requested part.
+        if resolved_url and _observation_matches_part(observation, planned.oem_part_number):
+            save_product_url(
+                database_path,
+                competitor_key,
+                planned.manufacturer,
+                planned.oem_part_number,
+                resolved_url,
+                observation.observed_part_number,
+            )
+    except (PlaywrightTimeoutError, PlaywrightError, Exception) as exc:
+        # Anything unexpected here, including a page structure this parser has
+        # not seen before, becomes a clear recorded row rather than an
+        # unhandled exception. Two consecutive unhandled exceptions stop the
+        # whole run; a page this parser could not read should not do that on
+        # its own, since the next part is very likely fine.
+        exception_message = str(exc)
+        observation = None
+
+    if observation is None:
+        # Built directly rather than calling the parser again: if it just
+        # raised once, calling it a second time is not guaranteed to succeed.
+        observation = CompetitorObservation(
+            competitor_key=competitor_key,
+            manufacturer=normalize_manufacturer(planned.manufacturer),
+            oem_part_number=planned.oem_part_number,
+        )
     if exception_message:
         observation.page_classification = "navigation_error"
         observation.warnings.append(exception_message)
         observation.raw_evidence_summary["lookup_status"] = "lookup_failed"
-
-    # Only remember a URL that actually showed the requested part.
-    if resolved_url and _observation_matches_part(observation, planned.oem_part_number):
-        save_product_url(
-            database_path,
-            competitor_key,
-            planned.manufacturer,
-            planned.oem_part_number,
-            resolved_url,
-            observation.observed_part_number,
-        )
 
     product_observation = _product_observation_from_competitor(
         observation, requested_url=requested_url, checked_at=checked_at
