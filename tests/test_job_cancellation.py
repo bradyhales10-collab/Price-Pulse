@@ -238,3 +238,92 @@ def test_run_competitor_raises_collection_cancelled_when_asked_to_stop() -> None
 
     assert fake.terminated is True
     assert called["count"] >= 1
+
+
+def test_seed_competitor_supports_every_registered_competitor(tmp_path) -> None:
+    """The dispatcher used by the local collector's per-competitor database
+    setup had not been updated for RevZilla. Selecting it in a real price
+    check raised ValueError before any browser opened, on the very first
+    setup step, with nothing on screen to explain why the job never moved."""
+    from app.competitors.registry import list_competitors
+    from app.database import connect_database, initialize_database, seed_competitor
+
+    database = tmp_path / "seed.db"
+    initialize_database(database)
+
+    with connect_database(database) as conn:
+        for adapter in list_competitors():
+            competitor_id = seed_competitor(conn, adapter.competitor_key)
+            assert isinstance(competitor_id, int)
+
+
+def test_seed_competitor_still_rejects_a_truly_unknown_key(tmp_path) -> None:
+    from app.database import connect_database, initialize_database, seed_competitor
+
+    database = tmp_path / "seed2.db"
+    initialize_database(database)
+
+    with connect_database(database) as conn:
+        try:
+            seed_competitor(conn, "not-a-real-competitor")
+        except ValueError as exc:
+            assert "not-a-real-competitor" in str(exc)
+        else:
+            raise AssertionError("an unregistered competitor key should be rejected")
+
+
+def test_local_database_prep_succeeds_for_every_competitor_with_a_real_file(tmp_path) -> None:
+    """Reproduces the actual failure: a 100-part file, one local database
+    built per competitor, RevZilla included."""
+    import csv
+
+    from local_collector import prepare_local_database
+
+    input_csv = tmp_path / "parts.csv"
+    columns = [
+        "Test_Case_ID", "Manufacturer", "OEM_Part_Number", "Search_Observed_Product_Name",
+        "Search_Observed_MSRP", "Expected_Partzilla_URL", "Test_Purpose", "Verified_Date", "Source_URL",
+    ]
+    makers = ["Polaris", "Yamaha", "Kawasaki", "Honda"]
+    with input_csv.open("w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(columns)
+        for index in range(100):
+            writer.writerow([f"T{index}", makers[index % 4], f"PART-{index:04d}", "", "", "", "", "", ""])
+
+    for competitor in ("partzilla", "motosport", "chaparral", "revzilla"):
+        local_db = tmp_path / f"collector-{competitor}.db"
+        prepare_local_database(input_csv, local_db, [competitor], run_id_floor=1000)
+
+
+def test_a_failure_before_any_competitor_starts_is_reported_not_silently_dropped(monkeypatch) -> None:
+    """This is the actual bug: the per-competitor setup loop crashing used to
+    propagate up, get caught by the top-level poll-loop handler, and just get
+    logged. The job stayed 'running' forever with no explanation on screen.
+    A setup failure must now be reported back as a failed job."""
+    import local_collector_agent
+
+    reported: dict[str, object] = {}
+
+    def fake_request_json(url, auth_header, *, method="GET", payload=None, allow_empty=False):
+        if url.endswith("/complete?agent_id=test-agent"):
+            reported["status"] = payload.get("status")
+            reported["message"] = payload.get("message")
+        return {}
+
+    def broken_run_job_body(job, config, server_url, auth_header, agent_id):
+        raise ValueError("Unknown competitor: revzilla")
+
+    monkeypatch.setattr(local_collector_agent, "_request_json", fake_request_json)
+    monkeypatch.setattr(local_collector_agent, "_run_job_body", broken_run_job_body)
+
+    local_collector_agent._run_job(
+        {"job_id": "job-broken", "competitors": ["revzilla"]},
+        {},
+        "http://server",
+        None,
+        "test-agent",
+    )
+
+    assert reported["status"] == "failed"
+    assert "revzilla" in reported["message"]

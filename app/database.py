@@ -276,6 +276,8 @@ def seed_competitor(conn: sqlite3.Connection, competitor_code: str) -> int:
         return seed_motosport(conn)
     if normalized == CHAPARRAL_CODE:
         return seed_chaparral(conn)
+    if normalized == REVZILLA_CODE:
+        return seed_revzilla(conn)
     raise ValueError(f"Unknown competitor: {competitor_code}")
 
 

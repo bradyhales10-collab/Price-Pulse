@@ -140,6 +140,28 @@ def _recent_login_helper_opened(competitor: str) -> bool:
 
 def _run_job(job: dict[str, object], config: dict[str, object], server_url: str, auth_header: str | None, agent_id: str) -> None:
     job_id = str(job["job_id"])
+    try:
+        _run_job_body(job, config, server_url, auth_header, agent_id)
+    except Exception as exc:
+        # A job was claimed (flipped to "running") before this point, so a
+        # setup failure here must still be reported. Otherwise the job stays
+        # "running" forever with nothing on screen to explain why, and no
+        # amount of restarting the Browser Helper changes what is displayed,
+        # since that status was never tied to whether a live process backs it.
+        LOGGER.exception("Job %s failed before any competitor could start", job_id)
+        try:
+            _request_json(
+                f"{server_url}/collector/agent/jobs/{job_id}/complete?{urllib.parse.urlencode({'agent_id': agent_id})}",
+                auth_header,
+                method="POST",
+                payload={"status": "failed", "message": f"Could not start this price check: {exc}"},
+            )
+        except Exception:
+            LOGGER.exception("Could not even report job %s as failed", job_id)
+
+
+def _run_job_body(job: dict[str, object], config: dict[str, object], server_url: str, auth_header: str | None, agent_id: str) -> None:
+    job_id = str(job["job_id"])
     competitors = [str(item) for item in job.get("competitors", [])]
     max_parts = int(job.get("planned_count") or 0)
     delay_seconds = int(job.get("delay_seconds") or 1)
