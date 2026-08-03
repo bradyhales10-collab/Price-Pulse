@@ -132,10 +132,10 @@ def test_a_competitor_without_a_production_collector_cannot_run_a_price_check() 
     and stored it under the wrong competitor."""
     import collect_parts
 
-    for key in ("partzilla", "motosport", "chaparral"):
+    for key in ("partzilla", "motosport", "chaparral", "revzilla"):
         collect_parts.assert_production_collector_exists(key)
 
-    for key in ("revzilla", "someone-new"):
+    for key in ("someone-new", "not-registered"):
         try:
             collect_parts.assert_production_collector_exists(key)
         except ValueError as exc:

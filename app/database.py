@@ -110,6 +110,12 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
             "INSERT INTO schema_migrations(version, description, applied_at) VALUES (?, ?, ?)",
             (9, "add manufacturer-specific pricing rule overrides", utc_now()),
         )
+    if 10 not in applied_versions:
+        conn.executescript(COMPETITOR_RESOLUTION_CACHE_SCHEMA_SQL)
+        conn.execute(
+            "INSERT INTO schema_migrations(version, description, applied_at) VALUES (?, ?, ?)",
+            (10, "add shared competitor product URL resolution cache", utc_now()),
+        )
     _ensure_column(conn, "competitor_probe_results", "price_visibility", "TEXT")
     _ensure_column(conn, "competitor_probe_results", "price_display_type", "TEXT")
     _ensure_column(conn, "competitor_probe_results", "result_type", "TEXT")
@@ -118,6 +124,7 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "pricing_review_decisions", "original_price_cents", "INTEGER")
     conn.executescript(CART_PROBE_SCHEMA_SQL)
     conn.executescript(CHAPARRAL_CACHE_SCHEMA_SQL)
+    conn.executescript(COMPETITOR_RESOLUTION_CACHE_SCHEMA_SQL)
     conn.executescript(PRICING_REVIEW_SCHEMA_SQL)
     conn.executescript(PRICING_RULES_SCHEMA_SQL)
     conn.executescript(PRICING_RULE_MANUFACTURER_OVERRIDE_SCHEMA_SQL)
@@ -200,7 +207,7 @@ def seed_revzilla(conn: sqlite3.Connection) -> int:
         """
         INSERT INTO competitors(competitor_code, competitor_name, base_url, is_active, status, requires_login,
             supports_public_price, supports_direct_part_url, notes, legal_review_status, cart_price_probe_status, created_at, updated_at)
-        VALUES (?, ?, ?, 1, 'experimental_probe', 0, 1, 0, ?, 'approved_for_monitoring', 'disabled', ?, ?)
+        VALUES (?, ?, ?, 1, 'active', 0, 1, 0, ?, 'approved_for_monitoring', 'disabled', ?, ?)
         ON CONFLICT(competitor_code) DO UPDATE SET
             competitor_name=excluded.competitor_name,
             base_url=excluded.base_url,
@@ -218,7 +225,7 @@ def seed_revzilla(conn: sqlite3.Connection) -> int:
             REVZILLA_CODE,
             "RevZilla",
             "https://www.revzilla.com",
-            "Probe-verified but awaiting a production collector for its search-based lookup. "
+            "Search-based lookup with a cached product URL, so repeat runs cost one request per part. "
             "OEM parts fulfilled by Montgomeryville Cycle Center; motorcycle brands only, no Polaris. "
             "Search-based lookup because product URLs embed a description slug. Prices on discontinued or "
             "out-of-stock listings are ignored.",
@@ -989,6 +996,26 @@ CREATE TABLE IF NOT EXISTS competitor_cart_probe_results (
 CREATE INDEX IF NOT EXISTS idx_cart_probe_competitor_part ON competitor_cart_probe_results(competitor_key, oem_part_number);
 """
 
+
+COMPETITOR_RESOLUTION_CACHE_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS competitor_resolution_cache (
+    cache_id INTEGER PRIMARY KEY,
+    competitor_key TEXT NOT NULL,
+    manufacturer TEXT NOT NULL,
+    part_number TEXT NOT NULL,
+    normalized_part_number TEXT NOT NULL,
+    resolved_url TEXT NOT NULL,
+    product_identifier TEXT,
+    resolved_at TEXT NOT NULL,
+    last_verified_at TEXT,
+    is_valid INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(competitor_key, manufacturer, normalized_part_number)
+);
+CREATE INDEX IF NOT EXISTS idx_competitor_cache_part
+    ON competitor_resolution_cache(competitor_key, normalized_part_number, is_valid);
+"""
 
 CHAPARRAL_CACHE_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS chaparral_resolution_cache (

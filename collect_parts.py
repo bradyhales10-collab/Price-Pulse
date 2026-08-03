@@ -69,6 +69,7 @@ from app.price_forensics import (
     write_price_evidence,
 )
 from app.raw_price_signals import discover_raw_price_signals, write_raw_price_signals
+from app.resolution_cache import cached_product_url, invalidate_product_url, save_product_url
 from app.schemas.product_observation import (
     AccessContext,
     AvailabilityStatus,
@@ -126,10 +127,28 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _search_based_collector(competitor_key: str) -> Callable[..., CollectionRow]:
+    def collect(database_path, page, planned, scan_run_id, settings, delay_seconds: int = 3):
+        return collect_one_search_based_part(
+            database_path,
+            page,
+            planned,
+            scan_run_id,
+            settings,
+            adapter=get_competitor(competitor_key),
+            delay_seconds=delay_seconds,
+        )
+
+    return collect
+
+
 PRODUCTION_COLLECTORS: dict[str, Callable[..., CollectionRow]] = {
-    "partzilla": lambda *a: collect_one_part(*a),
-    "motosport": lambda *a: collect_one_motosport_part(*a),
-    "chaparral": lambda *a: collect_one_chaparral_part(*a),
+    "partzilla": lambda *a, **k: collect_one_part(*a),
+    "motosport": lambda *a, **k: collect_one_motosport_part(*a),
+    # Chaparral keeps its own collector because it also has to add an item to the
+    # cart to reveal some prices, which the generic path does not do.
+    "chaparral": lambda *a, **k: collect_one_chaparral_part(*a),
+    "revzilla": _search_based_collector("revzilla"),
 }
 
 
@@ -241,7 +260,10 @@ def run_collection(args, plan) -> int:
                     time.sleep(jittered_delay(run_delay_seconds))
                 try:
                     collector = PRODUCTION_COLLECTORS[competitor_key]
-                    row = collector(args.database, page, planned, scan_run_id, settings)
+                    row = collector(
+                        args.database, page, planned, scan_run_id, settings,
+                        delay_seconds=run_delay_seconds,
+                    )
                 except Exception as exc:
                     row = collection_error_row(args.database, planned, scan_run_id, competitor_key, exc)
                 result.rows.append(row)
@@ -1250,3 +1272,196 @@ def _corroboration_count(price_evidence):
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+def _observation_matches_part(observation, part_number: str) -> bool:
+    """Whether the page we landed on really is the part we asked for."""
+    observed = normalize_part_number_for_match(observation.observed_part_number or "")
+    return bool(observed) and observed == normalize_part_number_for_match(part_number)
+
+
+def _open_search_based_product_page(page, adapter, record, planned, settings, delay_seconds: int):
+    """Search for a part, then open the matching result.
+
+    Returns the status, url, html and text of whichever page we ended on, plus
+    the resolved product URL when one was followed.
+    """
+    search_url = adapter.build_product_url(record)
+    response = page.goto(search_url, wait_until="domcontentloaded", timeout=settings.timeout)
+    status = response.status if response is not None else None
+    page.wait_for_timeout(min(settings.render_settle_ms, COMPETITOR_RENDER_SETTLE_MS))
+    final_url = page.url
+    html = page.content()
+    text = page.locator("body").inner_text(timeout=5000) if page.locator("body").count() else ""
+
+    if status in {401, 403, 429}:
+        return status, final_url, html, text, None
+
+    resolver = getattr(adapter, "search_result_product_url", None)
+    if resolver is None:
+        return status, final_url, html, text, None
+
+    product_url = resolver(html, record)
+    if not product_url or product_url == final_url:
+        return status, final_url, html, text, None
+
+    # This is the second request for one part, so the gap applies here too.
+    time.sleep(jittered_delay(delay_seconds))
+    response = page.goto(product_url, wait_until="domcontentloaded", timeout=settings.timeout)
+    status = response.status if response is not None else status
+    page.wait_for_timeout(min(settings.render_settle_ms, COMPETITOR_RENDER_SETTLE_MS))
+    final_url = page.url
+    html = page.content()
+    text = page.locator("body").inner_text(timeout=5000) if page.locator("body").count() else ""
+    return status, final_url, html, text, product_url
+
+
+def collect_one_search_based_part(
+    database_path: Path,
+    page,
+    planned,
+    scan_run_id: int,
+    settings: ProbeSettings,
+    *,
+    adapter,
+    delay_seconds: int = 3,
+) -> CollectionRow:
+    """Collect one part from a competitor that has to be searched.
+
+    A cached product URL is tried first, which turns the usual two requests back
+    into one. If the cached page no longer shows the requested part, the cache
+    entry is dropped and the search runs again.
+    """
+    competitor_key = adapter.competitor_key
+    support = manufacturer_support_metadata(competitor_key, planned.manufacturer, planned.oem_part_number)
+    if not support["manufacturer_supported"]:
+        return manufacturer_not_carried_row(database_path, planned, scan_run_id, support)
+
+    record = PartRecord(test_case_id="", manufacturer=planned.manufacturer, oem_part_number=planned.oem_part_number)
+    requested_url = adapter.build_product_url(record)
+    status = None
+    final_url = None
+    html = ""
+    text = ""
+    exception_message = None
+    checked_at = utc_now()
+    resolved_url = None
+    used_cache = False
+
+    cached_url = cached_product_url(database_path, competitor_key, planned.manufacturer, planned.oem_part_number)
+    try:
+        if cached_url:
+            response = page.goto(cached_url, wait_until="domcontentloaded", timeout=settings.timeout)
+            status = response.status if response is not None else None
+            page.wait_for_timeout(min(settings.render_settle_ms, COMPETITOR_RENDER_SETTLE_MS))
+            final_url = page.url
+            html = page.content()
+            text = page.locator("body").inner_text(timeout=5000) if page.locator("body").count() else ""
+            cached_observation = adapter.parse_product_page(
+                html, record, visible_text=text, final_url=final_url, http_status=status
+            )
+            if _observation_matches_part(cached_observation, planned.oem_part_number):
+                used_cache = True
+                resolved_url = cached_url
+            else:
+                # The competitor moved or replaced the page, so search again.
+                invalidate_product_url(database_path, competitor_key, planned.manufacturer, planned.oem_part_number)
+                status, final_url, html, text = None, None, "", ""
+        if not used_cache:
+            status, final_url, html, text, resolved_url = _open_search_based_product_page(
+                page, adapter, record, planned, settings, delay_seconds
+            )
+    except (PlaywrightTimeoutError, PlaywrightError, Exception) as exc:
+        exception_message = str(exc)
+
+    observation = adapter.parse_product_page(
+        html, record, visible_text=text, final_url=final_url, http_status=status
+    )
+    if exception_message:
+        observation.page_classification = "navigation_error"
+        observation.warnings.append(exception_message)
+        observation.raw_evidence_summary["lookup_status"] = "lookup_failed"
+
+    # Only remember a URL that actually showed the requested part.
+    if resolved_url and _observation_matches_part(observation, planned.oem_part_number):
+        save_product_url(
+            database_path,
+            competitor_key,
+            planned.manufacturer,
+            planned.oem_part_number,
+            resolved_url,
+            observation.observed_part_number,
+        )
+
+    product_observation = _product_observation_from_competitor(
+        observation, requested_url=requested_url, checked_at=checked_at
+    )
+    output_dir = (
+        OUTPUT_DIR
+        / f"{competitor_key}_collection_diagnostics"
+        / f"{checked_at.replace(':','').replace('-','')}_{planned.oem_part_number}"
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    observation_path = output_dir / "observation.json"
+    observation_path.write_text(
+        json.dumps(observation.to_json_dict(), indent=2, default=str) + "\n", encoding="utf-8"
+    )
+
+    price_source = f"{competitor_key}_cached_url" if used_cache else f"{competitor_key}_search"
+    with connect_database(database_path) as conn:
+        previous = conn.execute(
+            "SELECT * FROM current_listing_state WHERE listing_id=?", (planned.listing_id,)
+        ).fetchone()
+        previous_price = previous["selling_price_cents"] if previous else None
+        previous_availability = previous["availability_status"] if previous else None
+        persisted_result = persist_observation(
+            conn,
+            scan_run_id=scan_run_id,
+            listing_id=planned.listing_id,
+            observation=product_observation,
+            observation_json_path=str(observation_path),
+            price_source_category=price_source,
+        )
+        scan_event_id = conn.execute(
+            "SELECT MAX(scan_event_id) FROM scan_events WHERE scan_run_id=? AND listing_id=?",
+            (scan_run_id, planned.listing_id),
+        ).fetchone()[0]
+
+    result_type = collection_result_type(product_observation, status, persisted_result)
+    return CollectionRow(
+        run_order=planned.run_order,
+        scan_run_id=scan_run_id,
+        scan_event_id=scan_event_id,
+        manufacturer=planned.manufacturer,
+        oem_part_number=planned.oem_part_number,
+        normalized_manufacturer=normalize_manufacturer(planned.manufacturer),
+        competitor=competitor_key,
+        manufacturer_supported=True,
+        lookup_status=str(observation.raw_evidence_summary.get("lookup_status") or result_type),
+        status_reason="; ".join(observation.warnings),
+        observed_part_number=product_observation.observed_part_number,
+        product_name=product_observation.product_name,
+        checked_at=product_observation.checked_at,
+        http_status=product_observation.http_status,
+        page_classification=product_observation.page_classification.value,
+        session_status=product_observation.session_status.value,
+        selling_price=str(product_observation.selling_price) if product_observation.selling_price is not None else None,
+        reference_price=str(product_observation.reference_price) if product_observation.reference_price is not None else None,
+        savings_percent=product_observation.savings_percent,
+        price_display_type=product_observation.price_display_type.value,
+        previous_selling_price=cents_to_money(previous_price),
+        result_type=result_type,
+        price_changed=result_type in {"price_change", "multiple_changes"},
+        availability_raw=product_observation.availability_raw,
+        previous_availability_status=previous_availability,
+        availability_status=product_observation.availability_status.value,
+        supersession_detected=product_observation.supersession_detected,
+        superseded_by_raw=product_observation.superseded_by_raw,
+        price_source_category=price_source,
+        price_corroboration_count=1 if product_observation.selling_price is not None else 0,
+        price_parse_confidence=product_observation.price_parse_confidence.value,
+        parse_confidence=product_observation.parse_confidence.value,
+        warning_count=len(product_observation.parse_warnings),
+        warnings="; ".join(product_observation.parse_warnings),
+        observation_json_path=str(observation_path),
+    )
