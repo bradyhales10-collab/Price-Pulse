@@ -201,7 +201,7 @@ def test_repair_restarts_part_pulse_rather_than_leaving_it_stopped() -> None:
 
     repair = Path("Repair Part Pulse.cmd").read_text(encoding="utf-8")
 
-    assert "Stop-Process" in repair
+    assert "taskkill" in repair
     assert "Start Part Pulse.cmd" in repair
     assert "start " in repair
 
@@ -256,49 +256,41 @@ def test_repair_clears_stale_python_bytecode_cache() -> None:
     assert "rmdir" in repair
 
 
-def test_diagnostic_flags_a_part_pulse_process_running_from_a_different_folder(monkeypatch) -> None:
-    """Code being correct in this folder does not prove a price check ran
-    from this folder. A process started earlier from a different or older
-    copy can keep running indefinitely, which would explain the same bug
-    persisting even after the code here was confirmed fixed."""
+def test_diagnostic_detects_both_part_pulse_windows_running(monkeypatch) -> None:
+    """Confirms the healthy case is recognized using the window-title based
+    check, which replaced a WMI CommandLine check found to silently return
+    blank without administrator rights on at least one real machine - making
+    a genuinely stale process invisible to the exact check meant to find it."""
     import diagnose_part_pulse as diagnose
 
     monkeypatch.setattr(
         diagnose,
         "_running_part_pulse_processes",
         lambda: [
-            {
-                "pid": "1234",
-                "started": "20260101000000.000000+000",
-                "command": r"C:\Old\Copy\Price-Pulse\.venv\Scripts\python.exe local_collector_agent.py",
-            }
+            {"title": "Part Pulse Browser Helper", "image": "python.exe", "pid": "111"},
+            {"title": "Part Pulse Dashboard", "image": "python.exe", "pid": "222"},
         ],
     )
-    monkeypatch.setattr(diagnose, "ROOT", diagnose.Path(r"C:\Users\brady\Documents\Price-Pulse"))
 
     processes = diagnose._running_part_pulse_processes()
-    relevant = [p for p in processes if "local_collector_agent.py" in p["command"]]
-    elsewhere = [p for p in relevant if str(diagnose.ROOT) not in p["command"]]
 
-    assert len(elsewhere) == 1
-    assert "Old" in elsewhere[0]["command"]
+    assert any(p["title"] == "Part Pulse Browser Helper" for p in processes)
+    assert any(p["title"] == "Part Pulse Dashboard" for p in processes)
 
 
-def test_diagnostic_does_not_flag_a_process_running_from_the_right_folder(monkeypatch) -> None:
+def test_diagnostic_detects_only_one_of_the_two_windows_running(monkeypatch) -> None:
     import diagnose_part_pulse as diagnose
 
-    root = diagnose.Path(r"C:\Users\brady\Documents\Price-Pulse")
     monkeypatch.setattr(
         diagnose,
         "_running_part_pulse_processes",
-        lambda: [{"pid": "1", "started": "x", "command": rf"{root}\.venv\Scripts\python.exe local_collector_agent.py"}],
+        lambda: [{"title": "Part Pulse Dashboard", "image": "python.exe", "pid": "222"}],
     )
-    monkeypatch.setattr(diagnose, "ROOT", root)
 
     processes = diagnose._running_part_pulse_processes()
-    elsewhere = [p for p in processes if str(root) not in p["command"]]
 
-    assert elsewhere == []
+    assert not any(p["title"] == "Part Pulse Browser Helper" for p in processes)
+    assert any(p["title"] == "Part Pulse Dashboard" for p in processes)
 
 
 def test_process_check_is_skipped_gracefully_on_non_windows() -> None:
@@ -306,3 +298,18 @@ def test_process_check_is_skipped_gracefully_on_non_windows() -> None:
 
     if diagnose.os.name != "nt":
         assert diagnose._running_part_pulse_processes() == []
+
+
+def test_the_launcher_scripts_kill_by_window_title_not_by_reading_command_lines() -> None:
+    """A Get-CimInstance CommandLine check came back blank for a real,
+    three-day-old stray process on a locked-down machine, meaning the old
+    kill logic in these scripts had likely been silently matching nothing on
+    that machine the entire time it was used. taskkill's window-title filter
+    does not depend on that same permission."""
+    from pathlib import Path
+
+    for filename in ("Start Part Pulse.cmd", "Repair Part Pulse.cmd", "Stop Part Pulse.cmd"):
+        source = Path(filename).read_text(encoding="utf-8")
+        assert "Get-CimInstance" not in source, filename
+        assert 'taskkill /F /FI "WINDOWTITLE eq Part Pulse Browser Helper*"' in source, filename
+        assert 'taskkill /F /FI "WINDOWTITLE eq Part Pulse Dashboard*"' in source, filename

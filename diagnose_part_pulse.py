@@ -76,48 +76,38 @@ def _age_seconds(value: str) -> float | None:
 
 
 def _running_part_pulse_processes() -> list[dict[str, str]]:
-    """Every Python process that looks like it belongs to Part Pulse, with
-    where it is actually running from and when it started.
+    """Every python.exe process whose console window is titled like a Part
+    Pulse process, with its PID and how long it has been running.
 
-    This exists because code being correct in this folder does not prove a
-    price check ran from this folder. A process started earlier - especially
-    one that auto-starts at login - can keep running from an old or
-    different copy indefinitely, and nothing about a healthy check here would
-    reveal that on its own.
+    Uses tasklist's window-title matching rather than WMI's CommandLine
+    property. CommandLine can silently come back blank on a locked-down
+    machine without administrator rights, which would make an old, stray
+    process invisible to this check precisely when it matters most. tasklist
+    does not have that restriction, and it is exactly what Start/Repair/Stop
+    Part Pulse.cmd use to find these same processes to end them.
     """
     if os.name != "nt":
         return []
-    try:
-        result = subprocess.run(
-            [
-                "powershell",
-                "-NoProfile",
-                "-Command",
-                "Get-CimInstance Win32_Process | "
-                "Where-Object { $_.Name -match 'python' } | "
-                "Select-Object ProcessId, CreationDate, CommandLine | ConvertTo-Json",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        raw = result.stdout.strip()
-        if not raw:
-            return []
-        parsed = json.loads(raw)
-        if isinstance(parsed, dict):
-            parsed = [parsed]
-        return [
-            {
-                "pid": str(item.get("ProcessId", "")),
-                "started": str(item.get("CreationDate", "")),
-                "command": str(item.get("CommandLine", "")),
-            }
-            for item in parsed
-            if isinstance(item, dict)
-        ]
-    except Exception:
-        return []
+    found: list[dict[str, str]] = []
+    for title in ("Part Pulse Browser Helper", "Part Pulse Dashboard"):
+        try:
+            result = subprocess.run(
+                ["tasklist", "/FI", f"WINDOWTITLE eq {title}*", "/FI", "IMAGENAME eq python.exe", "/FO", "CSV"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except Exception:
+            continue
+        lines = [line for line in result.stdout.splitlines() if line.strip()]
+        if len(lines) < 2:
+            continue  # Header only, or tasklist reported no matching process.
+        for line in lines[1:]:
+            fields = [field.strip('"') for field in line.split('","')]
+            if len(fields) < 2:
+                continue
+            found.append({"title": title, "image": fields[0].strip('"'), "pid": fields[1]})
+    return found
 
 
 def main() -> int:
@@ -227,29 +217,26 @@ def main() -> int:
         _line(False, "Could not check the price-check code", str(exc))
         problems.append('Double-click "Repair Part Pulse.cmd".')
 
-    # 7. Any Part Pulse process running from somewhere other than here.
+    # 7. Part Pulse processes actually running right now.
     processes = _running_part_pulse_processes()
-    relevant = [
-        proc
-        for proc in processes
-        if "local_collector_agent.py" in proc["command"] or "dashboard.py" in proc["command"]
-    ]
-    if relevant:
-        elsewhere = [proc for proc in relevant if str(ROOT) not in proc["command"]]
-        if elsewhere:
-            _line(False, f"{len(elsewhere)} Part Pulse process(es) running from a different folder")
-            for proc in elsewhere:
-                print(f"           pid {proc['pid']}, started {proc['started']}")
-                print(f"           {proc['command']}")
-            problems.append(
-                "A Part Pulse process is running from a different copy of the program than this "
-                "one. Close that window (or end that process in Task Manager), then double-click "
-                '"Start Part Pulse.cmd" from this folder.'
-            )
+    if os.name == "nt":
+        helper_running = any(proc["title"] == "Part Pulse Browser Helper" for proc in processes)
+        dashboard_running = any(proc["title"] == "Part Pulse Dashboard" for proc in processes)
+        if helper_running and dashboard_running:
+            _line(True, "Browser Helper and Dashboard windows are both running")
+        elif helper_running or dashboard_running:
+            missing = "Dashboard" if helper_running else "Browser Helper"
+            _line(False, f"The {missing} window is not running")
+            problems.append('Double-click "Start Part Pulse.cmd" to start both pieces together.')
         else:
-            _line(True, f"{len(relevant)} Part Pulse process(es) running, all from this folder")
-    elif os.name == "nt":
-        _line(True, "No leftover Part Pulse processes running from elsewhere")
+            _line(False, "Neither the Browser Helper nor Dashboard window is running")
+            problems.append('Double-click "Start Part Pulse.cmd".')
+        print(
+            "           (If a price check still seems stuck on old behavior even after this looks "
+            'healthy, run "Repair Part Pulse.cmd" - it now reliably closes and restarts both, '
+            "rather than depending on reading another process's command line, which some machines "
+            "restrict.)"
+        )
 
     print("")
     print("===============================")

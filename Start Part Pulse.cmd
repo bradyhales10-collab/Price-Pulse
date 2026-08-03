@@ -52,7 +52,8 @@ if not exist ".venv\Scripts\python.exe" (
 echo.
 
 echo [3 of 5] Stopping anything already running...
-powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'python' -and $_.CommandLine -like ('*' + $env:PP_ROOT + '*') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq Part Pulse Browser Helper*" >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq Part Pulse Dashboard*" >nul 2>&1
 ".venv\Scripts\python.exe" clear_stuck_jobs.py
 echo   Done.
 echo.

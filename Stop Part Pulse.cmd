@@ -8,7 +8,8 @@ echo   Stopping Part Pulse
 echo ===============================
 echo.
 
-powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'python' -and $_.CommandLine -like ('*' + $env:PP_ROOT + '*') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq Part Pulse Browser Helper*" >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq Part Pulse Dashboard*" >nul 2>&1
 
 echo Part Pulse has been stopped.
 echo.
