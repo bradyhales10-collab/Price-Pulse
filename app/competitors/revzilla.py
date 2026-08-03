@@ -92,8 +92,8 @@ class RevzillaAdapter:
         requires_login=False,
         supports_public_price=True,
         supports_direct_part_url=False,
-        status="experimental_probe",
-        legal_review_status="review_needed",
+        status="active",
+        legal_review_status="approved_for_monitoring",
     )
 
     @property
@@ -279,6 +279,11 @@ def normalize_availability(raw: str | None) -> str:
     return "unknown"
 
 
+def _money_2dp(value: Decimal) -> Decimal:
+    """Prices always carry two decimals, so 6.70 does not read as 6.7."""
+    return value.quantize(Decimal("0.01"))
+
+
 def meta_value(html: str, name: str) -> str | None:
     """Read a meta tag's content regardless of attribute order.
 
@@ -343,7 +348,7 @@ def extract_price(text: str, html: str = "") -> tuple[Decimal | None, str]:
     source = html or text
     cents = meta_value(source, "sailthru.price")
     if cents is not None and cents.isdigit() and int(cents) > 0:
-        return (Decimal(int(cents)) / Decimal("100"), "page_metadata")
+        return (_money_2dp(Decimal(int(cents)) / Decimal("100")), "page_metadata")
 
     visible = CURRENT_PRICE_RE.search(text)
     if visible:
@@ -352,9 +357,9 @@ def extract_price(text: str, html: str = "") -> tuple[Decimal | None, str]:
         if not dollars.isdigit():
             return (None, "not_available")
         if fraction:
-            return (Decimal(f"{dollars}.{fraction}"), "visible_price")
+            return (_money_2dp(Decimal(f"{dollars}.{fraction}")), "visible_price")
         # Cents were not found next to the dollars, so this may be truncated.
-        return (Decimal(dollars), "visible_price_dollars_only")
+        return (_money_2dp(Decimal(dollars)), "visible_price_dollars_only")
     return (None, "not_available")
 
 

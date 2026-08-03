@@ -157,10 +157,13 @@ def test_polaris_is_not_claimed_because_revzilla_has_no_polaris_oem_fiche() -> N
     assert set(makers) == {"Honda", "Yamaha", "Kawasaki", "Suzuki"}
 
 
-def test_revzilla_starts_out_as_experimental() -> None:
-    """It has not been confirmed against the live site yet, so it must not be
-    treated as a production collector."""
-    assert RevzillaAdapter().capabilities.status == "experimental_probe"
+def test_revzilla_is_now_a_production_collector() -> None:
+    """Promoted after a live probe of 15 of our own best sellers returned 14
+    prices, all with cents, all in stock, with no blocking."""
+    capabilities = RevzillaAdapter().capabilities
+
+    assert capabilities.status == "active"
+    assert capabilities.legal_review_status == "approved_for_monitoring"
 
 
 # --- Registry-driven refactor ------------------------------------------------
@@ -214,24 +217,51 @@ def test_unsafe_competitor_keys_are_rejected_before_reaching_sql() -> None:
 # --- Probe wiring ------------------------------------------------------------
 
 
-def test_revzilla_is_accepted_by_the_probe_but_not_a_normal_price_check() -> None:
-    """Experimental competitors must be usable for probing and refused for
-    production collection, so a half-tested adapter cannot quietly go live."""
+def test_revzilla_can_now_be_used_in_a_normal_price_check_and_still_probed() -> None:
     import argparse
 
     import probe_competitor
     from app.competitors.registry import select_competitors
 
+    # Still probeable.
     probe_competitor.validate_probe_args(
         argparse.Namespace(competitor="revzilla", max_parts=7, delay_seconds=6)
     )
+    # And no longer refused for a production run.
+    assert [adapter.competitor_key for adapter in select_competitors(["revzilla"])] == ["revzilla"]
 
+
+def test_an_experimental_competitor_is_still_refused_for_a_production_run() -> None:
+    """The guard that stops a half-tested adapter going live must keep working
+    now that no shipped competitor is experimental."""
+    from app.competitors import registry
+    from app.competitors.base import CompetitorCapabilities
+
+    class _Unproven:
+        competitor_key = "unproven"
+        display_name = "Unproven"
+        capabilities = CompetitorCapabilities(
+            requires_login=False,
+            supports_public_price=True,
+            supports_direct_part_url=False,
+            status="experimental_probe",
+            legal_review_status="review_needed",
+        )
+
+    original = dict(registry._REGISTRY)
+    registry._REGISTRY["unproven"] = _Unproven()
     try:
-        select_competitors(["revzilla"])
-    except ValueError as exc:
-        assert "experimental" in str(exc).lower()
-    else:
-        raise AssertionError("experimental competitor should be refused for a normal run")
+        try:
+            registry.select_competitors(["unproven"])
+        except ValueError as exc:
+            assert "experimental" in str(exc).lower()
+        else:
+            raise AssertionError("experimental competitor should be refused for a normal run")
+        # Probing it is still allowed.
+        assert registry.select_competitors(["unproven"], probe_mode=True)
+    finally:
+        registry._REGISTRY.clear()
+        registry._REGISTRY.update(original)
 
 
 def test_probe_safety_limits_still_apply_to_revzilla() -> None:
@@ -499,3 +529,10 @@ def test_own_catalog_export_rejects_an_unknown_competitor() -> None:
     except ValueError:
         return
     raise AssertionError("unknown competitor should be rejected")
+
+
+def test_prices_always_carry_two_decimal_places() -> None:
+    """A price shown as 6.7 reads like a missing digit in reports."""
+    for cents, expected in (("670", "6.70"), ("205", "2.05"), ("1667", "16.67"), ("1000", "10.00")):
+        html = f'<meta name="sailthru.price" content="{cents}">'
+        assert str(extract_price("", html)[0]) == expected, cents
