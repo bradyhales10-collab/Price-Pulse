@@ -19,7 +19,7 @@ from app.auth_session import (
     write_sanitized_authenticated_diagnostics,
 )
 from app.browser_probe import detect_page_signals
-from app.competitors.registry import get_competitor
+from app.competitors.registry import get_competitor, login_page_url
 from app.config import (
     AUTHENTICATED_DIAGNOSTICS_DIR,
     DEFAULT_INPUT_CSV,
@@ -35,7 +35,11 @@ from app.schemas.product_observation import PageClassification, PriceVisibility,
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Manually create a saved authenticated browser session for a competitor.")
     parser.add_argument("--competitor", default="partzilla", help="Competitor key to save auth for. Defaults to partzilla.")
-    parser.add_argument("--part-number", default="41080-1514", help="One OEM part number to use for manual login.")
+    parser.add_argument(
+        "--part-number",
+        default=None,
+        help="Optional: sign in from this part's product page instead of the sign-in page.",
+    )
     parser.add_argument("--url", help="Optional URL to open instead of building one from the default input CSV.")
     parser.add_argument("--slow-mo", type=int, default=0, help="Playwright slow motion in milliseconds.")
     parser.add_argument("--timeout", type=int, default=30000, help="Navigation timeout in milliseconds.")
@@ -47,8 +51,12 @@ def main() -> int:
     ensure_data_directories()
     adapter = get_competitor(args.competitor)
 
+    # Signing in happens on the sign-in page. Opening a product page instead
+    # redirects a signed-out visitor and loads tracking pages, which made the
+    # window flicker between tabs and impossible to sign in on. A part record is
+    # only needed when a specific product page was explicitly requested.
     record = None
-    if not args.url:
+    if args.part_number:
         try:
             load_result = load_parts_csv(DEFAULT_INPUT_CSV)
             record = find_part_record(load_result.records, args.part_number)
@@ -56,7 +64,9 @@ def main() -> int:
             print(f"Error: {exc}")
             return 1
 
-    requested_url = args.url or adapter.build_product_url(record)
+    requested_url = args.url or (
+        adapter.build_product_url(record) if record is not None else login_page_url(adapter)
+    )
     checked_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     settings = ProbeSettings(headless=False, slow_mo=args.slow_mo, timeout=args.timeout)

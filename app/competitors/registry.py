@@ -19,6 +19,24 @@ def short_display_name(adapter: CompetitorAdapter) -> str:
     return getattr(adapter, "short_name", None) or adapter.display_name
 
 
+def login_page_url(adapter: CompetitorAdapter) -> str:
+    """Where a person should go to sign in.
+
+    A product page was used for this previously, which for a signed-out
+    visitor redirects and loads tracking pages, making the window unusable.
+    Falls back to the site root, which is always a safe place to sign in from.
+    """
+    declared = getattr(adapter, "login_page_url", None)
+    if declared:
+        return str(declared)
+    base = str(getattr(adapter, "lookup_url", "") or "")
+    if base.startswith("http"):
+        parts = base.split("/")
+        if len(parts) >= 3:
+            return f"{parts[0]}//{parts[2]}/"
+    return base
+
+
 def competitor_short_names() -> dict[str, str]:
     """Full display name -> short label, for every registered competitor."""
     return {adapter.display_name: short_display_name(adapter) for adapter in list_competitors()}

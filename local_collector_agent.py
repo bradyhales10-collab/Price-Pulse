@@ -18,9 +18,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from app.auth_session import delete_auth_state, saved_session_is_usable
-from app.competitors.registry import get_competitor
+from app.competitors.registry import get_competitor, login_page_url
 from app.local_agent_credentials import unprotect_password
-from app.models import PartRecord
 from app.session_check import first_probe_part, verify_saved_session
 from local_collector import (
     BRIDGE_DIR,
@@ -122,30 +121,20 @@ def main() -> int:
 
 def _open_login_refresh(request: dict[str, object]) -> None:
     competitor = str(request.get("competitor_key") or "").strip().lower()
-    scripts = {
-        "partzilla": ROOT / "Refresh Partzilla Login.cmd",
-        "chaparral": ROOT / "Refresh Chaparral Login.cmd",
-    }
     adapter = get_competitor(competitor)
-    manufacturer = adapter.supported_manufacturers[0] if adapter.supported_manufacturers else "Honda"
-    login_url = adapter.build_product_url(PartRecord("LOGIN", manufacturer, "41080-1514"))
-    script = scripts.get(competitor)
+    # The sign-in page, not a product page. A product page redirects a
+    # signed-out visitor and loads tracking pages, which is what made the
+    # window flicker between tabs and impossible to sign in on.
+    login_url = login_page_url(adapter)
     if _recent_login_helper_opened(competitor):
         LOGGER.info("Skipping %s login refresh because a helper was opened recently", competitor)
         return
     LOGGER.info("Opening %s login refresh helper", competitor)
-    if os.name == "nt" and script is not None and script.exists():
-        subprocess.Popen(
-            ["cmd.exe", "/k", "call", str(script)],
-            cwd=ROOT,
-            creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
-        )
-    else:
-        subprocess.Popen(
-            [sys.executable, str(ROOT / "auth_bootstrap.py"), "--competitor", competitor, "--url", login_url],
-            cwd=ROOT,
-            creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0) if os.name == "nt" else 0,
-        )
+    subprocess.Popen(
+        [sys.executable, str(ROOT / "auth_bootstrap.py"), "--competitor", competitor, "--url", login_url],
+        cwd=ROOT,
+        creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0) if os.name == "nt" else 0,
+    )
 
 
 def _recent_login_helper_opened(competitor: str) -> bool:

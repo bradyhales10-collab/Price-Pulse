@@ -583,3 +583,47 @@ def test_sign_in_requests_are_polled_off_the_main_loop() -> None:
     assert "def poll_login_requests" in source
     assert 'name="login-poll"' in source
     assert "daemon=True" in source
+
+
+def test_sign_in_opens_the_sign_in_page_not_a_product_page() -> None:
+    """A product page was being used to sign in. For a signed-out visitor that
+    redirects and loads tracking pages, which is what made the window flicker
+    between tabs and never accept a sign-in."""
+    from app.competitors.registry import get_competitor, login_page_url
+
+    partzilla = login_page_url(get_competitor("partzilla"))
+
+    assert "/product/" not in partzilla
+    assert "login" in partzilla
+
+    # Falls back to the site root rather than a product page for anything that
+    # has not declared a sign-in page.
+    revzilla = login_page_url(get_competitor("revzilla"))
+    assert "/product/" not in revzilla and "/oem/" not in revzilla
+
+
+def test_auth_bootstrap_defaults_to_the_sign_in_page() -> None:
+    """--part-number used to default to a real part, so the sign-in helper
+    always built a product URL even when none was asked for."""
+    import sys
+
+    import auth_bootstrap
+
+    original = sys.argv
+    sys.argv = ["auth_bootstrap.py", "--competitor", "partzilla"]
+    try:
+        args = auth_bootstrap.parse_args()
+    finally:
+        sys.argv = original
+
+    assert args.part_number is None
+    assert args.url is None
+
+
+def test_the_refresh_shortcuts_do_not_hardcode_a_product_url() -> None:
+    from pathlib import Path
+
+    for name in ("Refresh Partzilla Login.cmd", "Refresh Chaparral Login.cmd"):
+        source = Path(name).read_text(encoding="utf-8")
+        assert "/product/" not in source, name
+        assert "auth_bootstrap.py" in source, name

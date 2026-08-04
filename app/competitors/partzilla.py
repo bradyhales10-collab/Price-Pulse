@@ -10,6 +10,7 @@ from app.url_builder import build_partzilla_product_url
 class PartzillaAdapter:
     competitor_key = "partzilla"
     display_name = "Partzilla"
+    login_page_url = "https://www.partzilla.com/account/login"
     supported_manufacturers = competitor_manufacturers("partzilla")
     capabilities = CompetitorCapabilities(
         requires_login=True,

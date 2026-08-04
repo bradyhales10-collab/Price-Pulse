@@ -435,8 +435,12 @@ def test_desktop_collector_has_visible_start_helper() -> None:
     assert "local_collector_agent.py" in helper
     assert "--config" in helper
     assert "pythonw.exe" not in setup
-    assert '"cmd.exe", "/k", "call"' in agent
+    # The sign-in window must be visible. It used to be launched via a .cmd
+    # shortcut that hardcoded a product page URL, which is what made the window
+    # unusable, so it now launches auth_bootstrap directly. A new console still
+    # makes it visible.
     assert "CREATE_NEW_CONSOLE" in agent
+    assert "auth_bootstrap.py" in agent
 
 
 def test_multi_oem_manufacturer_rendering() -> None:
