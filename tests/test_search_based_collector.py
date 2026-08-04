@@ -279,3 +279,66 @@ def test_an_unexpected_parser_exception_is_recorded_not_left_unhandled() -> None
         assert row.result_type != "error"
         assert "sku" in (row.status_reason or "")
         assert row.selling_price is None
+
+
+def test_nothing_is_defined_after_the_script_entry_point() -> None:
+    """The bug that broke RevZilla for days.
+
+    collect_parts.py ends with `if __name__ == "__main__": sys.exit(main())`.
+    Anything defined below that line does not exist yet when the file is run
+    as a script, because main() executes at that point. Three functions,
+    including collect_one_search_based_part, had been appended after it.
+
+    Importing the module hid this completely: on import the __main__ block is
+    skipped, execution reaches the end, and every function is defined. So the
+    module looked healthy in every check that imported it, while every real
+    price check, which runs the file as a script, raised
+    NameError: name 'collect_one_search_based_part' is not defined.
+
+    This check is static for that reason: it does not care whether the module
+    imports cleanly, only where things sit relative to the entry point.
+    """
+    import ast
+    from pathlib import Path
+
+    for filename in (
+        "collect_parts.py",
+        "probe_competitor.py",
+        "local_collector.py",
+        "local_collector_agent.py",
+        "dashboard.py",
+        "diagnose_part_pulse.py",
+        "diagnose_revzilla.py",
+        "export_probe_input.py",
+        "clear_stuck_jobs.py",
+        "show_last_error.py",
+    ):
+        path = Path(filename)
+        if not path.exists():
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+
+        entry_line = None
+        for node in tree.body:
+            if isinstance(node, ast.If):
+                test = node.test
+                if (
+                    isinstance(test, ast.Compare)
+                    and isinstance(test.left, ast.Name)
+                    and test.left.id == "__name__"
+                ):
+                    entry_line = node.lineno
+        if entry_line is None:
+            continue
+
+        stranded = [
+            node.name
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef | ast.ClassDef) and node.lineno > entry_line
+        ]
+        assert not stranded, (
+            f"{filename}: {stranded} are defined after the "
+            f'`if __name__ == "__main__"` block on line {entry_line}. '
+            "When the file runs as a script they will not exist yet, and any code "
+            "reached from main() that calls them raises NameError."
+        )

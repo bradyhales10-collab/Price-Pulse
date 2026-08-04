@@ -1292,10 +1292,6 @@ def _corroboration_count(price_evidence):
     return 0
 
 
-if __name__ == "__main__":
-    sys.exit(main())
-
-
 def _observation_matches_part(observation, part_number: str) -> bool:
     """Whether the page we landed on really is the part we asked for."""
     observed = normalize_part_number_for_match(observation.observed_part_number or "")
@@ -1503,3 +1499,7 @@ def collect_one_search_based_part(
         warnings="; ".join(product_observation.parse_warnings),
         observation_json_path=str(observation_path),
     )
+
+
+if __name__ == "__main__":
+    sys.exit(main())
