@@ -7,6 +7,7 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -16,10 +17,11 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from types import SimpleNamespace
 
-from app.auth_session import auth_state_exists, delete_auth_state, saved_session_is_usable
+from app.auth_session import delete_auth_state, saved_session_is_usable
 from app.competitors.registry import get_competitor
 from app.local_agent_credentials import unprotect_password
 from app.models import PartRecord
+from app.session_check import first_probe_part, verify_saved_session
 from local_collector import (
     BRIDGE_DIR,
     CollectionCancelled,
@@ -61,20 +63,44 @@ def main() -> int:
     poll_seconds = max(2, int(config.get("poll_seconds") or 3))
     LOGGER.info("Part Pulse collector started as %s", agent_id)
 
+    # Sign-in requests are polled on their own thread. _run_job blocks the main
+    # loop for the whole length of a price check, so a Sign In button pressed
+    # during a run used to queue a request that nothing ever picked up, and the
+    # button appeared to do nothing at all.
+    stop_login_poll = threading.Event()
+
+    def poll_login_requests() -> None:
+        while not stop_login_poll.wait(poll_seconds):
+            try:
+                request = _request_json(
+                    f"{server_url}/collector/agent/login/next?{urllib.parse.urlencode({'agent_id': agent_id})}",
+                    auth_header,
+                    method="POST",
+                    allow_empty=True,
+                )
+            except Exception:
+                continue
+            if request:
+                try:
+                    _open_login_refresh(request)
+                except Exception:
+                    LOGGER.exception("Could not open the sign-in window")
+
+    if not args.once:
+        threading.Thread(target=poll_login_requests, name="login-poll", daemon=True).start()
+
     while True:
         try:
-            login_request = _request_json(
-                f"{server_url}/collector/agent/login/next?{urllib.parse.urlencode({'agent_id': agent_id})}",
-                auth_header,
-                method="POST",
-                allow_empty=True,
-            )
-            if login_request:
-                _open_login_refresh(login_request)
-                if args.once:
+            if args.once:
+                login_request = _request_json(
+                    f"{server_url}/collector/agent/login/next?{urllib.parse.urlencode({'agent_id': agent_id})}",
+                    auth_header,
+                    method="POST",
+                    allow_empty=True,
+                )
+                if login_request:
+                    _open_login_refresh(login_request)
                     return 0
-                time.sleep(poll_seconds)
-                continue
             job = _request_json(
                 f"{server_url}/collector/agent/jobs/next?{urllib.parse.urlencode({'agent_id': agent_id})}",
                 auth_header,
@@ -182,10 +208,26 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
     for competitor in competitors:
         if not get_competitor(competitor).requires_login:
             continue
+        # Cheap file check first, so an obviously missing or date-expired
+        # sign-in costs nothing.
         usable, reason = saved_session_is_usable(competitor)
+        if usable:
+            # Then confirm against the live site. Cookies can carry a future
+            # expiry while the site has already invalidated the session, which
+            # looks valid on disk and only fails once a page loads.
+            probe_part = first_probe_part(input_path, competitor)
+            if probe_part is not None:
+                usable, reason = verify_saved_session(competitor, probe_part, headless=True)
+                LOGGER.info("%s sign-in check: %s", competitor, reason)
         if not usable:
             needs_sign_in.append(competitor)
             sign_in_reasons[competitor] = reason
+            # The saved sign-in is no longer usable, so remove it rather than
+            # letting the next run trust it again.
+            try:
+                delete_auth_state(competitor)
+            except Exception:
+                LOGGER.warning("Could not remove the unusable %s sign-in", competitor)
     if needs_sign_in:
         names = [get_competitor(key).display_name for key in needs_sign_in]
         joined = ", ".join(names)

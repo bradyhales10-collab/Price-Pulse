@@ -482,5 +482,104 @@ def test_only_the_preflight_opens_a_sign_in_window() -> None:
 
     # One definition, one call from the login-refresh poll loop, and one from
     # the pre-flight check. No more than that.
-    assert opens <= 3, f"_open_login_refresh referenced {opens} times; a mid-run call may have returned"
+    # Definition, the background sign-in poller, the --once path, and the
+    # pre-flight check. Collection paths must not add another.
+    assert opens <= 4, f"_open_login_refresh referenced {opens} times; a mid-run call may have returned"
     assert "Deliberately does NOT open a sign-in window here" in source
+
+
+# --- Live sign-in verification ------------------------------------------------
+
+
+def _fake_observation(session_state: str, price_state: str = "visible"):
+    class Observation:
+        session_status = session_state
+        price_visibility = price_state
+
+    return Observation()
+
+
+def _run_live_check(session_state: str, price_state: str, tmp_path):
+    """Drive verify_saved_session with a stubbed browser."""
+    import json
+    import time
+    from unittest.mock import patch
+
+    import app.auth_session as auth
+    import app.session_check as check
+    from app.models import PartRecord
+
+    original = auth.PRIVATE_DIR
+    auth.PRIVATE_DIR = tmp_path
+    try:
+        state = auth.auth_state_path_for("partzilla")
+        state.parent.mkdir(parents=True, exist_ok=True)
+        state.write_text(
+            json.dumps(
+                {"cookies": [{"name": "s", "domain": ".partzilla.com", "expires": time.time() + 9999}], "origins": []}
+            ),
+            encoding="utf-8",
+        )
+        part = PartRecord(test_case_id="t", manufacturer="Kawasaki", oem_part_number="41080-1514")
+        with patch.object(check, "sync_playwright") as playwright:
+            context = playwright.return_value.__enter__.return_value
+            page = context.chromium.launch.return_value.new_context.return_value.new_page.return_value
+            page.goto.return_value.status = 200
+            page.content.return_value = "<html></html>"
+            page.locator.return_value.count.return_value = 1
+            page.locator.return_value.inner_text.return_value = ""
+            page.url = "https://www.partzilla.com/product/x"
+            with patch.object(check, "get_competitor") as get_comp:
+                adapter = get_comp.return_value
+                adapter.requires_login = True
+                adapter.build_product_url.return_value = "https://www.partzilla.com/product/x"
+                adapter.parse_product_page.return_value = _fake_observation(session_state, price_state)
+                return check.verify_saved_session("partzilla", part)
+    finally:
+        auth.PRIVATE_DIR = original
+
+
+def test_a_session_invalidated_server_side_is_caught(tmp_path) -> None:
+    """The case that defeated the offline check: cookies carry a future expiry
+    date, so the file looks valid, but the site has already signed us out. Only
+    loading a real page reveals it."""
+    usable, reason = _run_live_check("expired_or_invalid", "sign_in_required", tmp_path)
+
+    assert usable is False
+    assert "signed out on the live site" in reason
+
+
+def test_gated_prices_count_as_signed_out(tmp_path) -> None:
+    usable, reason = _run_live_check("authenticated", "sign_in_required", tmp_path)
+
+    assert usable is False
+    assert "hiding prices" in reason
+
+
+def test_a_confirmed_session_is_accepted(tmp_path) -> None:
+    usable, reason = _run_live_check("authenticated", "visible", tmp_path)
+
+    assert usable is True
+    assert "confirmed signed in" in reason
+
+
+def test_a_blocked_or_unreachable_site_does_not_discard_the_sign_in(tmp_path) -> None:
+    """A network problem or bot block says nothing about whether the sign-in is
+    good. Throwing it away would force a pointless re-sign-in."""
+    for state in ("blocked", "challenge", "navigation_error", "unknown"):
+        usable, reason = _run_live_check(state, "not_present", tmp_path)
+        assert usable is True, state
+        assert "could not confirm" in reason
+
+
+def test_sign_in_requests_are_polled_off_the_main_loop() -> None:
+    """_run_job blocks the main loop for the length of a price check. A Sign In
+    button pressed during a run queued a request nothing ever claimed, so the
+    button appeared to do nothing."""
+    from pathlib import Path
+
+    source = Path("local_collector_agent.py").read_text(encoding="utf-8")
+
+    assert "def poll_login_requests" in source
+    assert 'name="login-poll"' in source
+    assert "daemon=True" in source
