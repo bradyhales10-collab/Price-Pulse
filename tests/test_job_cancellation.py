@@ -329,6 +329,22 @@ def test_a_failure_before_any_competitor_starts_is_reported_not_silently_dropped
     assert "revzilla" in reported["message"]
 
 
+def test_only_one_desktop_collector_can_hold_the_instance_lock() -> None:
+    import local_collector_agent as agent
+
+    first = agent._acquire_instance_lock(0)
+    assert first is not None
+    port = first.getsockname()[1]
+    try:
+        assert agent._acquire_instance_lock(port) is None
+    finally:
+        first.close()
+
+    replacement = agent._acquire_instance_lock(port)
+    assert replacement is not None
+    replacement.close()
+
+
 # --- Sign-in happens before any collection starts ----------------------------
 
 

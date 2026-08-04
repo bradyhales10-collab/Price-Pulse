@@ -53,6 +53,7 @@ echo.
 
 echo [3 of 5] Stopping anything already running...
 taskkill /F /FI "WINDOWTITLE eq Part Pulse Browser Helper*" >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq Part Pulse Collector*" >nul 2>&1
 taskkill /F /FI "WINDOWTITLE eq Part Pulse Dashboard*" >nul 2>&1
 ".venv\Scripts\python.exe" clear_stuck_jobs.py
 echo   Done.

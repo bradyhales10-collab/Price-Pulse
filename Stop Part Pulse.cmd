@@ -9,6 +9,7 @@ echo ===============================
 echo.
 
 taskkill /F /FI "WINDOWTITLE eq Part Pulse Browser Helper*" >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq Part Pulse Collector*" >nul 2>&1
 taskkill /F /FI "WINDOWTITLE eq Part Pulse Dashboard*" >nul 2>&1
 
 echo Part Pulse has been stopped.

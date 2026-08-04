@@ -225,7 +225,7 @@ def test_diagnostic_reports_when_a_competitor_collector_cannot_find_what_it_call
     shutil.copytree(
         project_root,
         broken_copy,
-        ignore=shutil.ignore_patterns(".venv", ".git", "__pycache__", "data"),
+        ignore=shutil.ignore_patterns(".venv", ".git", ".pytest_cache", "__pycache__", "data"),
     )
     source = (broken_copy / "collect_parts.py").read_text(encoding="utf-8")
     assert "def collect_one_search_based_part(" in source
@@ -314,6 +314,7 @@ def test_the_launcher_scripts_kill_by_window_title_not_by_reading_command_lines(
         source = Path(filename).read_text(encoding="utf-8")
         assert "Get-CimInstance" not in source, filename
         assert 'taskkill /F /FI "WINDOWTITLE eq Part Pulse Browser Helper*"' in source, filename
+        assert 'taskkill /F /FI "WINDOWTITLE eq Part Pulse Collector*"' in source, filename
         assert 'taskkill /F /FI "WINDOWTITLE eq Part Pulse Dashboard*"' in source, filename
 
 

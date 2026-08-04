@@ -34,6 +34,7 @@ from setup_local_collector_agent import normalize_server_url
 ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = ROOT / "data" / "private" / "local_collector_agent.json"
 LOGGER = logging.getLogger("part-pulse-local-agent")
+SINGLE_INSTANCE_PORT = 47653
 
 
 def parse_args() -> argparse.Namespace:
@@ -47,6 +48,10 @@ def main() -> int:
     args = parse_args()
     config = _load_config(args.config)
     _configure_logging()
+    instance_lock = _acquire_instance_lock()
+    if instance_lock is None:
+        LOGGER.info("Another Part Pulse collector is already running; this copy will exit.")
+        return 0
     server_url = normalize_server_url(str(config["server_url"]))
     username = str(config.get("username") or "")
     password = ""
@@ -116,6 +121,18 @@ def main() -> int:
             if args.once:
                 return 1
         time.sleep(poll_seconds)
+
+
+def _acquire_instance_lock(port: int = SINGLE_INSTANCE_PORT) -> socket.socket | None:
+    """Keep one collector process active on this computer."""
+    lock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        lock.bind(("127.0.0.1", port))
+        lock.listen(1)
+    except OSError:
+        lock.close()
+        return None
+    return lock
 
 
 def _open_login_refresh(request: dict[str, object]) -> None:

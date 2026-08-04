@@ -22,6 +22,7 @@ echo.
 
 echo [1 of 4] Stopping Part Pulse...
 taskkill /F /FI "WINDOWTITLE eq Part Pulse Browser Helper*" >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq Part Pulse Collector*" >nul 2>&1
 taskkill /F /FI "WINDOWTITLE eq Part Pulse Dashboard*" >nul 2>&1
 if exist ".venv\Scripts\python.exe" ".venv\Scripts\python.exe" clear_stuck_jobs.py
 echo   Done.
