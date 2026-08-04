@@ -819,3 +819,51 @@ def test_new_tabs_are_blocked_at_the_browser_level_for_sign_in() -> None:
     assert "NO_POPUP_BROWSER_ARGS" in source
     # Still honours the escape hatch for a social sign-in that needs a popup.
     assert "if args.allow_popups" in source
+
+
+def test_the_sign_in_check_reports_before_it_starts_waiting(tmp_path, monkeypatch) -> None:
+    """The check loads a real page, which takes seconds. With no message the
+    screen sat at 0 parts with no browser open, which is indistinguishable from
+    a stuck job, and the run was cancelled."""
+    import local_collector_agent as agent
+
+    messages: list[str] = []
+
+    def fake_request_json(url, auth_header, *, method="GET", payload=None, allow_empty=False):
+        if payload and payload.get("message"):
+            messages.append(str(payload["message"]))
+        return {}
+
+    monkeypatch.setattr(agent, "_request_json", fake_request_json)
+    monkeypatch.setattr(agent, "_download", lambda *a, **k: None)
+    monkeypatch.setattr(agent, "saved_session_is_usable", lambda key: (True, "file looks current"))
+    monkeypatch.setattr(agent, "first_probe_part", lambda path, key: object())
+    monkeypatch.setattr(agent, "verify_saved_session", lambda *a, **k: (False, "signed out on the live site"))
+    monkeypatch.setattr(agent, "_open_login_refresh", lambda req: None)
+    monkeypatch.setattr(agent, "delete_auth_state", lambda key: True)
+    monkeypatch.setattr(agent, "BRIDGE_DIR", tmp_path)
+
+    agent._run_job_body(
+        {"job_id": "j", "competitors": ["partzilla"], "input_url": "/x", "planned_count": 100},
+        {},
+        "http://server",
+        None,
+        "a",
+    )
+
+    assert any("Checking your Partzilla sign-in" in m for m in messages), messages
+    assert any("no prices are checked yet" in m for m in messages), messages
+
+
+def test_the_sign_in_check_cannot_take_long_enough_to_look_stuck() -> None:
+    """Worst case was roughly 40 seconds per competitor with nothing on screen."""
+    import inspect
+
+    from app.session_check import verify_saved_session
+
+    signature = inspect.signature(verify_saved_session)
+    source = inspect.getsource(verify_saved_session)
+
+    assert signature.parameters["timeout_ms"].default <= 15000
+    assert signature.parameters["settle_ms"].default <= 1500
+    assert "timeout=4000" in source

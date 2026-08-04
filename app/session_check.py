@@ -34,8 +34,8 @@ def verify_saved_session(
     probe_part: PartRecord,
     *,
     headless: bool = False,
-    timeout_ms: int = 30000,
-    settle_ms: int = 2500,
+    timeout_ms: int = 15000,
+    settle_ms: int = 1200,
 ) -> tuple[bool, str]:
     """Load one real page with the saved sign-in and report whether it worked.
 
@@ -75,7 +75,7 @@ def verify_saved_session(
             # Prices are rendered after load, so give the page time to finish
             # before reading it.
             try:
-                page.wait_for_load_state("networkidle", timeout=8000)
+                page.wait_for_load_state("networkidle", timeout=4000)
             except Exception:
                 pass
             page.wait_for_timeout(settle_ms)

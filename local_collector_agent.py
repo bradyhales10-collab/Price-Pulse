@@ -192,11 +192,40 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
     # impossible to actually sign in: the window kept losing focus to pages
     # being opened by the running collectors. Stopping here means the sign-in
     # window is the only thing on screen.
+    def report(competitor: str, payload: dict[str, object]) -> None:
+        try:
+            _request_json(
+                f"{server_url}/collector/agent/jobs/{job_id}/progress/{competitor}?{urllib.parse.urlencode({'agent_id': agent_id})}",
+                auth_header,
+                method="POST",
+                payload=payload,
+            )
+        except Exception:
+            LOGGER.warning("Could not report progress for %s", competitor)
+
     needs_sign_in = []
     sign_in_reasons: dict[str, str] = {}
     for competitor in competitors:
         if not get_competitor(competitor).requires_login:
             continue
+        # This check loads a real page, which takes a few seconds. Saying so
+        # matters: with no message the screen sat at 0 parts with no browser
+        # open, which looks identical to a stuck job.
+        report(
+            competitor,
+            {
+                "status": "running",
+                "message": (
+                    f"Checking your {get_competitor(competitor).display_name} sign-in before "
+                    f"starting. This takes a few seconds and no prices are checked yet."
+                ),
+                "competitor": competitor,
+                "competitor_key": competitor,
+                "rows": [],
+                "completed": 0,
+                "total": max_parts,
+            },
+        )
         # Cheap file check first, so an obviously missing or date-expired
         # sign-in costs nothing.
         usable, reason = saved_session_is_usable(competitor)
@@ -208,6 +237,21 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
             if probe_part is not None:
                 usable, reason = verify_saved_session(competitor, probe_part, headless=headless)
                 LOGGER.info("%s sign-in check: %s", competitor, reason)
+                if usable:
+                    # Say it passed, so the screen does not go quiet again while
+                    # the collectors start up.
+                    report(
+                        competitor,
+                        {
+                            "status": "running",
+                            "message": f"Sign-in check passed ({reason}). Starting the price check.",
+                            "competitor": competitor,
+                            "competitor_key": competitor,
+                            "rows": [],
+                            "completed": 0,
+                            "total": max_parts,
+                        },
+                    )
         if not usable:
             needs_sign_in.append(competitor)
             sign_in_reasons[competitor] = reason
