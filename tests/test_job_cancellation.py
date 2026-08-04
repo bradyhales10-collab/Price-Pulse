@@ -345,6 +345,21 @@ def test_only_one_desktop_collector_can_hold_the_instance_lock() -> None:
     replacement.close()
 
 
+def test_unusable_saved_sign_in_progress_is_read_for_login_recovery(tmp_path) -> None:
+    import json
+
+    import local_collector_agent as agent
+
+    progress = tmp_path / "progress.json"
+    progress.write_text(
+        json.dumps({"status": "failed", "stop_reason": "saved_sign_in_unusable"}),
+        encoding="utf-8",
+    )
+
+    assert agent._read_progress(progress)["stop_reason"] == "saved_sign_in_unusable"
+    assert agent._read_progress(tmp_path / "missing.json") == {}
+
+
 # --- Sign-in happens before any collection starts ----------------------------
 
 

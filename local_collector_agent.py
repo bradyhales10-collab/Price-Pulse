@@ -343,6 +343,29 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
                 progress_callback=send_progress,
                 should_cancel=should_cancel,
             )
+        except subprocess.CalledProcessError:
+            progress_path = BRIDGE_DIR / f"progress-{expected_run_id}-{competitor}.json"
+            failed_progress = _read_progress(progress_path)
+            if str(failed_progress.get("stop_reason") or "") == "saved_sign_in_unusable":
+                try:
+                    delete_auth_state(adapter.competitor_key)
+                except Exception as exc:
+                    LOGGER.warning("Could not remove the unusable %s sign-in: %s", competitor, exc)
+                progress = {
+                    "status": "login_required",
+                    "message": (
+                        f"The saved {adapter.display_name} sign-in could not be loaded and was removed. "
+                        f"Start the price check again; one sign-in window will open before any checks begin."
+                    ),
+                    "competitor": competitor,
+                    "competitor_key": adapter.competitor_key,
+                    "rows": [],
+                    "completed": 0,
+                    "total": max_parts,
+                }
+                send_progress(progress)
+                return progress
+            raise
         except CollectionCancelled:
             progress = {
                 "status": "cancelled",
@@ -447,6 +470,14 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
         method="POST",
         payload={"status": status, "message": message},
     )
+
+
+def _read_progress(path: Path) -> dict[str, object]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def _request_json(

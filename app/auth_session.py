@@ -158,7 +158,10 @@ def _parse_auth_state(content: bytes) -> dict[str, Any]:
             raise InvalidAuthStateError("Login session file has an invalid cookie entry.")
         if not isinstance(cookie.get("value"), str):
             continue
-        usable_cookies.append(cookie)
+        normalized_cookie = dict(cookie)
+        if not isinstance(normalized_cookie.get("path"), str) or not normalized_cookie["path"]:
+            normalized_cookie["path"] = "/"
+        usable_cookies.append(normalized_cookie)
     if cookies and not usable_cookies:
         raise InvalidAuthStateError("No cookie in the login session file has a usable value.")
     parsed["cookies"] = usable_cookies

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import inspect
 import json
 
+import auth_bootstrap
 from auth_bootstrap import SignInSnapshot, _looks_signed_in
 
 
@@ -12,6 +14,16 @@ def test_gated_price_page_is_not_treated_as_signed_in() -> None:
 def test_account_menu_means_signed_in() -> None:
     assert _looks_signed_in(text="My Account  Sign Out\n$282.32  Add to Cart", html="") is True
     assert _looks_signed_in(text="Logout | Order History\n$72.99", html="") is True
+
+
+def test_generic_my_account_navigation_is_not_proof_of_sign_in() -> None:
+    assert _looks_signed_in(text="My Account | Sign In | Cart", html="") is False
+
+
+def test_unconfirmed_login_snapshot_is_not_saved() -> None:
+    source = inspect.getsource(auth_bootstrap.main)
+
+    assert "should_save = snapshot.signed_in_observed" in source
 
 
 def test_page_with_no_evidence_is_not_assumed_signed_in() -> None:
@@ -171,6 +183,28 @@ def test_a_cookie_with_no_value_is_dropped_rather_than_saved() -> None:
     parsed = _parse_auth_state(content)
 
     assert [cookie["name"] for cookie in parsed["cookies"]] == ["good"]
+    assert parsed["cookies"][0]["path"] == "/"
+
+
+def test_a_cookie_without_a_path_is_repaired_for_playwright() -> None:
+    from app.auth_session import _parse_auth_state
+
+    parsed = _parse_auth_state(
+        json.dumps(
+            {
+                "cookies": [
+                    {
+                        "name": "session",
+                        "value": "saved",
+                        "domain": ".partzilla.com",
+                    }
+                ],
+                "origins": [],
+            }
+        ).encode("utf-8")
+    )
+
+    assert parsed["cookies"][0]["path"] == "/"
 
 
 def test_a_session_where_no_cookie_has_a_value_is_refused() -> None:

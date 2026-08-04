@@ -159,7 +159,7 @@ def main() -> int:
                 )
             else:
                 result = "session_saved" if snapshot.signed_in_observed else "session_saved_unconfirmed"
-                should_save = True
+                should_save = snapshot.signed_in_observed
 
             # The state is written from the snapshot captured while polling, so this
             # still works when the user simply closes the browser to finish.
@@ -222,7 +222,7 @@ def main() -> int:
 
 
 SIGNED_OUT_MARKERS = ("sign in to see price", "login to see price", "sign in for price")
-SIGNED_IN_MARKERS = ("sign out", "log out", "logout", "my account", "account dashboard")
+SIGNED_IN_MARKERS = ("sign out", "log out", "logout", "account dashboard")
 
 
 @dataclass
