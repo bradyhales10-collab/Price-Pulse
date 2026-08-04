@@ -563,13 +563,45 @@ def test_a_confirmed_session_is_accepted(tmp_path) -> None:
     assert "confirmed signed in" in reason
 
 
-def test_a_blocked_or_unreachable_site_does_not_discard_the_sign_in(tmp_path) -> None:
-    """A network problem or bot block says nothing about whether the sign-in is
-    good. Throwing it away would force a pointless re-sign-in."""
+def test_anything_short_of_a_confirmation_stops_the_run(tmp_path) -> None:
+    """Originally these states were treated as good enough to proceed. The live
+    log showed exactly why that was wrong: the check reported "unknown", the run
+    started anyway, and the dead sign-in only surfaced once browsers were open
+    and the sign-in window could no longer be used."""
     for state in ("blocked", "challenge", "navigation_error", "unknown"):
-        usable, reason = _run_live_check(state, "not_present", tmp_path)
-        assert usable is True, state
+        confirmed, reason = _run_live_check(state, "not_present", tmp_path)
+        assert confirmed is False, state
         assert "could not confirm" in reason
+
+
+def test_queued_sign_in_requests_are_cleared_before_signing_in(tmp_path) -> None:
+    """Each queued request opens its own browser when the Browser Helper picks
+    it up, so repeated Sign In clicks produced repeated windows appearing and
+    disappearing while the user typed."""
+    import sign_in
+
+    original = sign_in.LOGIN_REQUEST_DIR
+    sign_in.LOGIN_REQUEST_DIR = tmp_path
+    try:
+        for index in range(3):
+            (tmp_path / f"req{index}_partzilla.json").write_text("{}", encoding="utf-8")
+
+        assert sign_in.clear_queued_sign_in_requests() == 3
+        assert list(tmp_path.glob("*.json")) == []
+    finally:
+        sign_in.LOGIN_REQUEST_DIR = original
+
+
+def test_sign_in_tool_stops_part_pulse_before_opening_a_window() -> None:
+    """The whole point is that nothing else is running while you sign in."""
+    from pathlib import Path as _Path
+
+    source = _Path("sign_in.py").read_text(encoding="utf-8")
+
+    assert "def stop_browser_helper" in source
+    assert "taskkill" in source
+    # Stopping must happen before the sign-in window opens.
+    assert source.index("stop_browser_helper()") < source.index("auth_bootstrap.py")
 
 
 def test_sign_in_requests_are_polled_off_the_main_loop() -> None:

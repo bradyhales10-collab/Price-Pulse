@@ -38,9 +38,10 @@ def verify_saved_session(
 ) -> tuple[bool, str]:
     """Load one real page with the saved sign-in and report whether it worked.
 
-    Returns (usable, reason). A blocked or unreachable site returns usable so a
-    network problem does not throw away a sign-in that may be perfectly fine;
-    the run will surface that failure on its own terms.
+    Returns (confirmed, reason). Only a positively confirmed sign-in returns
+    True. Anything else, including a site that could not be reached, returns
+    False, because starting a run on an unconfirmed sign-in is what produced
+    the failure this exists to prevent.
     """
     adapter = get_competitor(competitor_key)
     if not adapter.requires_login:
@@ -73,20 +74,24 @@ def verify_saved_session(
             context.close()
             browser.close()
     except (PlaywrightTimeoutError, PlaywrightError) as exc:
-        return (True, f"could not reach the site to check ({type(exc).__name__})")
+        return (False, f"could not reach the site to check the sign-in ({type(exc).__name__})")
     except Exception as exc:
-        return (True, f"sign-in check could not run ({type(exc).__name__}: {exc})")
+        return (False, f"sign-in check could not run ({type(exc).__name__}: {exc})")
 
     session_state = _value(observation.session_status)
     price_state = _value(observation.price_visibility)
 
     if session_state in UNUSABLE_SESSION_STATES:
         return (False, f"signed out on the live site ({session_state})")
-    if session_state in INCONCLUSIVE_SESSION_STATES:
-        return (True, f"could not confirm from the live site ({session_state})")
     if price_state == "sign_in_required":
         return (False, "the live site is hiding prices behind a sign-in")
-    return (True, f"confirmed signed in on the live site ({session_state})")
+    if session_state == "authenticated":
+        return (True, "confirmed signed in on the live site")
+    # Anything else is not a confirmation. Treating "could not confirm" as good
+    # enough is what let a dead session through: the check reported unknown, the
+    # run started anyway, and the sign-in only failed once browsers were open.
+    # A sign-in must be positively confirmed before collection begins.
+    return (False, f"could not confirm the sign-in ({session_state or 'no answer'})")
 
 
 def first_probe_part(input_csv: Path, competitor_key: str) -> PartRecord | None:
