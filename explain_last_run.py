@@ -13,25 +13,39 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
+
+from app.collection import SUCCESS_RESULT_TYPES
 
 ROOT = Path(__file__).resolve().parent
 BRIDGE_DIR = ROOT / "data" / "output" / "local_bridge"
 CRASH_DIR = ROOT / "data" / "output" / "collection_crashes"
 
-# Result types that are a normal outcome rather than something to fix.
-EXPECTED_RESULTS = {
+# Taken from the app's own definition of success rather than guessed at. The
+# first version of this listed a subset and flagged "first_observation" as a
+# problem, which meant every successfully captured price on a first run was
+# reported as something to investigate.
+EXPECTED_RESULTS = SUCCESS_RESULT_TYPES | {
     "selling_price_found",
-    "no_change",
-    "price_change",
-    "multiple_changes",
+    # Not a fault: the competitor simply does not carry that brand.
     "manufacturer_not_carried",
 }
 
+# How old a crash file can be before it is treated as left over from an earlier
+# run. Without this, crash files from a bug fixed days ago keep being reported
+# as if they had just happened.
+CRASH_FILE_MAX_AGE_SECONDS = 6 * 60 * 60
+
 PLAIN_ENGLISH = {
     "manufacturer_not_carried": "this competitor does not carry that brand (expected, not a fault)",
+    "first_observation": "price captured for the first time (this is a success)",
+    "no_change": "price checked and unchanged",
+    "price_change": "price changed since last time",
+    "warning_or_failure": "completed but with a warning recorded",
+    "superseded": "the part was replaced by a newer number",
     "no_price_found": "the page loaded but showed no usable price",
     "part_not_found": "the competitor does not list that part",
     "lookup_failed": "the part could not be looked up",
@@ -63,7 +77,10 @@ def latest_progress_files() -> dict[str, Path]:
     return {competitor: path for competitor, (_, path) in newest.items()}
 
 
-def describe(competitor: str, path: Path) -> None:
+STALE_RESULT_GAP_SECONDS = 5 * 60
+
+
+def describe(competitor: str, path: Path, newest_stamp: float | None = None) -> None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception as exc:
@@ -74,10 +91,22 @@ def describe(competitor: str, path: Path) -> None:
     status = str(data.get("run_status") or data.get("status") or "unknown")
     completed = data.get("completed")
     total = data.get("total")
-    when = datetime.fromtimestamp(path.stat().st_mtime, UTC).strftime("%b %d %H:%M UTC")
+    stamp = path.stat().st_mtime
+    when = datetime.fromtimestamp(stamp, UTC).strftime("%b %d %H:%M UTC")
 
     print(f"  {competitor.upper()}")
     print(f"    finished {when}, status: {status}")
+    if newest_stamp is not None and (newest_stamp - stamp) > STALE_RESULT_GAP_SECONDS:
+        minutes = int((newest_stamp - stamp) / 60)
+        print(
+            f"    NOTE: this finished {minutes} minutes before the others, so it is"
+        )
+        print(
+            "          probably left over from an earlier run and these numbers do"
+        )
+        print(
+            "          not describe the run you just did. Re-run to get current ones."
+        )
     if completed is not None and total:
         print(f"    checked {completed} of {total} parts")
     if data.get("stop_reason"):
@@ -150,10 +179,14 @@ def main() -> int:
         print("Run a price check first, then run this straight afterwards.")
         return 1
 
+    newest_stamp = max(path.stat().st_mtime for path in files.values())
     for competitor in sorted(files):
-        describe(competitor, files[competitor])
+        describe(competitor, files[competitor], newest_stamp)
 
-    crashes = sorted(CRASH_DIR.glob("*.txt")) if CRASH_DIR.exists() else []
+    all_crashes = sorted(CRASH_DIR.glob("*.txt")) if CRASH_DIR.exists() else []
+    now = time.time()
+    crashes = [p for p in all_crashes if now - p.stat().st_mtime <= CRASH_FILE_MAX_AGE_SECONDS]
+    stale_crashes = [p for p in all_crashes if p not in crashes]
     if crashes:
         print("=" * 64)
         print(f"  Unexpected errors ({len(crashes)} file(s))")
@@ -171,7 +204,11 @@ def main() -> int:
         print("")
         print("  These are code faults rather than site behaviour. Send them to Claude.")
     else:
-        print("No unexpected errors were recorded, so nothing crashed.")
+        print("No unexpected errors were recorded in this run, so nothing crashed.")
+    if stale_crashes:
+        print("")
+        print(f"  ({len(stale_crashes)} older crash file(s) from a previous run are being ignored.")
+        print(f"   Delete {CRASH_DIR} if you want them cleared.)")
     print("")
     return 0
 
