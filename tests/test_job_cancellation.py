@@ -363,14 +363,11 @@ def test_unusable_saved_sign_in_progress_is_read_for_login_recovery(tmp_path) ->
 # --- Sign-in happens before any collection starts ----------------------------
 
 
-def test_sign_in_is_checked_before_any_collection_starts(monkeypatch, tmp_path) -> None:
-    """A sign-in window opened while other competitors were already driving
-    browsers could not actually be used: it kept losing focus to pages the
-    running collectors opened. The check now happens first, so nothing else is
-    on screen competing with it, and no parts are collected."""
+def test_sign_in_is_completed_before_any_collection_starts(monkeypatch, tmp_path) -> None:
+    """The same claimed job waits for sign-in, then starts its collectors."""
     import local_collector_agent as agent
 
-    calls: dict[str, object] = {"logins": [], "posts": [], "prepared": 0}
+    calls: dict[str, object] = {"events": [], "posts": [], "prepared": 0}
 
     def fake_request_json(url, auth_header, *, method="GET", payload=None, allow_empty=False):
         calls["posts"].append((url, payload))
@@ -378,14 +375,27 @@ def test_sign_in_is_checked_before_any_collection_starts(monkeypatch, tmp_path) 
 
     def fake_prepare(*args, **kwargs):
         calls["prepared"] += 1
+        calls["events"].append("prepare")
         return 1
 
     monkeypatch.setattr(agent, "_request_json", fake_request_json)
     monkeypatch.setattr(agent, "_download", lambda *a, **k: None)
     monkeypatch.setattr(agent, "prepare_local_database", fake_prepare)
-    monkeypatch.setattr(agent, "_open_login_refresh", lambda req: calls["logins"].append(req["competitor_key"]))
-    monkeypatch.setattr(agent, "saved_session_is_usable", lambda key: (False, "no saved sign-in"))
-    monkeypatch.setattr(agent, "saved_session_is_usable", lambda key: (False, "saved sign-in has expired"))
+    login = {"saved": False}
+    monkeypatch.setattr(agent, "_open_login_refresh", lambda req: calls["events"].append(f"open:{req['competitor_key']}"))
+    monkeypatch.setattr(
+        agent,
+        "saved_session_is_usable",
+        lambda key: ((True, "saved") if login["saved"] else (False, "saved sign-in has expired")),
+    )
+
+    def finish_sign_in(key, **kwargs):
+        calls["events"].append(f"saved:{key}")
+        login["saved"] = True
+        return (True, "saved")
+
+    monkeypatch.setattr(agent, "_wait_for_saved_sign_in", finish_sign_in)
+    monkeypatch.setattr(agent, "_run_competitor", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("stop here")))
     monkeypatch.setattr(agent, "BRIDGE_DIR", tmp_path)
 
     agent._run_job_body(
@@ -397,15 +407,13 @@ def test_sign_in_is_checked_before_any_collection_starts(monkeypatch, tmp_path) 
     )
 
     # Partzilla requires a login; Chaparral does not.
-    assert calls["logins"] == ["partzilla"]
-    # Critically: no local databases were prepared and no collection ran.
-    assert calls["prepared"] == 0
+    assert calls["events"][:2] == ["open:partzilla", "saved:partzilla"]
+    assert calls["prepared"] == 2
+    assert calls["events"].index("saved:partzilla") < calls["events"].index("prepare")
 
     completes = [p for url, p in calls["posts"] if "/complete" in url]
     assert len(completes) == 1
-    assert completes[0]["status"] == "login_required"
-    assert "Partzilla" in completes[0]["message"]
-    assert "nothing was changed" in completes[0]["message"]
+    assert completes[0]["status"] == "failed"
 
 
 def test_collection_proceeds_normally_when_sign_ins_are_present(monkeypatch, tmp_path) -> None:
@@ -504,20 +512,114 @@ def test_an_expired_sign_in_is_caught_before_collecting_not_only_a_missing_one()
             auth.PRIVATE_DIR = original_dir
 
 
-def test_only_the_preflight_opens_a_sign_in_window() -> None:
-    """Windows opened mid-run cannot be used, because the other competitors'
-    browsers steal focus. Exactly one place should open one."""
+def test_sign_in_retry_waits_until_parallel_collection_has_finished() -> None:
+    """Recovery belongs after the thread pool, where it cannot lose focus."""
     from pathlib import Path
 
     source = Path("local_collector_agent.py").read_text(encoding="utf-8")
-    opens = source.count("_open_login_refresh(")
+    pool_end = source.index("# If a site invalidated a session server-side")
+    retry_open = source.index("_open_login_refresh", pool_end)
+    assert retry_open > source.index("with ThreadPoolExecutor")
+    assert "continue automatically" in source
 
-    # One definition, one call from the login-refresh poll loop, and one from
-    # the pre-flight check. No more than that.
-    # Definition, the background sign-in poller, the --once path, and the
-    # pre-flight check. Collection paths must not add another.
-    assert opens <= 4, f"_open_login_refresh referenced {opens} times; a mid-run call may have returned"
-    assert "Deliberately does NOT open a sign-in window here" in source
+
+def test_waiting_for_sign_in_reports_progress_and_resumes(monkeypatch) -> None:
+    import local_collector_agent as agent
+
+    checks = iter([(False, "expired"), (True, "saved")])
+    reports: list[dict[str, object]] = []
+    monkeypatch.setattr(agent, "saved_session_is_usable", lambda key: next(checks))
+    monkeypatch.setattr(agent.time, "sleep", lambda seconds: None)
+
+    ready, reason = agent._wait_for_saved_sign_in(
+        "partzilla",
+        report=lambda key, payload: reports.append(payload),
+        should_cancel=lambda: False,
+        total=53,
+        timeout_seconds=5,
+        poll_seconds=0,
+    )
+
+    assert ready is True
+    assert reason == "saved"
+    assert [item["status"] for item in reports] == ["waiting_for_login", "login_saved"]
+    assert all(item["total"] == 53 for item in reports)
+
+
+def test_only_one_login_window_opens_for_each_competitor(monkeypatch, tmp_path) -> None:
+    import local_collector_agent as agent
+
+    class Process:
+        def poll(self):
+            return None
+
+    launched: list[Process] = []
+    monkeypatch.setattr(agent, "BRIDGE_DIR", tmp_path)
+    monkeypatch.setattr(agent, "_LOGIN_HELPERS", {})
+    monkeypatch.setattr(
+        agent.subprocess,
+        "Popen",
+        lambda *args, **kwargs: launched.append(Process()) or launched[-1],
+    )
+
+    first = agent._open_login_refresh({"competitor_key": "partzilla"})
+    second = agent._open_login_refresh({"competitor_key": "partzilla"})
+
+    assert first is second
+    assert len(launched) == 1
+
+
+def test_expired_session_retries_only_that_competitor_in_the_same_job(monkeypatch, tmp_path) -> None:
+    import local_collector_agent as agent
+
+    calls = {"runs": 0, "opens": 0, "completions": []}
+    run_ids = iter([101, 202])
+
+    def request(url, auth_header, *, method="GET", payload=None, allow_empty=False):
+        if url.endswith("/cancelled"):
+            return {"cancelled": False}
+        if "/complete?" in url:
+            calls["completions"].append(payload)
+        return {}
+
+    def collect(*args, expected_run_id, **kwargs):
+        calls["runs"] += 1
+        status = (
+            {"status": "failed", "stop_reason": "authentication_lost", "completed": 1, "total": 5}
+            if calls["runs"] == 1
+            else {"status": "completed", "completed": 5, "total": 5}
+        )
+        (tmp_path / f"progress-{expected_run_id}-partzilla.json").write_text(
+            json.dumps(status), encoding="utf-8"
+        )
+        return tmp_path / f"summary-{expected_run_id}.csv"
+
+    monkeypatch.setattr(agent, "BRIDGE_DIR", tmp_path)
+    monkeypatch.setattr(agent, "_request_json", request)
+    monkeypatch.setattr(agent, "_download", lambda *a, **k: None)
+    monkeypatch.setattr(agent, "saved_session_is_usable", lambda key: (True, "saved"))
+    monkeypatch.setattr(agent, "delete_auth_state", lambda key: None)
+    monkeypatch.setattr(agent, "prepare_local_database", lambda *a, **k: next(run_ids))
+    monkeypatch.setattr(agent, "_run_competitor", collect)
+    monkeypatch.setattr(agent, "_upload", lambda *a, **k: {"status": "imported"})
+    monkeypatch.setattr(
+        agent,
+        "_open_login_refresh",
+        lambda request: calls.__setitem__("opens", calls["opens"] + 1),
+    )
+    monkeypatch.setattr(agent, "_wait_for_saved_sign_in", lambda *a, **k: (True, "saved"))
+
+    agent._run_job_body(
+        {"job_id": "job-retry", "competitors": ["partzilla"], "input_url": "/x", "planned_count": 5},
+        {},
+        "http://server",
+        None,
+        "agent-1",
+    )
+
+    assert calls["runs"] == 2
+    assert calls["opens"] == 1
+    assert calls["completions"][-1]["status"] == "completed"
 
 
 # --- Live sign-in verification ------------------------------------------------
@@ -766,6 +868,41 @@ def test_a_request_filter_failure_never_breaks_the_page() -> None:
     block_popup_widgets(Context())
 
     assert seen == ["continued"]
+
+
+def test_metrics_partzilla_popup_navigation_is_blocked_without_blocking_the_main_page() -> None:
+    from app.browser_hygiene import block_popup_widgets
+
+    primary = object()
+    seen: list[str] = []
+
+    class Request:
+        url = "https://metrics.partzilla.com/collect"
+
+        def __init__(self, page):
+            self.frame = type("Frame", (), {"page": page})()
+
+        def is_navigation_request(self):
+            return True
+
+    class Route:
+        def __init__(self, page):
+            self.request = Request(page)
+
+        def abort(self):
+            seen.append("aborted")
+
+        def continue_(self):
+            seen.append("continued")
+
+    class Context:
+        def route(self, pattern, handler):
+            handler(Route(object()))
+            handler(Route(primary))
+
+    block_popup_widgets(Context(), primary_page=primary)
+
+    assert seen == ["aborted", "continued"]
 
 
 def test_popups_are_disabled_rather_than_only_closed() -> None:

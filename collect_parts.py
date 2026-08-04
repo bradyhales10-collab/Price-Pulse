@@ -335,6 +335,15 @@ def run_collection(args, plan) -> int:
                         break
                 else:
                     consecutive_errors = 0
+            if get_competitor(competitor_key).requires_login and result.stop_reason != "authentication_lost":
+                # Keep renewed cookies and local storage from successful runs.
+                # Sites often rotate session cookies while pages are checked;
+                # discarding those rotations made a saved login expire sooner
+                # than the browser session the user had just established.
+                try:
+                    context.storage_state(path=str(auth_state_path_for(competitor_key)))
+                except Exception as exc:
+                    print(f"Could not refresh the saved {competitor_key} sign-in: {exc}")
             context.close()
             browser.close()
     finally:

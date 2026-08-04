@@ -35,6 +35,10 @@ ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = ROOT / "data" / "private" / "local_collector_agent.json"
 LOGGER = logging.getLogger("part-pulse-local-agent")
 SINGLE_INSTANCE_PORT = 47653
+LOGIN_WAIT_SECONDS = 900
+LOGIN_HELPER_COOLDOWN_SECONDS = 10
+_LOGIN_HELPERS: dict[str, subprocess.Popen] = {}
+_LOGIN_HELPERS_LOCK = threading.Lock()
 
 
 def parse_args() -> argparse.Namespace:
@@ -135,22 +139,31 @@ def _acquire_instance_lock(port: int = SINGLE_INSTANCE_PORT) -> socket.socket | 
     return lock
 
 
-def _open_login_refresh(request: dict[str, object]) -> None:
+def _open_login_refresh(request: dict[str, object]) -> subprocess.Popen | None:
     competitor = str(request.get("competitor_key") or "").strip().lower()
     adapter = get_competitor(competitor)
     # The sign-in page, not a product page. A product page redirects a
     # signed-out visitor and loads tracking pages, which is what made the
     # window flicker between tabs and impossible to sign in on.
     login_url = login_page_url(adapter)
-    if _recent_login_helper_opened(competitor):
-        LOGGER.info("Skipping %s login refresh because a helper was opened recently", competitor)
-        return
-    LOGGER.info("Opening %s login refresh helper", competitor)
-    subprocess.Popen(
-        [sys.executable, str(ROOT / "auth_bootstrap.py"), "--competitor", competitor, "--url", login_url],
-        cwd=ROOT,
-        creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0) if os.name == "nt" else 0,
-    )
+    with _LOGIN_HELPERS_LOCK:
+        existing = _LOGIN_HELPERS.get(competitor)
+        if existing is not None and existing.poll() is None:
+            LOGGER.info("The %s login refresh helper is already open", competitor)
+            return existing
+        if existing is not None:
+            _LOGIN_HELPERS.pop(competitor, None)
+        if _recent_login_helper_opened(competitor):
+            LOGGER.info("Skipping duplicate %s login refresh request", competitor)
+            return None
+        LOGGER.info("Opening %s login refresh helper", competitor)
+        process = subprocess.Popen(
+            [sys.executable, str(ROOT / "auth_bootstrap.py"), "--competitor", competitor, "--url", login_url],
+            cwd=ROOT,
+            creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0) if os.name == "nt" else 0,
+        )
+        _LOGIN_HELPERS[competitor] = process
+        return process
 
 
 def _recent_login_helper_opened(competitor: str) -> bool:
@@ -160,13 +173,63 @@ def _recent_login_helper_opened(competitor: str) -> bool:
         if marker.exists():
             data = json.loads(marker.read_text(encoding="utf-8"))
             opened_at = float(data.get("opened_at") or 0)
-            if now - opened_at < 45:
+            if now - opened_at < LOGIN_HELPER_COOLDOWN_SECONDS:
                 return True
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.write_text(json.dumps({"competitor": competitor, "opened_at": now}), encoding="utf-8")
     except Exception as exc:
         LOGGER.warning("Could not update %s login helper marker: %s", competitor, exc)
     return False
+
+
+def _wait_for_saved_sign_in(
+    competitor: str,
+    *,
+    report,
+    should_cancel,
+    total: int,
+    timeout_seconds: int = LOGIN_WAIT_SECONDS,
+    poll_seconds: float = 2.0,
+) -> tuple[bool, str]:
+    """Pause a claimed job until the sign-in helper saves a usable session."""
+    adapter = get_competitor(competitor)
+    deadline = time.monotonic() + timeout_seconds
+    last_reason = "waiting for sign-in"
+    while time.monotonic() < deadline:
+        if should_cancel():
+            return (False, "cancelled")
+        usable, last_reason = saved_session_is_usable(competitor)
+        if usable:
+            report(
+                competitor,
+                {
+                    "status": "login_saved",
+                    "message": f"{adapter.display_name} sign-in saved. Continuing this price check automatically.",
+                    "competitor": competitor,
+                    "competitor_key": competitor,
+                    "rows": [],
+                    "completed": 0,
+                    "total": total,
+                },
+            )
+            return (True, last_reason)
+        report(
+            competitor,
+            {
+                "status": "waiting_for_login",
+                "message": (
+                    f"Waiting for {adapter.display_name} sign-in on this computer. "
+                    "Finish signing in; this price check will continue automatically."
+                ),
+                "competitor": competitor,
+                "competitor_key": competitor,
+                "rows": [],
+                "completed": 0,
+                "total": total,
+            },
+        )
+        time.sleep(poll_seconds)
+    return (False, f"sign-in was not completed within {timeout_seconds // 60} minutes ({last_reason})")
 
 
 def _run_job(job: dict[str, object], config: dict[str, object], server_url: str, auth_header: str | None, agent_id: str) -> None:
@@ -219,6 +282,15 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
         except Exception:
             LOGGER.warning("Could not report progress for %s", competitor)
 
+    def job_cancelled() -> bool:
+        try:
+            result = _request_json(
+                f"{server_url}/collector/agent/jobs/{job_id}/cancelled", auth_header
+            )
+        except Exception:
+            return False
+        return bool(result and result.get("cancelled"))
+
     # Only a cheap file check here. There used to be a live page load to verify
     # the sign-in before starting, which was my addition and never worked: it
     # added up to 40 seconds of silence before anything opened, misread a
@@ -245,31 +317,26 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
             _open_login_refresh(
                 {"competitor_key": key, "display_name": get_competitor(key).display_name}
             )
-        message = (
-            f"Sign in to {names} first ({detail}). A sign-in window has opened on this computer. "
-            f"Sign in there, close the window, then start the price check again. "
-            f"No prices were checked, so nothing was changed."
-        )
-        for competitor in needs_sign_in:
-            report(
-                competitor,
-                {
-                    "status": "login_required",
-                    "message": message,
-                    "competitor": competitor,
-                    "competitor_key": competitor,
-                    "rows": [],
-                    "completed": 0,
-                    "total": max_parts,
-                },
+            ready, reason = _wait_for_saved_sign_in(
+                key,
+                report=report,
+                should_cancel=job_cancelled,
+                total=max_parts,
             )
-        _request_json(
-            f"{server_url}/collector/agent/jobs/{job_id}/complete?{urllib.parse.urlencode({'agent_id': agent_id})}",
-            auth_header,
-            method="POST",
-            payload={"status": "login_required", "message": message},
-        )
-        return
+            if not ready:
+                status = "cancelled" if reason == "cancelled" else "login_required"
+                message = (
+                    "Price check cancelled while waiting for sign-in."
+                    if status == "cancelled"
+                    else f"{get_competitor(key).display_name} {reason}. No prices were checked."
+                )
+                _request_json(
+                    f"{server_url}/collector/agent/jobs/{job_id}/complete?{urllib.parse.urlencode({'agent_id': agent_id})}",
+                    auth_header,
+                    method="POST",
+                    payload={"status": status, "message": message},
+                )
+                return
 
     run_token = int(time.time() * 1000)
     jobs: list[tuple[str, Path, int]] = []
@@ -304,15 +371,14 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
         usable, reason = saved_session_is_usable(adapter.competitor_key) if adapter.requires_login else (True, "")
         if not usable:
             # A backstop only. The pre-flight check before any collection began
-            # should already have caught this. No sign-in window is opened here,
-            # because other competitors are driving browsers by now and a window
-            # opened alongside them cannot be used.
+            # should already have caught this. The retry phase opens the sign-in
+            # window after the other competitors have finished.
             LOGGER.info("%s sign-in not usable (%s); skipping without collecting", competitor, reason)
             progress = {
                 "status": "login_required",
                 "message": (
-                    f"{adapter.display_name} needs you to sign in ({reason}). Start the price check "
-                    f"again and a sign-in window will open before anything else runs."
+                    f"{adapter.display_name} needs you to sign in ({reason}). This price check "
+                    f"will pause, open one sign-in window, and continue automatically."
                 ),
                 "competitor": competitor,
                 "competitor_key": adapter.competitor_key,
@@ -324,13 +390,7 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
             return progress
 
         def should_cancel() -> bool:
-            try:
-                result = _request_json(
-                    f"{server_url}/collector/agent/jobs/{job_id}/cancelled", auth_header
-                )
-            except Exception:
-                return False
-            return bool(result and result.get("cancelled"))
+            return job_cancelled()
 
         try:
             summary = _run_competitor(
@@ -355,7 +415,7 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
                     "status": "login_required",
                     "message": (
                         f"The saved {adapter.display_name} sign-in could not be loaded and was removed. "
-                        f"Start the price check again; one sign-in window will open before any checks begin."
+                        f"This price check will pause for sign-in and then continue automatically."
                     ),
                     "competitor": competitor,
                     "competitor_key": adapter.competitor_key,
@@ -399,8 +459,8 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
             outcome = {
                 "status": "login_required",
                 "message": (
-                    f"Your saved {adapter.display_name} sign-in has expired. A sign-in window has "
-                    f"opened on this computer. Sign in, then start the price check again."
+                    f"Your saved {adapter.display_name} sign-in has expired. This price check is "
+                    f"paused and will continue automatically after you sign in."
                 ),
                 "competitor": competitor,
                 "competitor_key": adapter.competitor_key,
@@ -409,12 +469,9 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
                 "total": outcome.get("total") or max_parts,
             }
             send_progress(outcome)
-            # Deliberately does NOT open a sign-in window here. Other
-            # competitors are still driving browsers at this point, so a window
-            # opened now cannot be used: it loses focus to their pages and the
-            # user is left watching tabs open and close. The stale file has been
-            # deleted, so the pre-flight check at the start of the next run will
-            # open the window when nothing else is running.
+            # The outer retry phase waits until the parallel collectors finish
+            # before opening the sign-in window, so it will not lose focus to
+            # competitor pages that are still being driven.
         return outcome
 
     with ThreadPoolExecutor(max_workers=max(1, len(jobs))) as executor:
@@ -426,6 +483,42 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
             except Exception as exc:
                 LOGGER.exception("%s failed during job %s", competitor, job_id)
                 outcomes[competitor] = {"status": "failed", "message": str(exc)}
+
+    # If a site invalidated a session server-side, its cookie file can still
+    # look current during preflight. Wait until the other competitors finish,
+    # open one sign-in window, then retry only that competitor in this same job.
+    # The person never has to cancel, refresh, or start the price check again.
+    expired_during_run = [
+        key for key, value in outcomes.items() if value.get("status") == "login_required"
+    ]
+    for retry_index, competitor in enumerate(expired_during_run, start=len(jobs)):
+        adapter = get_competitor(competitor)
+        _open_login_refresh({"competitor_key": competitor, "display_name": adapter.display_name})
+        ready, reason = _wait_for_saved_sign_in(
+            competitor,
+            report=report,
+            should_cancel=job_cancelled,
+            total=max_parts,
+        )
+        if not ready:
+            outcomes[competitor] = {
+                "status": "cancelled" if reason == "cancelled" else "login_required",
+                "message": reason,
+            }
+            continue
+        retry_db = job_dir / f"collector-{competitor}-retry.db"
+        retry_floor = (int(time.time() * 1000) * 10) + (retry_index * 2)
+        retry_run_id = prepare_local_database(
+            input_path,
+            retry_db,
+            [competitor],
+            run_id_floor=retry_floor,
+        )
+        try:
+            outcomes[competitor] = run_competitor((competitor, retry_db, retry_run_id))
+        except Exception as exc:
+            LOGGER.exception("%s failed during automatic sign-in retry for job %s", competitor, job_id)
+            outcomes[competitor] = {"status": "failed", "message": str(exc)}
 
     failed = [key for key, value in outcomes.items() if value.get("status") == "failed"]
     needs_login = [key for key, value in outcomes.items() if value.get("status") == "login_required"]
@@ -443,8 +536,8 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
         names = ", ".join(get_competitor(key).display_name for key in needs_login)
         sign_in_text = (
             f"{names} needs you to sign in before prices can be checked. A sign-in window has "
-            f"opened on the computer running the Browser Helper. Sign in there, then start the "
-            f"price check again."
+            f"opened on the computer running the Browser Helper. Sign in there; this price check "
+            f"will continue automatically."
         )
         if failed:
             # Reported as two separate facts. Running them together read as

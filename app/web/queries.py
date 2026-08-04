@@ -8,6 +8,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from app.competitors.registry import list_competitors, short_display_name
 from app.database import SCHEMA_VERSION, cents_to_money
 from app.manufacturer_registry import competitor_supports_manufacturer
 
@@ -108,9 +109,29 @@ def catalog_data(database: Path, filters: CatalogFilters) -> dict[str, Any]:
         }
 
 
+def _catalog_competitor_columns_sql() -> str:
+    columns: list[str] = []
+    for adapter in list_competitors():
+        key = adapter.competitor_key
+        if not key.replace("_", "").isalnum():
+            raise DashboardDatabaseError(f"Unsafe competitor key: {key}")
+        columns.extend(
+            [
+                f"MAX(CASE WHEN c.competitor_code='{key}' THEN s.selling_price_cents END) {key}_selling_price_cents",
+                f"MAX(CASE WHEN c.competitor_code='{key}' THEN s.reference_price_cents END) {key}_reference_price_cents",
+                f"MAX(CASE WHEN c.competitor_code='{key}' THEN s.savings_percent END) {key}_savings_percent",
+                f"MAX(CASE WHEN c.competitor_code='{key}' THEN COALESCE(se.page_classification, s.price_display_type, 'not_checked') END) {key}_status",
+                f"MAX(CASE WHEN c.competitor_code='{key}' THEN COALESCE(se.checked_at, s.last_successful_check_at) END) {key}_checked_at",
+                f"MAX(CASE WHEN c.competitor_code='{key}' THEN COALESCE(se.parse_warning_count, 0) END) {key}_warning_count",
+            ]
+        )
+    return ",\n               ".join(columns)
+
+
 def _catalog_product_rows(conn: sqlite3.Connection, where: str, params: list[Any], *, filters: CatalogFilters) -> list[dict[str, Any]]:
     sort_column = SORT_COLUMNS.get(filters.sort, SORT_COLUMNS["last_checked"])
     offset = (filters.page - 1) * filters.page_size
+    competitor_columns = _catalog_competitor_columns_sql()
     rows = conn.execute(f"""
         SELECT p.product_id, p.manufacturer, p.oem_part_number,
                COALESCE(ips.internal_sku, p.internal_sku) internal_sku,
@@ -131,24 +152,7 @@ def _catalog_product_rows(conn: sqlite3.Connection, where: str, params: list[Any
                    LIMIT 1
                ) lowest_competitor_name,
                MAX(s.last_successful_check_at) last_checked_at,
-               MAX(CASE WHEN c.competitor_code='partzilla' THEN s.selling_price_cents END) partzilla_selling_price_cents,
-               MAX(CASE WHEN c.competitor_code='partzilla' THEN s.reference_price_cents END) partzilla_reference_price_cents,
-               MAX(CASE WHEN c.competitor_code='partzilla' THEN s.savings_percent END) partzilla_savings_percent,
-               MAX(CASE WHEN c.competitor_code='partzilla' THEN COALESCE(se.page_classification, s.price_display_type, 'not_checked') END) partzilla_status,
-               MAX(CASE WHEN c.competitor_code='partzilla' THEN COALESCE(se.checked_at, s.last_successful_check_at) END) partzilla_checked_at,
-               MAX(CASE WHEN c.competitor_code='partzilla' THEN COALESCE(se.parse_warning_count, 0) END) partzilla_warning_count,
-               MAX(CASE WHEN c.competitor_code='motosport' THEN s.selling_price_cents END) motosport_selling_price_cents,
-               MAX(CASE WHEN c.competitor_code='motosport' THEN s.reference_price_cents END) motosport_reference_price_cents,
-               MAX(CASE WHEN c.competitor_code='motosport' THEN s.savings_percent END) motosport_savings_percent,
-               MAX(CASE WHEN c.competitor_code='motosport' THEN COALESCE(se.page_classification, s.price_display_type, 'not_checked') END) motosport_status,
-               MAX(CASE WHEN c.competitor_code='motosport' THEN COALESCE(se.checked_at, s.last_successful_check_at) END) motosport_checked_at,
-               MAX(CASE WHEN c.competitor_code='motosport' THEN COALESCE(se.parse_warning_count, 0) END) motosport_warning_count,
-               MAX(CASE WHEN c.competitor_code='chaparral' THEN s.selling_price_cents END) chaparral_selling_price_cents,
-               MAX(CASE WHEN c.competitor_code='chaparral' THEN s.reference_price_cents END) chaparral_reference_price_cents,
-               MAX(CASE WHEN c.competitor_code='chaparral' THEN s.savings_percent END) chaparral_savings_percent,
-               MAX(CASE WHEN c.competitor_code='chaparral' THEN COALESCE(se.page_classification, s.price_display_type, 'not_checked') END) chaparral_status,
-               MAX(CASE WHEN c.competitor_code='chaparral' THEN COALESCE(se.checked_at, s.last_successful_check_at) END) chaparral_checked_at,
-               MAX(CASE WHEN c.competitor_code='chaparral' THEN COALESCE(se.parse_warning_count, 0) END) chaparral_warning_count
+               {competitor_columns}
         FROM products p
         LEFT JOIN internal_product_state ips ON ips.product_id=p.product_id
         LEFT JOIN competitor_listings l ON l.product_id=p.product_id AND l.is_active=1
@@ -297,7 +301,9 @@ def quality_data(database: Path) -> dict[str, Any]:
               AND COALESCE(missing_se.page_classification, '') <> 'manufacturer_not_carried'
         )"""
         missing_price_products = _catalog_product_rows(conn, missing_product_where, [], filters=CatalogFilters(page_size=100))
-        display_names = {"partzilla": "Partzilla", "motosport": "MotoSport", "chaparral": "Chaparral"}
+        display_names = {
+            adapter.competitor_key: short_display_name(adapter) for adapter in list_competitors()
+        }
         for row in missing_price_products:
             row["missing_competitors"] = [
                 display_names[key]
@@ -703,10 +709,24 @@ def _catalog_product_row(row: sqlite3.Row) -> dict[str, Any]:
     data["our_margin_pct"] = _percent_cents(our_cents - cost_cents, our_cents) if our_cents not in (None, 0) and cost_cents is not None else ""
     data["price_difference_class"] = _price_difference_class(our_cents, lowest_cents)
     data["gap_price_class"] = _price_difference_class(our_cents, lowest_cents)
-    data["our_price_class"] = _our_price_class(our_cents, [data.get(f"{key}_selling_price_cents") for key in ("partzilla", "motosport", "chaparral")])
-    data["partzilla"] = _competitor_cell(data, "partzilla")
-    data["motosport"] = _competitor_cell(data, "motosport")
-    data["chaparral"] = _competitor_cell(data, "chaparral")
+    competitor_prices = [
+        data.get(f"{adapter.competitor_key}_selling_price_cents")
+        for adapter in list_competitors()
+    ]
+    data["our_price_class"] = _our_price_class(our_cents, competitor_prices)
+    data["competitors"] = []
+    for adapter in list_competitors():
+        key = adapter.competitor_key
+        cell = _competitor_cell(data, key)
+        cell.update(
+            {
+                "key": key,
+                "display_name": adapter.display_name,
+                "short_name": short_display_name(adapter),
+            }
+        )
+        data[key] = cell
+        data["competitors"].append(cell)
     saved_to_catalog = data.get("suggested_new_price_cents") is not None and data.get("suggested_new_price_cents") == our_cents
     data["needs_review"] = not saved_to_catalog
     return data

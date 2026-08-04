@@ -191,6 +191,17 @@ function renderProgress(job) {
     const entries = Object.entries(job.progress_by_competitor || {});
     competitorProgress.innerHTML = entries.map(([key, item]) => {
       const status = item.run_status || item.status || "waiting";
+      if (status === "waiting_for_login" || status === "login_saved") {
+        const label = (item.competitor || key || "").replace(/^\w/, (c) => c.toUpperCase());
+        return `
+      <div class="progress-card attention">
+        <span>${key}</span>
+        <b>${status === "login_saved" ? "Signed in" : "Waiting for sign-in"}</b>
+        <small>${item.message || `Finish signing in to ${label}.`}</small>
+        <small class="muted">This price check will continue automatically. You do not need to cancel or restart it.</small>
+      </div>
+    `;
+      }
       if (status === "login_required") {
         const label = (item.competitor || key || "").replace(/^\w/, (c) => c.toUpperCase());
         return `
@@ -202,7 +213,7 @@ function renderProgress(job) {
           <input type="hidden" name="import_batch_id" value="${job.import_batch_id ?? ""}">
           <button type="submit" class="link-button">Sign in to ${label}</button>
         </form>
-        <small class="muted">A browser window will open on the computer running the Browser Helper. Sign in there, then click "Start Checking Prices" again.</small>
+        <small class="muted">A browser window will open on the computer running the Browser Helper.</small>
       </div>
     `;
       }

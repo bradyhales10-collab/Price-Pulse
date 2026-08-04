@@ -112,14 +112,14 @@ def main() -> int:
                 args=launch_args,
             )
             context = browser.new_context(viewport=DEFAULT_VIEWPORT)
+            page = context.new_page()
             # Playwright's Chromium has no ad blocker, so tracking scripts run
             # that a normal desktop browser would stop. Some of them open
             # popups, which take focus mid-typing and then close themselves,
             # making it impossible to sign in.
-            block_popup_widgets(context)
+            block_popup_widgets(context, primary_page=page)
             if not args.allow_popups:
                 disable_popups(context)
-            page = context.new_page()
             close_popup_pages(context, page)
             page.set_default_timeout(settings.timeout)
             page.set_default_navigation_timeout(settings.timeout)
@@ -194,7 +194,8 @@ def main() -> int:
         print("  Your sign-in was SAVED.")
         print("===============================")
         print("")
-        print("You can close this window and start the price check again.")
+        print("You can close this window.")
+        print("If a price check is waiting, it will continue automatically.")
         print("")
         print(f"(Technical details: result={result}, {cookie_count} cookies, saved to {auth_state_path})")
         print("Treat that file like a password. Do not share it or commit it.")

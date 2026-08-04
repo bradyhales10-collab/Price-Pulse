@@ -39,6 +39,11 @@ SIGN_IN_HOST_ALLOWLIST = (
     "login.microsoftonline.com",
 )
 
+# Partzilla occasionally tries to open this first-party metrics endpoint as a
+# separate tab during sign-in. Normal in-page metrics requests remain allowed;
+# only a top-level navigation in a secondary page is stopped.
+POPUP_NAVIGATION_HOSTS = ("metrics.partzilla.com",)
+
 # Chromium refusing to create new tabs at all. Stronger than removing
 # window.open from the page, which a script can work around.
 NO_POPUP_BROWSER_ARGS = (
@@ -60,12 +65,27 @@ def is_popup_widget_host(hostname: str) -> bool:
     return any(pattern.search(host) for pattern in _COMPILED)
 
 
-def block_popup_widgets(context) -> None:
+def is_popup_navigation_host(hostname: str) -> bool:
+    host = (hostname or "").strip().lower()
+    return any(host == blocked or host.endswith(f".{blocked}") for blocked in POPUP_NAVIGATION_HOSTS)
+
+
+def block_popup_widgets(context, *, primary_page=None) -> None:
     """Abort requests to chat widgets that open popups."""
 
     def handler(route):
         try:
-            if is_popup_widget_host(_hostname(route.request.url)):
+            request = route.request
+            hostname = _hostname(request.url)
+            is_secondary_navigation = False
+            if is_popup_navigation_host(hostname):
+                try:
+                    is_secondary_navigation = bool(request.is_navigation_request()) and (
+                        primary_page is None or request.frame.page is not primary_page
+                    )
+                except Exception:
+                    is_secondary_navigation = primary_page is None
+            if is_popup_widget_host(hostname) or is_secondary_navigation:
                 route.abort()
                 return
             route.continue_()

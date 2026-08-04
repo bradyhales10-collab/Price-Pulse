@@ -18,7 +18,13 @@ from app.collection_jobs import (
     validate_collection_request,
 )
 from app.comparison import ComparisonFilters, comparison_rows
-from app.database import connect_database, initialize_database, utc_now
+from app.database import (
+    connect_database,
+    initialize_database,
+    seed_competitor,
+    upsert_competitor_listing,
+    utc_now,
+)
 from app.exports.review_export import REVIEW_COLUMNS, export_review
 from app.imports import confirm_import, preview_import, save_upload
 from app.input_loader import load_parts_csv
@@ -432,9 +438,11 @@ def test_comparison_quick_filters_work_without_selected_import_file() -> None:
 
 def test_product_catalog_order_and_highlighting_matches_comparison() -> None:
     db = _comparison_db("product_catalog_highlighting.db")
+    _set_competitor_state(db, "K-PRICE", "revzilla", selling=1100)
     catalog = TestClient(create_app(db), raise_server_exceptions=False).get("/products").text
 
-    assert catalog.index("<th>Product</th>") < catalog.index("<th>Partzilla</th>") < catalog.index("<th>MotoSport</th>") < catalog.index("<th>Chaparral</th>") < catalog.index("<th>Lowest Competitor</th>") < catalog.index("<th>Gap vs Lowest</th>") < catalog.index("<th>Our Price</th>") < catalog.index("<th>Calc Cost</th>") < catalog.index("<th>Our Margin</th>")
+    assert catalog.index("<th>Product</th>") < catalog.index("<th>Partzilla</th>") < catalog.index("<th>MotoSport</th>") < catalog.index("<th>Chaparral</th>") < catalog.index("<th>RevZilla</th>") < catalog.index("<th>Lowest Competitor</th>") < catalog.index("<th>Gap vs Lowest</th>") < catalog.index("<th>Our Price</th>") < catalog.index("<th>Calc Cost</th>") < catalog.index("<th>Our Margin</th>")
+    assert "11.00" in catalog
     assert 'class="price-above-competitor"' in catalog
     assert 'class="price-difference-higher"' in catalog
 
@@ -1399,6 +1407,35 @@ def _set_partzilla_state(db: Path, part_number: str, *, selling: int, reference:
                 'high', ?, ?, ?, 0, ?)
             """,
             (listing_id, selling, reference, savings, display_type, part_number, now, now, now, now),
+        )
+
+
+def _set_competitor_state(db: Path, part_number: str, competitor: str, *, selling: int) -> None:
+    with connect_database(db) as conn:
+        product_id = int(
+            conn.execute(
+                "SELECT product_id FROM products WHERE oem_part_number=?", (part_number,)
+            ).fetchone()["product_id"]
+        )
+        competitor_id = seed_competitor(conn, competitor)
+        listing_id, _ = upsert_competitor_listing(
+            conn,
+            product_id=product_id,
+            competitor_id=competitor_id,
+            competitor_part_number=part_number,
+            canonical_url=f"https://example.test/{competitor}/{part_number}",
+        )
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO current_listing_state(listing_id, selling_price_cents, price_display_type,
+                selling_price_confidence, currency_code, availability_status, product_name,
+                observed_part_number, supersession_detected, price_parse_confidence,
+                first_observed_at, last_successful_check_at, last_changed_at,
+                consecutive_failure_count, updated_at)
+            VALUES (?, ?, 'normal', 'high', 'USD', 'in_stock', 'Competitor Part', ?, 0, 'high', ?, ?, ?, 0, ?)
+            """,
+            (listing_id, selling, part_number, now, now, now, now),
         )
 
 
