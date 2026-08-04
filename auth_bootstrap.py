@@ -18,6 +18,7 @@ from app.auth_session import (
     write_authenticated_observation,
     write_sanitized_authenticated_diagnostics,
 )
+from app.browser_hygiene import block_tracking_requests, close_popup_pages
 from app.browser_probe import detect_page_signals
 from app.competitors.registry import get_competitor, login_page_url
 from app.config import (
@@ -95,7 +96,13 @@ def main() -> int:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=settings.headless, slow_mo=settings.slow_mo)
             context = browser.new_context(viewport=DEFAULT_VIEWPORT)
+            # Playwright's Chromium has no ad blocker, so tracking scripts run
+            # that a normal desktop browser would stop. Some of them open
+            # popups, which take focus mid-typing and then close themselves,
+            # making it impossible to sign in.
+            block_tracking_requests(context)
             page = context.new_page()
+            close_popup_pages(context, page)
             page.set_default_timeout(settings.timeout)
             page.set_default_navigation_timeout(settings.timeout)
 

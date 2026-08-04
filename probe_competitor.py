@@ -14,6 +14,7 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
+from app.browser_hygiene import block_tracking_requests
 from app.collection import jittered_delay
 from app.competitors.base import CompetitorObservation
 from app.competitors.registry import get_competitor, select_competitors
@@ -136,6 +137,7 @@ def main() -> int:
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=settings.headless)
         context = browser.new_context(viewport=DEFAULT_VIEWPORT)
+        block_tracking_requests(context)
         page = context.new_page()
         page.set_default_timeout(settings.timeout)
         page.set_default_navigation_timeout(settings.timeout)

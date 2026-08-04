@@ -19,6 +19,7 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 from app.auth_session import auth_state_path_for
+from app.browser_hygiene import block_tracking_requests, close_popup_pages
 from app.competitors.registry import get_competitor
 from app.models import PartRecord
 
@@ -62,7 +63,9 @@ def verify_saved_session(
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=headless)
             context = browser.new_context(storage_state=str(state_path))
+            block_tracking_requests(context)
             page = context.new_page()
+            close_popup_pages(context, page)
             response = page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
             http_status = response.status if response is not None else None
             page.wait_for_timeout(settle_ms)

@@ -659,3 +659,85 @@ def test_the_refresh_shortcuts_do_not_hardcode_a_product_url() -> None:
         source = Path(name).read_text(encoding="utf-8")
         assert "/product/" not in source, name
         assert "auth_bootstrap.py" in source, name
+
+
+# --- Browser hygiene ----------------------------------------------------------
+
+
+def test_tracking_hosts_are_blocked_but_the_sites_themselves_are_not() -> None:
+    """Playwright's Chromium has no ad blocker, so tracking scripts a desktop
+    browser would stop were running and opening popups. Those popups took focus
+    mid-typing and closed themselves, making sign-in impossible. The site's own
+    hosts must keep working, or nothing loads at all."""
+    from app.browser_hygiene import is_tracking_host
+
+    for host in (
+        "metrics.partzilla.com",
+        "connect.facebook.net",
+        "www.google-analytics.com",
+        "googletagmanager.com",
+        "stats.g.doubleclick.net",
+    ):
+        assert is_tracking_host(host) is True, host
+
+    for host in (
+        "www.partzilla.com",
+        "partzilla.com",
+        "cdn.partzilla.com",
+        "www.chaparral-racing.com",
+        "www.revzilla.com",
+        "www.motosport.com",
+    ):
+        assert is_tracking_host(host) is False, host
+
+
+def test_social_sign_in_hosts_are_never_blocked() -> None:
+    """Blocking these would break sign-in on any site offering a social login."""
+    from app.browser_hygiene import is_tracking_host
+
+    for host in ("accounts.google.com", "www.facebook.com", "appleid.apple.com"):
+        assert is_tracking_host(host) is False, host
+
+
+def test_every_browser_price_pulse_drives_blocks_tracking() -> None:
+    from pathlib import Path as _Path
+
+    for filename in ("auth_bootstrap.py", "collect_parts.py", "app/session_check.py", "probe_competitor.py"):
+        source = _Path(filename).read_text(encoding="utf-8")
+        assert "block_tracking_requests(" in source, filename
+
+
+def test_the_sign_in_browser_also_closes_popups() -> None:
+    """Blocking the scripts should prevent most popups; closing any that still
+    appear stops them stealing a keystroke."""
+    from pathlib import Path as _Path
+
+    source = _Path("auth_bootstrap.py").read_text(encoding="utf-8")
+
+    assert "close_popup_pages(context, page)" in source
+
+
+def test_a_request_filter_failure_never_breaks_the_page() -> None:
+    """If filtering throws, the request must still be allowed through rather
+    than leaving the page half-loaded."""
+    from app.browser_hygiene import block_tracking_requests
+
+    continued: list[str] = []
+
+    class Route:
+        def __init__(self) -> None:
+            self.request = type("Request", (), {"url": None})()  # url None -> triggers the error path
+
+        def abort(self) -> None:
+            continued.append("aborted")
+
+        def continue_(self) -> None:
+            continued.append("continued")
+
+    class Context:
+        def route(self, pattern, handler) -> None:
+            handler(Route())
+
+    block_tracking_requests(Context())
+
+    assert continued == ["continued"]
