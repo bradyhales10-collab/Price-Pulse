@@ -495,6 +495,7 @@ def _fake_observation(session_state: str, price_state: str = "visible", selling_
     class Observation:
         session_status = session_state
         price_visibility = price_state
+        page_classification = "normal_product"
 
     Observation.selling_price = selling_price
     return Observation()
@@ -802,3 +803,44 @@ def _PathText(name: str) -> str:
     from pathlib import Path as _P
 
     return _P(name).read_text(encoding="utf-8")
+
+
+def test_the_sign_in_check_runs_under_the_same_conditions_as_collection() -> None:
+    """The check was running headless while collection runs visible. A site can
+    serve different markup to a headless browser, so the check saw a page the
+    parser could not classify at all and reported "prices unknown" on a sign-in
+    that was actually fine."""
+    import inspect
+
+    from app.session_check import verify_saved_session
+
+    signature = inspect.signature(verify_saved_session)
+
+    assert signature.parameters["headless"].default is False
+
+    source = inspect.getsource(verify_saved_session)
+    assert "DEFAULT_VIEWPORT" in source, "must use the same viewport as collection"
+    assert "networkidle" in source, "prices render after load, so it must wait"
+
+
+def test_the_agent_checks_the_sign_in_with_the_same_visibility_as_the_run() -> None:
+    from pathlib import Path as _Path
+
+    source = _Path("local_collector_agent.py").read_text(encoding="utf-8")
+
+    assert "verify_saved_session(competitor, probe_part, headless=headless)" in source
+
+
+def test_new_tabs_are_blocked_at_the_browser_level_for_sign_in() -> None:
+    """Removing window.open can be worked around by a script. Refusing to create
+    new web contents at all is what stops a widget reopening a tab."""
+    from pathlib import Path as _Path
+
+    from app.browser_hygiene import NO_POPUP_BROWSER_ARGS
+
+    assert "--block-new-web-contents" in NO_POPUP_BROWSER_ARGS
+
+    source = _Path("auth_bootstrap.py").read_text(encoding="utf-8")
+    assert "NO_POPUP_BROWSER_ARGS" in source
+    # Still honours the escape hatch for a social sign-in that needs a popup.
+    assert "if args.allow_popups" in source

@@ -206,7 +206,7 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
             # looks valid on disk and only fails once a page loads.
             probe_part = first_probe_part(input_path, competitor)
             if probe_part is not None:
-                usable, reason = verify_saved_session(competitor, probe_part, headless=True)
+                usable, reason = verify_saved_session(competitor, probe_part, headless=headless)
                 LOGGER.info("%s sign-in check: %s", competitor, reason)
         if not usable:
             needs_sign_in.append(competitor)

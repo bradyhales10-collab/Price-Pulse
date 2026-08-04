@@ -68,6 +68,19 @@ SIGN_IN_HOST_ALLOWLIST = (
 _COMPILED = tuple(re.compile(pattern, re.IGNORECASE) for pattern in TRACKING_HOST_PATTERNS)
 
 
+# Chromium flags that stop new tabs and windows being created at all. This is
+# stronger than removing window.open from the page, which a script can work
+# around, and it is what finally stops a widget reopening a tab we just closed.
+NO_POPUP_BROWSER_ARGS = (
+    "--block-new-web-contents",
+    "--disable-popup-blocking=false",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-notifications",
+    "--disable-features=Translate,MediaRouter,OptimizationHints",
+)
+
+
 def is_tracking_host(hostname: str) -> bool:
     host = (hostname or "").strip().lower()
     if not host:

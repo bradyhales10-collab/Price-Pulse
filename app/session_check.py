@@ -21,6 +21,7 @@ from playwright.sync_api import sync_playwright
 from app.auth_session import auth_state_path_for
 from app.browser_hygiene import block_tracking_requests, close_popup_pages
 from app.competitors.registry import get_competitor
+from app.config import DEFAULT_VIEWPORT
 from app.models import PartRecord
 
 # Session states that mean the saved sign-in can no longer be used.
@@ -33,9 +34,9 @@ def verify_saved_session(
     competitor_key: str,
     probe_part: PartRecord,
     *,
-    headless: bool = True,
+    headless: bool = False,
     timeout_ms: int = 30000,
-    settle_ms: int = 1200,
+    settle_ms: int = 2500,
 ) -> tuple[bool, str]:
     """Load one real page with the saved sign-in and report whether it worked.
 
@@ -62,12 +63,21 @@ def verify_saved_session(
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=headless)
-            context = browser.new_context(storage_state=str(state_path))
+            # Same viewport as collection. A site can serve different markup to
+            # a headless browser or an unusual window size, so the check has to
+            # run under the same conditions as the run it is clearing.
+            context = browser.new_context(storage_state=str(state_path), viewport=DEFAULT_VIEWPORT)
             block_tracking_requests(context)
             page = context.new_page()
             close_popup_pages(context, page)
             response = page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
             http_status = response.status if response is not None else None
+            # Prices are rendered after load, so give the page time to finish
+            # before reading it.
+            try:
+                page.wait_for_load_state("networkidle", timeout=8000)
+            except Exception:
+                pass
             page.wait_for_timeout(settle_ms)
             html = page.content()
             text = page.locator("body").inner_text(timeout=5000) if page.locator("body").count() else ""
@@ -103,7 +113,8 @@ def verify_saved_session(
     # is what let a dead session start a full run.
     return (
         False,
-        f"could not confirm the sign-in (no price read, session reported "
+        f"could not confirm the sign-in (no price read; page looked like "
+        f"'{_value(observation.page_classification) or 'nothing'}', session "
         f"'{session_state or 'nothing'}', prices '{price_state or 'nothing'}')",
     )
 
