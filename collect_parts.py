@@ -719,8 +719,10 @@ def collect_one_motosport_part(database_path: Path, page, planned, scan_run_id: 
                         )
                 else:
                     observation.warnings.append(str(click_result["reason"]))
-            else:
+            elif not form_validation["valid"]:
                 observation.warnings.append("add_to_cart_form_validation_failed")
+            else:
+                observation.warnings.append("cart_not_empty_before_add")
         else:
             observation.warnings.append("add_to_cart_button_not_found" if action["status"] == "not_found" else "ambiguous_cart_action")
 

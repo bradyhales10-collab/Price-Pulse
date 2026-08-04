@@ -584,6 +584,10 @@ def probe_one_cart_price(page, adapter: MotoSportAdapter, row: CartProbeInputRow
         result.raw_result["cart_text_excerpt"] = cart_text[:2000]
         supporting_sku = extract_tracking_label(action["candidate"])
         cart_line_records = collect_cart_line_records(page)
+        (product_output_dir / "cart_line_records.json").write_text(
+            json.dumps(cart_line_records, indent=2, default=str) + "\n",
+            encoding="utf-8",
+        )
         line_evidence = cart_line_evidence(cart_text, row, supporting_sku=supporting_sku, cart_line_records=cart_line_records)
         result.raw_result["cart_line_evidence"] = line_evidence
         save_cart_line_evidence(product_output_dir, row, line_evidence)
@@ -1131,14 +1135,41 @@ def collect_cart_line_records(page) -> list[dict[str, object]]:
     try:
         return page.evaluate(
             """
-            () => Array.from(document.querySelectorAll('[data-sku], tr, li, .cart-item, .cart-row')).slice(0, 100).map((el, index) => {
-              const remove = el.matches('a.cart-remove-item,.removeCartItem') ? el : el.querySelector('a.cart-remove-item[title="Remove item from cart."],.removeCartItem');
+            () => {
+              const rows = Array.from(document.querySelectorAll('[data-sku], tr, li, .cart-item, .cart-row'));
+              const removeControls = Array.from(document.querySelectorAll('a,button,[role="button"]')).filter((el) =>
+                (el.innerText || el.textContent || '').trim().toLowerCase() === 'remove' &&
+                Boolean(el.getBoundingClientRect().width && el.getBoundingClientRect().height)
+              );
+              removeControls.forEach((remove, index) => {
+                let container = remove.parentElement;
+                let depth = 0;
+                while (container && container !== document.body && depth < 20) {
+                  const text = (container.innerText || container.textContent || '').trim();
+                  if (/\\$[\\d,]+(?:\\.\\d{2})?/.test(text) && /\\b(?:quantity|current price)\\b/i.test(text)) {
+                    remove.setAttribute('data-part-pulse-cart-remove', String(index));
+                    container.setAttribute('data-part-pulse-cart-line', String(index));
+                    rows.push(container);
+                    break;
+                  }
+                  container = container.parentElement;
+                  depth += 1;
+                }
+              });
+              const uniqueRows = Array.from(new Set(rows)).sort((left, right) =>
+                Number(right.hasAttribute('data-part-pulse-cart-line')) - Number(left.hasAttribute('data-part-pulse-cart-line'))
+              );
+              return uniqueRows.slice(0, 100).map((el, index) => {
+              const remove = el.matches('a.cart-remove-item,.removeCartItem,[data-part-pulse-cart-remove]') ? el : el.querySelector('a.cart-remove-item[title="Remove item from cart."],.removeCartItem,[data-part-pulse-cart-remove]');
               const qtyInput = el.querySelector('input.quantity-selector-input,input[id^="amount_"]');
               const dataSku = el.getAttribute('data-sku') || (remove ? remove.getAttribute('data-sku') : '') || '';
               const dataQuantity = el.getAttribute('data-quantity') || (remove ? remove.getAttribute('data-quantity') : '') || (qtyInput ? qtyInput.value : '') || '';
               const removeSelector = (() => {
                 if (remove && dataSku) {
                   return `a.cart-remove-item[title="Remove item from cart."][data-sku="${CSS.escape(dataSku)}"]`;
+                }
+                if (remove && remove.hasAttribute('data-part-pulse-cart-remove')) {
+                  return `[data-part-pulse-cart-remove="${remove.getAttribute('data-part-pulse-cart-remove')}"]`;
                 }
                 if (remove && remove.classList.contains('removeCartItem') && qtyInput && qtyInput.id) {
                   return `tr:has(input#${CSS.escape(qtyInput.id)}) span.cursor:has-text("X")`;
@@ -1155,7 +1186,8 @@ def collect_cart_line_records(page) -> list[dict[str, object]]:
                 remove_href_present: Boolean(remove && remove.getAttribute('href')),
                 remove_href_used: false
               };
-            }).filter((row) => row.text || row.data_sku || row.remove_selector)
+            }).filter((row) => row.text || row.data_sku || row.remove_selector);
+            }
             """
         )
     except Exception:
@@ -1170,14 +1202,23 @@ def cart_line_evidence(
     cart_line_records: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     line = matching_cart_line(cart_text, row)
-    matching_record = None
+    matching_records: list[dict[str, object]] = []
     for record in cart_line_records or []:
         record_text = str(record.get("text") or "")
         record_sku = str(record.get("data_sku") or "")
         if _contains(row.oem_part_number, record_text) or _contains(row.product_name, record_text) or (supporting_sku and record_sku == supporting_sku):
-            matching_record = record
-            line = record_text or line
-            break
+            matching_records.append(record)
+    matching_record = max(
+        matching_records,
+        key=lambda record: (
+            bool(record.get("remove_selector")),
+            bool(supporting_sku and record.get("data_sku") == supporting_sku),
+            -len(str(record.get("text") or "")),
+        ),
+        default=None,
+    )
+    if matching_record:
+        line = str(matching_record.get("text") or "") or line
     raw_price_candidates = cart_price_candidates(line or "")
     placeholder_price_candidates = [price for price in raw_price_candidates if price in CART_PRICE_PLACEHOLDERS]
     price_candidates = [price for price in raw_price_candidates if price not in CART_PRICE_PLACEHOLDERS]
@@ -1568,7 +1609,10 @@ def remove_cart_item(page, *, context: CartProbeRunContext | None = None, line_e
         try:
             locator = page.locator(selector)
             if locator.count():
-                locator.first.click(timeout=5000)
+                try:
+                    locator.first.click(timeout=5000, no_wait_after=True)
+                except Exception:
+                    locator.first.evaluate("element => element.click()")
                 page.wait_for_timeout(CART_CLEANUP_SETTLE_MS)
                 return True
         except Exception:

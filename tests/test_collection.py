@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import builtins
 import csv
+import inspect
 import json
 from decimal import Decimal
 from pathlib import Path
@@ -138,6 +139,46 @@ def test_added_cart_item_cleanup_rebuilds_exact_line_evidence(monkeypatch) -> No
 
     assert status == "success"
     assert removed == [evidence]
+
+
+def test_partial_collection_output_is_preserved_for_upload(tmp_path) -> None:
+    progress = tmp_path / "progress.json"
+    summary = tmp_path / "collection_summary.csv"
+    progress.write_text(
+        json.dumps({"status": "completed_with_warnings", "completed": 5, "rows": [{"oem_part_number": "A"}]}),
+        encoding="utf-8",
+    )
+    summary.write_text("oem_part_number,selling_price\nA,10.00\n", encoding="utf-8")
+
+    from local_collector import _partial_collection_is_uploadable
+
+    assert _partial_collection_is_uploadable(progress, summary) is True
+    progress.write_text(json.dumps({"status": "failed", "completed": 0, "rows": []}), encoding="utf-8")
+    assert _partial_collection_is_uploadable(progress, summary) is False
+
+
+def test_cart_line_record_scan_marks_a_scoped_remove_control() -> None:
+    source = inspect.getsource(collect_parts.collect_cart_line_records)
+
+    assert "data-part-pulse-cart-line" in source
+    assert "data-part-pulse-cart-remove" in source
+    assert "uniqueRows.slice(0, 100)" in source
+
+
+def test_cart_line_evidence_prefers_the_exact_removable_record() -> None:
+    row = collect_parts.CartProbeInputRow("Kawasaki", "11008-1485", "HEAD-COMP-CYLINDER", "", "", "")
+    records = [
+        {"text": "11008-1485 Current Price: $866.52", "remove_selector": ""},
+        {
+            "text": "11008-1485 Quantity 1 Remove Current Price: $866.52",
+            "remove_selector": '[data-part-pulse-cart-remove="0"]',
+        },
+    ]
+
+    evidence = collect_parts.cart_line_evidence("", row, cart_line_records=records)
+
+    assert evidence["accepted_price"] == Decimal("866.52")
+    assert evidence["remove_selector"] == '[data-part-pulse-cart-remove="0"]'
 
 
 def test_result_normalization() -> None:

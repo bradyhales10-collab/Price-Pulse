@@ -256,12 +256,28 @@ def _run_competitor(
     last_progress = _forward_progress(progress_file, progress_callback, last_progress)
     if cancelled:
         raise CollectionCancelled(f"{competitor} was cancelled.")
-    if process.returncode:
-        raise subprocess.CalledProcessError(process.returncode, command)
     summary = ROOT / "data" / "output" / "collection_runs" / str(expected_run_id) / "collection_summary.csv"
+    if process.returncode:
+        if _partial_collection_is_uploadable(progress_file, summary):
+            print(
+                f"{competitor} exited after writing usable partial results; "
+                "uploading those rows with the recorded warning status."
+            )
+            return summary
+        raise subprocess.CalledProcessError(process.returncode, command)
     if not summary.exists():
         raise RuntimeError(f"{competitor} did not create a collection_summary.csv file.")
     return summary
+
+
+def _partial_collection_is_uploadable(progress_file: Path, summary: Path) -> bool:
+    if not summary.exists():
+        return False
+    try:
+        progress = json.loads(progress_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return int(progress.get("completed") or 0) > 0 and bool(progress.get("rows"))
 
 
 def _forward_progress(
