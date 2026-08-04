@@ -43,3 +43,104 @@ def test_snapshot_defaults_are_safe() -> None:
     assert snapshot.storage_state is None
     assert snapshot.signed_in_observed is False
     assert snapshot.detected_signals == []
+
+
+def test_a_navigation_during_sign_in_does_not_abandon_the_wait() -> None:
+    """Submitting a login form navigates, and reading a page mid-navigation
+    raises. That was being treated as a closed browser, so the wait ended
+    immediately and the sign-in was discarded - the user signed in successfully
+    and nothing was saved."""
+    from auth_bootstrap import _wait_for_manual_sign_in
+
+    class Page:
+        def __init__(self) -> None:
+            self.reads = 0
+            self._closed = False
+
+        def is_closed(self) -> bool:
+            return self._closed
+
+        def content(self) -> str:
+            self.reads += 1
+            if self.reads <= 2:
+                # Mid-navigation, exactly as Playwright behaves.
+                raise RuntimeError("Execution context was destroyed")
+            return "<html><body>My Account Sign Out $12.34</body></html>"
+
+        def title(self) -> str:
+            return "Account"
+
+        @property
+        def url(self) -> str:
+            return "https://www.partzilla.com/account"
+
+        def locator(self, selector):
+            page = self
+
+            class Locator:
+                def count(self):
+                    return 1
+
+                def inner_text(self, timeout=None):
+                    return "My Account Sign Out $12.34" if page.reads > 2 else ""
+
+            return Locator()
+
+        def wait_for_timeout(self, ms) -> None:
+            return None
+
+    class Context:
+        def storage_state(self):
+            return {"cookies": [{"name": "session", "domain": ".partzilla.com"}], "origins": []}
+
+    snapshot = _wait_for_manual_sign_in(Page(), Context(), settle_ms=0, timeout_seconds=30, poll_seconds=0)
+
+    # It must have kept polling through the navigation and then detected sign-in.
+    assert snapshot.signed_in_observed is True
+    assert snapshot.closed_by_user is False
+    assert snapshot.storage_state is not None
+    assert snapshot.storage_state["cookies"][0]["name"] == "session"
+
+
+def test_cookies_are_captured_even_while_the_page_cannot_be_read() -> None:
+    """Cookies come from the context, not the page, so they remain available
+    during a navigation. That is what makes the sign-in saveable."""
+    from auth_bootstrap import _wait_for_manual_sign_in
+
+    class Page:
+        def is_closed(self) -> bool:
+            return False
+
+        def content(self) -> str:
+            raise RuntimeError("Execution context was destroyed")
+
+        def locator(self, selector):
+            raise RuntimeError("not readable")
+
+        def wait_for_timeout(self, ms) -> None:
+            return None
+
+    class Context:
+        def storage_state(self):
+            return {"cookies": [{"name": "session", "domain": ".partzilla.com"}], "origins": []}
+
+    snapshot = _wait_for_manual_sign_in(Page(), Context(), settle_ms=0, timeout_seconds=1, poll_seconds=0)
+
+    assert snapshot.storage_state is not None
+    assert len(snapshot.storage_state["cookies"]) == 1
+
+
+def test_a_genuinely_closed_browser_still_ends_the_wait() -> None:
+    from auth_bootstrap import _wait_for_manual_sign_in
+
+    class Page:
+        def is_closed(self) -> bool:
+            return True
+
+    class Context:
+        def storage_state(self):
+            return {"cookies": [], "origins": []}
+
+    snapshot = _wait_for_manual_sign_in(Page(), Context(), settle_ms=0, timeout_seconds=5, poll_seconds=0)
+
+    assert snapshot.closed_by_user is True

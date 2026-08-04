@@ -96,6 +96,7 @@ def main() -> int:
     signals: list[str] = []
     storage_saved = False
     observation = None
+    cookie_count = 0
 
     try:
         with sync_playwright() as playwright:
@@ -152,12 +153,19 @@ def main() -> int:
 
             # The state is written from the snapshot captured while polling, so this
             # still works when the user simply closes the browser to finish.
-            if should_save and snapshot.storage_state is not None:
+            cookie_count = len((snapshot.storage_state or {}).get("cookies") or [])
+            if should_save and cookie_count:
                 save_uploaded_auth_state(
                     adapter.competitor_key,
                     json.dumps(snapshot.storage_state).encode("utf-8"),
                 )
                 storage_saved = True
+            elif should_save:
+                # Nothing to save means no cookies were ever captured, which is
+                # worth stating plainly rather than reporting a bare failure.
+                print("")
+                print("No browser session was captured, so there was nothing to save.")
+                print("This usually means the browser closed before the sign-in completed.")
 
             try:
                 context.close()
@@ -178,7 +186,7 @@ def main() -> int:
         print("")
         print("You can close this window and start the price check again.")
         print("")
-        print(f"(Technical details: result={result}, saved to {auth_state_path})")
+        print(f"(Technical details: result={result}, {cookie_count} cookies, saved to {auth_state_path})")
         print("Treat that file like a password. Do not share it or commit it.")
     else:
         print("  Your sign-in was NOT saved.")
@@ -246,37 +254,58 @@ def _wait_for_manual_sign_in(
     """
     snapshot = SignInSnapshot()
     deadline = time.monotonic() + timeout_seconds
+    consecutive_read_errors = 0
 
     while time.monotonic() < deadline:
+        if page.is_closed():
+            snapshot.closed_by_user = True
+            return snapshot
+
+        # Cookies come from the context, not the page, so this keeps working
+        # while the page is mid-navigation. Capture it first and on its own,
+        # because it is the only thing actually needed to save the sign-in.
         try:
-            if page.is_closed():
-                snapshot.closed_by_user = True
-                return snapshot
+            state = context.storage_state()
+            if state:
+                snapshot.storage_state = state
+        except Exception:
+            pass
+
+        html = ""
+        text = ""
+        try:
             html = page.content()
             text = page.locator("body").inner_text(timeout=5000) if page.locator("body").count() else ""
             snapshot.final_url = page.url
             snapshot.title = page.title()
             snapshot.html = html
             snapshot.text = text
-            state = context.storage_state()
+            consecutive_read_errors = 0
         except Exception:
-            # Reads fail once the window is gone; keep whatever we already have.
-            snapshot.closed_by_user = True
-            return snapshot
-
-        if state is not None:
-            snapshot.storage_state = state
+            # Signing in submits a form, which navigates, and reading a page
+            # mid-navigation raises. Treating that as a closed browser used to
+            # abandon the wait and discard the sign-in. Keep polling instead,
+            # and only give up if the window is really gone.
+            consecutive_read_errors += 1
+            if page.is_closed():
+                snapshot.closed_by_user = True
+                return snapshot
+            if consecutive_read_errors >= 30:
+                snapshot.closed_by_user = True
+                return snapshot
+            time.sleep(poll_seconds)
+            continue
 
         if _looks_signed_in(text=text, html=html):
             try:
                 page.wait_for_timeout(settle_ms)
-                snapshot.storage_state = context.storage_state()
+                snapshot.storage_state = context.storage_state() or snapshot.storage_state
                 snapshot.html = page.content()
                 snapshot.text = page.locator("body").inner_text(timeout=5000)
                 snapshot.final_url = page.url
                 snapshot.title = page.title()
             except Exception:
-                snapshot.closed_by_user = True
+                pass
             snapshot.signed_in_observed = True
             return snapshot
 
