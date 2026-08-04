@@ -315,3 +315,64 @@ def test_the_launcher_scripts_kill_by_window_title_not_by_reading_command_lines(
         assert "Get-CimInstance" not in source, filename
         assert 'taskkill /F /FI "WINDOWTITLE eq Part Pulse Browser Helper*"' in source, filename
         assert 'taskkill /F /FI "WINDOWTITLE eq Part Pulse Dashboard*"' in source, filename
+
+
+def test_run_summary_separates_real_problems_from_expected_outcomes(tmp_path, monkeypatch) -> None:
+    """"Local collection failed for: chaparral, partzilla" does not say what went
+    wrong or how many parts were affected. A brand a competitor simply does not
+    carry is a normal outcome and must not be presented as a fault, or the real
+    problems get lost in the noise."""
+    import json
+
+    import explain_last_run as explain
+
+    monkeypatch.setattr(explain, "BRIDGE_DIR", tmp_path)
+    monkeypatch.setattr(explain, "CRASH_DIR", tmp_path / "crashes")
+
+    rows = (
+        [{"oem_part_number": "A", "manufacturer": "Polaris", "result_type": "selling_price_found",
+          "selling_price": "1.00", "status_reason": "", "warnings": ""}]
+        + [{"oem_part_number": "B", "manufacturer": "CF Moto", "result_type": "manufacturer_not_carried",
+            "selling_price": None, "status_reason": "", "warnings": ""}]
+        + [{"oem_part_number": "C", "manufacturer": "Kawasaki", "result_type": "lookup_failed",
+            "selling_price": None, "status_reason": "no exact match", "warnings": ""}]
+    )
+    (tmp_path / "progress-1-chaparral.json").write_text(
+        json.dumps({"status": "failed", "completed": 3, "total": 3, "rows": rows}), encoding="utf-8"
+    )
+
+    files = explain.latest_progress_files()
+
+    assert list(files) == ["chaparral"]
+    assert "manufacturer_not_carried" in explain.EXPECTED_RESULTS
+    assert "lookup_failed" not in explain.EXPECTED_RESULTS
+
+
+def test_run_summary_picks_the_newest_file_per_competitor(tmp_path, monkeypatch) -> None:
+    import json
+    import os
+    import time
+
+    import explain_last_run as explain
+
+    monkeypatch.setattr(explain, "BRIDGE_DIR", tmp_path)
+
+    old = tmp_path / "progress-1-partzilla.json"
+    new = tmp_path / "progress-2-partzilla.json"
+    for path in (old, new):
+        path.write_text(json.dumps({"status": "completed", "rows": []}), encoding="utf-8")
+    past = time.time() - 3600
+    os.utime(old, (past, past))
+
+    files = explain.latest_progress_files()
+
+    assert files["partzilla"].name == new.name
+
+
+def test_run_summary_handles_no_results_without_crashing(tmp_path, monkeypatch) -> None:
+    import explain_last_run as explain
+
+    monkeypatch.setattr(explain, "BRIDGE_DIR", tmp_path)
+    monkeypatch.setattr(explain, "CRASH_DIR", tmp_path / "none")
+
+    assert explain.main() == 1
