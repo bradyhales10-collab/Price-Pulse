@@ -491,15 +491,16 @@ def test_only_the_preflight_opens_a_sign_in_window() -> None:
 # --- Live sign-in verification ------------------------------------------------
 
 
-def _fake_observation(session_state: str, price_state: str = "visible"):
+def _fake_observation(session_state: str, price_state: str = "visible", selling_price=None):
     class Observation:
         session_status = session_state
         price_visibility = price_state
 
+    Observation.selling_price = selling_price
     return Observation()
 
 
-def _run_live_check(session_state: str, price_state: str, tmp_path):
+def _run_live_check(session_state: str, price_state: str, tmp_path, selling_price=None):
     """Drive verify_saved_session with a stubbed browser."""
     import json
     import time
@@ -533,7 +534,7 @@ def _run_live_check(session_state: str, price_state: str, tmp_path):
                 adapter = get_comp.return_value
                 adapter.requires_login = True
                 adapter.build_product_url.return_value = "https://www.partzilla.com/product/x"
-                adapter.parse_product_page.return_value = _fake_observation(session_state, price_state)
+                adapter.parse_product_page.return_value = _fake_observation(session_state, price_state, selling_price)
                 return check.verify_saved_session("partzilla", part)
     finally:
         auth.PRIVATE_DIR = original
@@ -556,11 +557,17 @@ def test_gated_prices_count_as_signed_out(tmp_path) -> None:
     assert "hiding prices" in reason
 
 
-def test_a_confirmed_session_is_accepted(tmp_path) -> None:
-    usable, reason = _run_live_check("authenticated", "visible", tmp_path)
+def test_reading_a_price_confirms_the_sign_in(tmp_path) -> None:
+    """A visible price is the real proof, since these competitors hide prices
+    from anyone not signed in. Requiring session_status to say "authenticated"
+    reported a working sign-in as a failure, because the adapter passes through
+    a status of "unknown" even when it read the price perfectly well."""
+    from decimal import Decimal
 
-    assert usable is True
-    assert "confirmed signed in" in reason
+    confirmed, reason = _run_live_check("unknown", "visible", tmp_path, Decimal("282.32"))
+
+    assert confirmed is True
+    assert "282.32" in reason
 
 
 def test_anything_short_of_a_confirmation_stops_the_run(tmp_path) -> None:
@@ -569,7 +576,7 @@ def test_anything_short_of_a_confirmation_stops_the_run(tmp_path) -> None:
     started anyway, and the dead sign-in only surfaced once browsers were open
     and the sign-in window could no longer be used."""
     for state in ("blocked", "challenge", "navigation_error", "unknown"):
-        confirmed, reason = _run_live_check(state, "not_present", tmp_path)
+        confirmed, reason = _run_live_check(state, "not_present", tmp_path, None)
         assert confirmed is False, state
         assert "could not confirm" in reason
 

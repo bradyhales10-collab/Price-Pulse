@@ -88,13 +88,24 @@ def verify_saved_session(
         return (False, f"signed out on the live site ({session_state})")
     if price_state == "sign_in_required":
         return (False, "the live site is hiding prices behind a sign-in")
+
+    # A visible price is the real proof. These competitors hide prices from
+    # anyone not signed in, so seeing one means the saved session worked. This
+    # is checked before session_status because an adapter can pass through a
+    # status of "unknown" while still having read a price perfectly well, which
+    # made a working sign-in look like a failure.
+    if observation.selling_price is not None:
+        return (True, f"confirmed signed in: read a price of {observation.selling_price}")
     if session_state == "authenticated":
         return (True, "confirmed signed in on the live site")
-    # Anything else is not a confirmation. Treating "could not confirm" as good
-    # enough is what let a dead session through: the check reported unknown, the
-    # run started anyway, and the sign-in only failed once browsers were open.
-    # A sign-in must be positively confirmed before collection begins.
-    return (False, f"could not confirm the sign-in ({session_state or 'no answer'})")
+
+    # No price and no confirmation. Not treated as good enough, because doing so
+    # is what let a dead session start a full run.
+    return (
+        False,
+        f"could not confirm the sign-in (no price read, session reported "
+        f"'{session_state or 'nothing'}', prices '{price_state or 'nothing'}')",
+    )
 
 
 def first_probe_part(input_csv: Path, competitor_key: str) -> PartRecord | None:
