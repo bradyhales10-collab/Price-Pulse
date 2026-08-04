@@ -20,6 +20,7 @@ from types import SimpleNamespace
 from app.auth_session import delete_auth_state, saved_session_is_usable
 from app.competitors.registry import get_competitor, login_page_url
 from app.local_agent_credentials import unprotect_password
+from app.session_check import first_probe_part, verify_saved_session
 from local_collector import (
     BRIDGE_DIR,
     CollectionCancelled,
@@ -291,19 +292,45 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
             return False
         return bool(result and result.get("cancelled"))
 
-    # Only a cheap file check here. There used to be a live page load to verify
-    # the sign-in before starting, which was my addition and never worked: it
-    # added up to 40 seconds of silence before anything opened, misread a
-    # refused request as a signed-out session, and deleted a working saved
-    # sign-in when it got that wrong. A missing sign-in is still caught, and an
-    # expired one is caught during the run where the site itself reports it.
+    # Verify a login against one real product before any competitor browser
+    # starts. Cookie expiry alone is not enough: Partzilla can invalidate a
+    # still-current cookie server-side. Discovering that only after all four
+    # competitors started made the sign-in appear to do nothing while the
+    # others continued for several minutes.
     needs_sign_in = []
     sign_in_reasons: dict[str, str] = {}
+    probe_parts: dict[str, object] = {}
     for competitor in competitors:
         if not get_competitor(competitor).requires_login:
             continue
         usable, reason = saved_session_is_usable(competitor)
+        probe_part = first_probe_part(input_path, competitor)
+        if probe_part is not None:
+            probe_parts[competitor] = probe_part
+        if usable and probe_part is not None:
+            report(
+                competitor,
+                {
+                    "status": "verifying_login",
+                    "message": f"Checking the saved {get_competitor(competitor).display_name} sign-in before prices start.",
+                    "competitor": competitor,
+                    "competitor_key": competitor,
+                    "rows": [],
+                    "completed": 0,
+                    "total": max_parts,
+                },
+            )
+            usable, reason = verify_saved_session(
+                competitor,
+                probe_part,
+                headless=False,
+                timeout_ms=20_000,
+            )
         if not usable:
+            try:
+                delete_auth_state(competitor)
+            except Exception as exc:
+                LOGGER.warning("Could not remove the invalid %s sign-in: %s", competitor, exc)
             needs_sign_in.append(competitor)
             sign_in_reasons[competitor] = reason
 
@@ -314,15 +341,48 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
         )
         LOGGER.info("Sign-in needed before collecting: %s (%s)", names, detail)
         for key in needs_sign_in:
-            _open_login_refresh(
-                {"competitor_key": key, "display_name": get_competitor(key).display_name}
-            )
-            ready, reason = _wait_for_saved_sign_in(
-                key,
-                report=report,
-                should_cancel=job_cancelled,
-                total=max_parts,
-            )
+            ready = False
+            reason = sign_in_reasons[key]
+            for attempt in range(2):
+                _open_login_refresh(
+                    {"competitor_key": key, "display_name": get_competitor(key).display_name}
+                )
+                ready, reason = _wait_for_saved_sign_in(
+                    key,
+                    report=report,
+                    should_cancel=job_cancelled,
+                    total=max_parts,
+                )
+                if not ready:
+                    break
+                probe_part = probe_parts.get(key)
+                if probe_part is None:
+                    break
+                report(
+                    key,
+                    {
+                        "status": "verifying_login",
+                        "message": f"Confirming the new {get_competitor(key).display_name} sign-in on a product page.",
+                        "competitor": key,
+                        "competitor_key": key,
+                        "rows": [],
+                        "completed": 0,
+                        "total": max_parts,
+                    },
+                )
+                ready, reason = verify_saved_session(
+                    key,
+                    probe_part,
+                    headless=False,
+                    timeout_ms=20_000,
+                )
+                if ready:
+                    break
+                try:
+                    delete_auth_state(key)
+                except Exception as exc:
+                    LOGGER.warning("Could not remove the unconfirmed %s sign-in: %s", key, exc)
+                LOGGER.info("The new %s sign-in was not confirmed (%s); reopening once", key, reason)
             if not ready:
                 status = "cancelled" if reason == "cancelled" else "login_required"
                 message = (

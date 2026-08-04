@@ -450,6 +450,52 @@ def test_collection_proceeds_normally_when_sign_ins_are_present(monkeypatch, tmp
     assert "SHOULD NOT HAPPEN" not in prepared
 
 
+def test_live_sign_in_is_confirmed_before_any_competitor_starts(monkeypatch, tmp_path) -> None:
+    import local_collector_agent as agent
+
+    events: list[str] = []
+    confirmations = iter(
+        [
+            (False, "signed out on the live site"),
+            (True, "confirmed signed in: read a price"),
+        ]
+    )
+
+    monkeypatch.setattr(agent, "_request_json", lambda *a, **k: {})
+    monkeypatch.setattr(agent, "_download", lambda *a, **k: None)
+    monkeypatch.setattr(agent, "BRIDGE_DIR", tmp_path)
+    monkeypatch.setattr(agent, "saved_session_is_usable", lambda key: (True, "current"))
+    monkeypatch.setattr(agent, "first_probe_part", lambda path, key: object())
+
+    def verify(*args, **kwargs):
+        events.append("verify")
+        return next(confirmations)
+
+    monkeypatch.setattr(agent, "verify_saved_session", verify)
+    monkeypatch.setattr(agent, "delete_auth_state", lambda key: events.append("delete"))
+    monkeypatch.setattr(agent, "_open_login_refresh", lambda request: events.append("open"))
+    monkeypatch.setattr(agent, "_wait_for_saved_sign_in", lambda *a, **k: (events.append("saved") or True, "saved"))
+
+    def prepare(*args, **kwargs):
+        events.append("prepare")
+        return 1
+
+    monkeypatch.setattr(agent, "prepare_local_database", prepare)
+    monkeypatch.setattr(agent, "_run_competitor", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("stop")))
+
+    agent._run_job_body(
+        {"job_id": "job-live-login", "competitors": ["partzilla", "chaparral"], "input_url": "/x", "planned_count": 5},
+        {},
+        "http://server",
+        None,
+        "agent-1",
+    )
+
+    assert events[:5] == ["verify", "delete", "open", "saved", "verify"]
+    assert events.index("prepare") > 4
+    assert events.count("prepare") == 2
+
+
 def test_a_sign_in_problem_and_an_unrelated_failure_are_reported_separately() -> None:
     """The combined message read as though the failing competitor was the one
     needing a sign-in: 'Local collection failed for: chaparral. Your saved
