@@ -353,6 +353,7 @@ def test_sign_in_is_checked_before_any_collection_starts(monkeypatch, tmp_path) 
     monkeypatch.setattr(agent, "_download", lambda *a, **k: None)
     monkeypatch.setattr(agent, "prepare_local_database", fake_prepare)
     monkeypatch.setattr(agent, "_open_login_refresh", lambda req: calls["logins"].append(req["competitor_key"]))
+    monkeypatch.setattr(agent, "saved_session_is_usable", lambda key: (False, "no saved sign-in"))
     monkeypatch.setattr(agent, "saved_session_is_usable", lambda key: (False, "saved sign-in has expired"))
     monkeypatch.setattr(agent, "BRIDGE_DIR", tmp_path)
 
@@ -796,16 +797,6 @@ def test_the_sign_in_check_runs_under_the_same_conditions_as_collection() -> Non
     source = inspect.getsource(verify_saved_session)
     assert "DEFAULT_VIEWPORT" in source, "must use the same viewport as collection"
     assert "networkidle" in source, "prices render after load, so it must wait"
-
-
-def test_the_agent_checks_the_sign_in_with_the_same_visibility_as_the_run() -> None:
-    from pathlib import Path as _Path
-
-    source = _Path("local_collector_agent.py").read_text(encoding="utf-8")
-
-    assert "verify_saved_session(competitor, probe_part, headless=headless)" in source
-
-
 def test_new_tabs_are_blocked_at_the_browser_level_for_sign_in() -> None:
     """Removing window.open can be worked around by a script. Refusing to create
     new web contents at all is what stops a widget reopening a tab."""
@@ -819,42 +810,6 @@ def test_new_tabs_are_blocked_at_the_browser_level_for_sign_in() -> None:
     assert "NO_POPUP_BROWSER_ARGS" in source
     # Still honours the escape hatch for a social sign-in that needs a popup.
     assert "if args.allow_popups" in source
-
-
-def test_the_sign_in_check_reports_before_it_starts_waiting(tmp_path, monkeypatch) -> None:
-    """The check loads a real page, which takes seconds. With no message the
-    screen sat at 0 parts with no browser open, which is indistinguishable from
-    a stuck job, and the run was cancelled."""
-    import local_collector_agent as agent
-
-    messages: list[str] = []
-
-    def fake_request_json(url, auth_header, *, method="GET", payload=None, allow_empty=False):
-        if payload and payload.get("message"):
-            messages.append(str(payload["message"]))
-        return {}
-
-    monkeypatch.setattr(agent, "_request_json", fake_request_json)
-    monkeypatch.setattr(agent, "_download", lambda *a, **k: None)
-    monkeypatch.setattr(agent, "saved_session_is_usable", lambda key: (True, "file looks current"))
-    monkeypatch.setattr(agent, "first_probe_part", lambda path, key: object())
-    monkeypatch.setattr(agent, "verify_saved_session", lambda *a, **k: (False, "signed out on the live site"))
-    monkeypatch.setattr(agent, "_open_login_refresh", lambda req: None)
-    monkeypatch.setattr(agent, "delete_auth_state", lambda key: True)
-    monkeypatch.setattr(agent, "BRIDGE_DIR", tmp_path)
-
-    agent._run_job_body(
-        {"job_id": "j", "competitors": ["partzilla"], "input_url": "/x", "planned_count": 100},
-        {},
-        "http://server",
-        None,
-        "a",
-    )
-
-    assert any("Checking your Partzilla sign-in" in m for m in messages), messages
-    assert any("no prices are checked yet" in m for m in messages), messages
-
-
 def test_the_sign_in_check_cannot_take_long_enough_to_look_stuck() -> None:
     """Worst case was roughly 40 seconds per competitor with nothing on screen."""
     import inspect

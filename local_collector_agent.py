@@ -20,7 +20,6 @@ from types import SimpleNamespace
 from app.auth_session import delete_auth_state, saved_session_is_usable
 from app.competitors.registry import get_competitor, login_page_url
 from app.local_agent_credentials import unprotect_password
-from app.session_check import first_probe_part, verify_saved_session
 from local_collector import (
     BRIDGE_DIR,
     CollectionCancelled,
@@ -203,97 +202,50 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
         except Exception:
             LOGGER.warning("Could not report progress for %s", competitor)
 
+    # Only a cheap file check here. There used to be a live page load to verify
+    # the sign-in before starting, which was my addition and never worked: it
+    # added up to 40 seconds of silence before anything opened, misread a
+    # refused request as a signed-out session, and deleted a working saved
+    # sign-in when it got that wrong. A missing sign-in is still caught, and an
+    # expired one is caught during the run where the site itself reports it.
     needs_sign_in = []
     sign_in_reasons: dict[str, str] = {}
     for competitor in competitors:
         if not get_competitor(competitor).requires_login:
             continue
-        # This check loads a real page, which takes a few seconds. Saying so
-        # matters: with no message the screen sat at 0 parts with no browser
-        # open, which looks identical to a stuck job.
-        report(
-            competitor,
-            {
-                "status": "running",
-                "message": (
-                    f"Checking your {get_competitor(competitor).display_name} sign-in before "
-                    f"starting. This takes a few seconds and no prices are checked yet."
-                ),
-                "competitor": competitor,
-                "competitor_key": competitor,
-                "rows": [],
-                "completed": 0,
-                "total": max_parts,
-            },
-        )
-        # Cheap file check first, so an obviously missing or date-expired
-        # sign-in costs nothing.
         usable, reason = saved_session_is_usable(competitor)
-        if usable:
-            # Then confirm against the live site. Cookies can carry a future
-            # expiry while the site has already invalidated the session, which
-            # looks valid on disk and only fails once a page loads.
-            probe_part = first_probe_part(input_path, competitor)
-            if probe_part is not None:
-                usable, reason = verify_saved_session(competitor, probe_part, headless=headless)
-                LOGGER.info("%s sign-in check: %s", competitor, reason)
-                if usable:
-                    # Say it passed, so the screen does not go quiet again while
-                    # the collectors start up.
-                    report(
-                        competitor,
-                        {
-                            "status": "running",
-                            "message": f"Sign-in check passed ({reason}). Starting the price check.",
-                            "competitor": competitor,
-                            "competitor_key": competitor,
-                            "rows": [],
-                            "completed": 0,
-                            "total": max_parts,
-                        },
-                    )
         if not usable:
             needs_sign_in.append(competitor)
             sign_in_reasons[competitor] = reason
-            # The saved sign-in is no longer usable, so remove it rather than
-            # letting the next run trust it again.
-            try:
-                delete_auth_state(competitor)
-            except Exception:
-                LOGGER.warning("Could not remove the unusable %s sign-in", competitor)
+
     if needs_sign_in:
-        names = [get_competitor(key).display_name for key in needs_sign_in]
-        joined = ", ".join(names)
-        LOGGER.info("Sign-in needed before collecting: %s", joined)
-        for key in needs_sign_in:
-            adapter = get_competitor(key)
-            _open_login_refresh({"competitor_key": key, "display_name": adapter.display_name})
+        names = ", ".join(get_competitor(key).display_name for key in needs_sign_in)
         detail = "; ".join(
             f"{get_competitor(key).display_name}: {sign_in_reasons[key]}" for key in needs_sign_in
         )
+        LOGGER.info("Sign-in needed before collecting: %s (%s)", names, detail)
+        for key in needs_sign_in:
+            _open_login_refresh(
+                {"competitor_key": key, "display_name": get_competitor(key).display_name}
+            )
         message = (
-            f"Sign in to {joined} first ({detail}). A sign-in window has opened on this computer. "
+            f"Sign in to {names} first ({detail}). A sign-in window has opened on this computer. "
             f"Sign in there, close the window, then start the price check again. "
             f"No prices were checked, so nothing was changed."
         )
         for competitor in needs_sign_in:
-            try:
-                _request_json(
-                    f"{server_url}/collector/agent/jobs/{job_id}/progress/{competitor}?{urllib.parse.urlencode({'agent_id': agent_id})}",
-                    auth_header,
-                    method="POST",
-                    payload={
-                        "status": "login_required",
-                        "message": message,
-                        "competitor": competitor,
-                        "competitor_key": competitor,
-                        "rows": [],
-                        "completed": 0,
-                        "total": max_parts,
-                    },
-                )
-            except Exception:
-                LOGGER.exception("Could not report sign-in requirement for %s", competitor)
+            report(
+                competitor,
+                {
+                    "status": "login_required",
+                    "message": message,
+                    "competitor": competitor,
+                    "competitor_key": competitor,
+                    "rows": [],
+                    "completed": 0,
+                    "total": max_parts,
+                },
+            )
         _request_json(
             f"{server_url}/collector/agent/jobs/{job_id}/complete?{urllib.parse.urlencode({'agent_id': agent_id})}",
             auth_header,
