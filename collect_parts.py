@@ -5,6 +5,7 @@ import json
 import re
 import sys
 import time
+import traceback
 from collections.abc import Callable
 from pathlib import Path
 
@@ -266,6 +267,26 @@ def run_collection(args, plan) -> int:
                         delay_seconds=run_delay_seconds,
                     )
                 except Exception as exc:
+                    # str(exc) alone loses the traceback, which is what
+                    # identifies the file and line that actually raised, and
+                    # therefore which copy of the code was running. Write it
+                    # out so a failure can be traced rather than guessed at.
+                    try:
+                        crash_dir = OUTPUT_DIR / "collection_crashes"
+                        crash_dir.mkdir(parents=True, exist_ok=True)
+                        crash_path = crash_dir / f"{competitor_key}-{planned.oem_part_number}.txt".replace("/", "_")
+                        crash_path.write_text(
+                            f"competitor: {competitor_key}\n"
+                            f"part: {planned.oem_part_number}\n"
+                            f"collect_parts.py: {Path(__file__).resolve()}\n"
+                            f"python: {sys.executable}\n"
+                            f"working directory: {Path.cwd()}\n\n"
+                            + traceback.format_exc(),
+                            encoding="utf-8",
+                        )
+                        print(f"  Full error details written to: {crash_path}")
+                    except Exception:
+                        pass
                     row = collection_error_row(args.database, planned, scan_run_id, competitor_key, exc)
                 result.rows.append(row)
                 result.last_attempted_part = planned.oem_part_number
