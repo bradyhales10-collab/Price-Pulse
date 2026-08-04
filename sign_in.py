@@ -35,6 +35,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Sign in to one competitor, with nothing else running.")
     parser.add_argument("--competitor", required=True)
     parser.add_argument(
+        "--allow-popups",
+        action="store_true",
+        help="Only if the sign-in genuinely needs a popup window, such as a Google sign-in.",
+    )
+    parser.add_argument(
         "--keep-helper-running",
         action="store_true",
         help="Do not stop the Browser Helper first. Not recommended.",
@@ -124,7 +129,13 @@ def main() -> int:
     print("         Nothing else is running, so nothing will interrupt you.")
     print("")
     result = subprocess.run(
-        [sys.executable, str(ROOT / "auth_bootstrap.py"), "--competitor", adapter.competitor_key],
+        [
+            sys.executable,
+            str(ROOT / "auth_bootstrap.py"),
+            "--competitor",
+            adapter.competitor_key,
+            *(["--allow-popups"] if args.allow_popups else []),
+        ],
         cwd=ROOT,
     )
     if result.returncode != 0:

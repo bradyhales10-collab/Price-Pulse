@@ -42,6 +42,17 @@ TRACKING_HOST_PATTERNS = (
     r"(^|\.)fullstory\.com$",
     r"(^|\.)quantserve\.com$",
     r"(^|\.)scorecardresearch\.com$",
+    # Live chat / contact centre widgets. Partzilla's opens a popup that
+    # redirects to Google auth, closes, and is reopened by the widget.
+    r"(^|\.)mypurecloud\.com$",
+    r"(^|\.)genesys\.com$",
+    r"(^|\.)genesyscloud\.com$",
+    r"(^|\.)inindca\.com$",
+    r"(^|\.)livechatinc\.com$",
+    r"(^|\.)zopim\.com$",
+    r"(^|\.)zdassets\.com$",
+    r"(^|\.)intercom\.io$",
+    r"(^|\.)drift\.com$",
 )
 
 # Never blocked, even if a pattern above would match: these can be needed to
@@ -84,6 +95,24 @@ def block_tracking_requests(context) -> None:
                 pass
 
     context.route("**/*", handler)
+
+
+def disable_popups(context) -> None:
+    """Stop pages opening new windows at all.
+
+    Closing popups is not enough when a widget reopens whatever gets closed,
+    which is the loop seen on the Partzilla sign-in page. Nothing needed to
+    type a username and password uses window.open, so removing it is safe here.
+    A social sign-in that insists on a popup would be affected, which is why
+    the sign-in tool exposes a flag to leave popups enabled.
+    """
+    context.add_init_script(
+        "window.open = function () { return null; };"
+        "document.addEventListener('click', function (event) {"
+        "  var link = event.target && event.target.closest && event.target.closest('a[target=\"_blank\"]');"
+        "  if (link) { link.removeAttribute('target'); }"
+        "}, true);"
+    )
 
 
 def close_popup_pages(context, keep) -> None:

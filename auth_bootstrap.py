@@ -18,7 +18,7 @@ from app.auth_session import (
     write_authenticated_observation,
     write_sanitized_authenticated_diagnostics,
 )
-from app.browser_hygiene import block_tracking_requests, close_popup_pages
+from app.browser_hygiene import block_tracking_requests, close_popup_pages, disable_popups
 from app.browser_probe import detect_page_signals
 from app.competitors.registry import get_competitor, login_page_url
 from app.config import (
@@ -42,6 +42,11 @@ def parse_args() -> argparse.Namespace:
         help="Optional: sign in from this part's product page instead of the sign-in page.",
     )
     parser.add_argument("--url", help="Optional URL to open instead of building one from the default input CSV.")
+    parser.add_argument(
+        "--allow-popups",
+        action="store_true",
+        help="Allow the page to open popup windows. Only needed for a social sign-in that requires one.",
+    )
     parser.add_argument("--slow-mo", type=int, default=0, help="Playwright slow motion in milliseconds.")
     parser.add_argument("--timeout", type=int, default=30000, help="Navigation timeout in milliseconds.")
     return parser.parse_args()
@@ -101,6 +106,8 @@ def main() -> int:
             # popups, which take focus mid-typing and then close themselves,
             # making it impossible to sign in.
             block_tracking_requests(context)
+            if not args.allow_popups:
+                disable_popups(context)
             page = context.new_page()
             close_popup_pages(context, page)
             page.set_default_timeout(settings.timeout)

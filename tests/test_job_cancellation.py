@@ -741,3 +741,57 @@ def test_a_request_filter_failure_never_breaks_the_page() -> None:
     block_tracking_requests(Context())
 
     assert continued == ["continued"]
+
+
+def test_the_live_chat_widget_chain_is_blocked() -> None:
+    """The observed loop: a Genesys chat widget popup opens
+    apps.mypurecloud.com, redirects to Google auth, closes, and the widget
+    reopens it."""
+    from app.browser_hygiene import is_tracking_host
+
+    for host in ("apps.mypurecloud.com", "mypurecloud.com", "api.genesyscloud.com", "inindca.com"):
+        assert is_tracking_host(host) is True, host
+
+
+def test_popups_are_disabled_rather_than_only_closed() -> None:
+    """Closing a popup is not enough when the widget reopens whatever gets
+    closed. window.open has to be removed."""
+    from app.browser_hygiene import disable_popups
+
+    scripts: list[str] = []
+
+    class Context:
+        def add_init_script(self, script: str) -> None:
+            scripts.append(script)
+
+    disable_popups(Context())
+
+    assert len(scripts) == 1
+    assert "window.open" in scripts[0]
+    assert "_blank" in scripts[0]
+
+
+def test_sign_in_disables_popups_by_default_with_an_escape_hatch() -> None:
+    """Removing window.open would break a social sign-in that insists on a
+    popup, so there is a flag for that case."""
+    import sys
+
+    import auth_bootstrap
+
+    original = sys.argv
+    sys.argv = ["auth_bootstrap.py", "--competitor", "partzilla"]
+    try:
+        assert auth_bootstrap.parse_args().allow_popups is False
+        sys.argv = ["auth_bootstrap.py", "--competitor", "partzilla", "--allow-popups"]
+        assert auth_bootstrap.parse_args().allow_popups is True
+    finally:
+        sys.argv = original
+
+    # The flag must actually reach auth_bootstrap from the sign-in tool.
+    assert "--allow-popups" in _PathText("sign_in.py")
+
+
+def _PathText(name: str) -> str:
+    from pathlib import Path as _P
+
+    return _P(name).read_text(encoding="utf-8")
