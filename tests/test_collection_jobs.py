@@ -80,15 +80,17 @@ def test_unknown_job_status_still_falls_back_to_failed(tmp_path, monkeypatch) ->
 
 
 def test_delay_floor_scales_with_how_many_parts_a_run_covers() -> None:
-    """A one second gap is fine for a handful of parts. Thousands at that rate is
-    a sustained stream to one site, which is what gets an address blocked."""
+    """Routine runs stay fast; the floor only climbs for genuinely large ones.
+    Thresholds were raised after a 100-part run felt noticeably slow at a
+    2 second floor that was protecting against a much bigger crawl."""
     from app.collection import minimum_delay_for_run
 
     assert minimum_delay_for_run(7) == 1
-    assert minimum_delay_for_run(25) == 1
-    assert minimum_delay_for_run(26) == 2
-    assert minimum_delay_for_run(200) == 2
-    assert minimum_delay_for_run(201) == 3
+    assert minimum_delay_for_run(100) == 1
+    assert minimum_delay_for_run(250) == 1
+    assert minimum_delay_for_run(251) == 2
+    assert minimum_delay_for_run(1000) == 2
+    assert minimum_delay_for_run(1001) == 3
     assert minimum_delay_for_run(5000) == 3
 
 

@@ -327,3 +327,108 @@ def test_a_failure_before_any_competitor_starts_is_reported_not_silently_dropped
 
     assert reported["status"] == "failed"
     assert "revzilla" in reported["message"]
+
+
+# --- Sign-in happens before any collection starts ----------------------------
+
+
+def test_sign_in_is_checked_before_any_collection_starts(monkeypatch, tmp_path) -> None:
+    """A sign-in window opened while other competitors were already driving
+    browsers could not actually be used: it kept losing focus to pages the
+    running collectors opened. The check now happens first, so nothing else is
+    on screen competing with it, and no parts are collected."""
+    import local_collector_agent as agent
+
+    calls: dict[str, object] = {"logins": [], "posts": [], "prepared": 0}
+
+    def fake_request_json(url, auth_header, *, method="GET", payload=None, allow_empty=False):
+        calls["posts"].append((url, payload))
+        return {}
+
+    def fake_prepare(*args, **kwargs):
+        calls["prepared"] += 1
+        return 1
+
+    monkeypatch.setattr(agent, "_request_json", fake_request_json)
+    monkeypatch.setattr(agent, "_download", lambda *a, **k: None)
+    monkeypatch.setattr(agent, "prepare_local_database", fake_prepare)
+    monkeypatch.setattr(agent, "_open_login_refresh", lambda req: calls["logins"].append(req["competitor_key"]))
+    monkeypatch.setattr(agent, "auth_state_exists", lambda key: False)
+    monkeypatch.setattr(agent, "BRIDGE_DIR", tmp_path)
+
+    agent._run_job_body(
+        {"job_id": "job-signin", "competitors": ["partzilla", "chaparral"], "input_url": "/x", "planned_count": 100},
+        {},
+        "http://server",
+        None,
+        "agent-1",
+    )
+
+    # Partzilla requires a login; Chaparral does not.
+    assert calls["logins"] == ["partzilla"]
+    # Critically: no local databases were prepared and no collection ran.
+    assert calls["prepared"] == 0
+
+    completes = [p for url, p in calls["posts"] if "/complete" in url]
+    assert len(completes) == 1
+    assert completes[0]["status"] == "login_required"
+    assert "Partzilla" in completes[0]["message"]
+    assert "nothing was changed" in completes[0]["message"]
+
+
+def test_collection_proceeds_normally_when_sign_ins_are_present(monkeypatch, tmp_path) -> None:
+    """The pre-flight check must not block a run that has valid sign-ins."""
+    import local_collector_agent as agent
+
+    prepared: list[str] = []
+
+    monkeypatch.setattr(agent, "_request_json", lambda *a, **k: {})
+    monkeypatch.setattr(agent, "_download", lambda *a, **k: None)
+    monkeypatch.setattr(agent, "auth_state_exists", lambda key: True)
+    monkeypatch.setattr(agent, "_open_login_refresh", lambda req: prepared.append("SHOULD NOT HAPPEN"))
+    monkeypatch.setattr(agent, "BRIDGE_DIR", tmp_path)
+
+    def fake_prepare(input_path, local_db, keys, run_id_floor=0):
+        prepared.append(keys[0])
+        return run_id_floor + 1
+
+    monkeypatch.setattr(agent, "prepare_local_database", fake_prepare)
+    monkeypatch.setattr(agent, "_run_competitor", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("stop here")))
+
+    try:
+        agent._run_job_body(
+            {"job_id": "job-ok", "competitors": ["partzilla"], "input_url": "/x", "planned_count": 5},
+            {},
+            "http://server",
+            None,
+            "agent-1",
+        )
+    except Exception:
+        pass
+
+    assert "partzilla" in prepared
+    assert "SHOULD NOT HAPPEN" not in prepared
+
+
+def test_a_sign_in_problem_and_an_unrelated_failure_are_reported_separately() -> None:
+    """The combined message read as though the failing competitor was the one
+    needing a sign-in: 'Local collection failed for: chaparral. Your saved
+    Partzilla sign-in has expired...'"""
+    import local_collector_agent as agent
+
+    outcomes = {
+        "partzilla": {"status": "login_required"},
+        "chaparral": {"status": "failed"},
+    }
+    needs_login = [k for k, v in outcomes.items() if v.get("status") == "login_required"]
+    failed = [k for k, v in outcomes.items() if v.get("status") == "failed"]
+
+    assert needs_login == ["partzilla"]
+    assert failed == ["chaparral"]
+
+    source = agent.__file__
+    from pathlib import Path
+
+    text = Path(source).read_text(encoding="utf-8")
+    assert "Two separate problems" in text
+    assert "Second, unrelated" in text

@@ -924,7 +924,11 @@ def _aggregate_progress(progress_by_competitor: dict[str, dict[str, object]], me
     has_all_progress = len([progress for progress in progresses if progress]) == len(competitors)
     terminal_statuses = {"completed", "completed_with_warnings", "failed", "stopped_blocked", "stopped_challenge", "cancelled"}
     job_status_value = str(metadata.get("status") or "")
-    if job_status_value == "cancelled":
+    if job_status_value == "login_required":
+        # Set before any collection ran, so per-competitor progress is absent
+        # or stale and must not override it.
+        status = "login_required"
+    elif job_status_value == "cancelled":
         # The job was cancelled at the top level, which can happen even when a
         # competitor never reported back (an unresponsive Browser Helper). That
         # must win over whatever the per-competitor progress files still say.

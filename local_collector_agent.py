@@ -171,6 +171,55 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
     job_dir.mkdir(parents=True, exist_ok=True)
     input_path = job_dir / "collector-input.csv"
     _download(f"{server_url}{job['input_url']}", input_path, auth_header)
+
+    # Check every sign-in before any collection starts. Opening a sign-in
+    # window while other competitors are already driving browsers made it
+    # impossible to actually sign in: the window kept losing focus to pages
+    # being opened by the running collectors. Stopping here means the sign-in
+    # window is the only thing on screen.
+    needs_sign_in = [
+        competitor
+        for competitor in competitors
+        if get_competitor(competitor).requires_login and not auth_state_exists(competitor)
+    ]
+    if needs_sign_in:
+        names = [get_competitor(key).display_name for key in needs_sign_in]
+        joined = ", ".join(names)
+        LOGGER.info("Sign-in needed before collecting: %s", joined)
+        for key in needs_sign_in:
+            adapter = get_competitor(key)
+            _open_login_refresh({"competitor_key": key, "display_name": adapter.display_name})
+        message = (
+            f"Sign in to {joined} first. A sign-in window has opened on this computer. "
+            f"Sign in there, close the window, then start the price check again. "
+            f"No prices were checked, so nothing was changed."
+        )
+        for competitor in needs_sign_in:
+            try:
+                _request_json(
+                    f"{server_url}/collector/agent/jobs/{job_id}/progress/{competitor}?{urllib.parse.urlencode({'agent_id': agent_id})}",
+                    auth_header,
+                    method="POST",
+                    payload={
+                        "status": "login_required",
+                        "message": message,
+                        "competitor": competitor,
+                        "competitor_key": competitor,
+                        "rows": [],
+                        "completed": 0,
+                        "total": max_parts,
+                    },
+                )
+            except Exception:
+                LOGGER.exception("Could not report sign-in requirement for %s", competitor)
+        _request_json(
+            f"{server_url}/collector/agent/jobs/{job_id}/complete?{urllib.parse.urlencode({'agent_id': agent_id})}",
+            auth_header,
+            method="POST",
+            payload={"status": "login_required", "message": message},
+        )
+        return
+
     run_token = int(time.time() * 1000)
     jobs: list[tuple[str, Path, int]] = []
     for index, competitor in enumerate(competitors):
@@ -314,14 +363,22 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
     if cancelled:
         status = "cancelled"
         message = "Price check cancelled."
-    elif needs_login and not failed:
+    elif needs_login:
         names = ", ".join(get_competitor(key).display_name for key in needs_login)
-        status = "login_required"
-        message = (
+        sign_in_text = (
             f"{names} needs you to sign in before prices can be checked. A sign-in window has "
             f"opened on the computer running the Browser Helper. Sign in there, then start the "
             f"price check again."
         )
+        if failed:
+            # Reported as two separate facts. Running them together read as
+            # though the failing competitor was the one needing the sign-in.
+            other = ", ".join(get_competitor(key).display_name for key in failed)
+            status = "failed"
+            message = f"Two separate problems. First: {sign_in_text} Second, unrelated: {other} could not be checked."
+        else:
+            status = "login_required"
+            message = sign_in_text
     elif failed:
         status = "failed"
         message = f"Local collection failed for: {', '.join(failed)}."

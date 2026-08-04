@@ -16,9 +16,13 @@ MIN_DELAY_SECONDS = 1
 # that rate is a steady stream of requests to one site for the better part of an
 # hour, which is what gets an address blocked. The floor therefore scales with
 # how many parts the run will touch.
-MEDIUM_RUN_PART_COUNT = 25
+# Thresholds raised after the first real runs: a 100 part list is a routine
+# check, not the sustained hours-long crawl these floors were guarding against,
+# and forcing 2 seconds on it made ordinary use noticeably slow for no real
+# protection. The floors still climb for genuinely large runs.
+MEDIUM_RUN_PART_COUNT = 250
 MEDIUM_RUN_MIN_DELAY_SECONDS = 2
-LARGE_RUN_PART_COUNT = 200
+LARGE_RUN_PART_COUNT = 1000
 LARGE_RUN_MIN_DELAY_SECONDS = 3
 
 # Perfectly even timing is itself a signal that traffic is automated, so each
