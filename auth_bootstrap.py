@@ -24,6 +24,11 @@ from app.browser_hygiene import (
     close_popup_pages,
     disable_popups,
 )
+from app.browser_profile import (
+    launch_persistent_competitor_context,
+    primary_page,
+    save_persistent_session,
+)
 from app.browser_probe import detect_page_signals
 from app.competitors.registry import get_competitor, login_page_url
 from app.config import (
@@ -106,13 +111,14 @@ def main() -> int:
     try:
         with sync_playwright() as playwright:
             launch_args = [] if args.allow_popups else list(NO_POPUP_BROWSER_ARGS)
-            browser = playwright.chromium.launch(
+            context = launch_persistent_competitor_context(
+                playwright,
+                adapter.competitor_key,
                 headless=settings.headless,
                 slow_mo=settings.slow_mo,
                 args=launch_args,
             )
-            context = browser.new_context(viewport=DEFAULT_VIEWPORT)
-            page = context.new_page()
+            page = primary_page(context)
             # Playwright's Chromium has no ad blocker, so tracking scripts run
             # that a normal desktop browser would stop. Some of them open
             # popups, which take focus mid-typing and then close themselves,
@@ -169,6 +175,13 @@ def main() -> int:
                     adapter.competitor_key,
                     json.dumps(snapshot.storage_state).encode("utf-8"),
                 )
+                try:
+                    save_persistent_session(context, adapter.competitor_key)
+                except Exception:
+                    # Closing the browser is a supported way to finish. The
+                    # persistent profile has already saved itself in that case,
+                    # and the JSON snapshot above remains a valid fallback.
+                    pass
                 storage_saved = True
             elif should_save:
                 # Nothing to save means no cookies were ever captured, which is
@@ -179,7 +192,6 @@ def main() -> int:
 
             try:
                 context.close()
-                browser.close()
             except Exception:
                 # The user closing the browser is a normal way to finish here.
                 pass

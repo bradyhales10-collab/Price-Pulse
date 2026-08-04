@@ -19,6 +19,11 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 from app.auth_session import auth_state_path_for
+from app.browser_profile import (
+    launch_persistent_competitor_context,
+    primary_page,
+    save_persistent_session,
+)
 from app.competitors.registry import get_competitor
 from app.config import DEFAULT_VIEWPORT
 from app.models import PartRecord
@@ -60,16 +65,18 @@ def verify_saved_session(
     except Exception as exc:
         return (True, f"could not build a check URL ({exc})")
 
-    browser = None
     context = None
     try:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=headless)
-            # Same viewport as collection. A site can serve different markup to
-            # a headless browser or an unusual window size, so the check has to
-            # run under the same conditions as the run it is clearing.
-            context = browser.new_context(storage_state=str(state_path), viewport=DEFAULT_VIEWPORT)
-            page = context.new_page()
+            # Verification, sign-in, and collection all use this same Chromium
+            # profile. That removes the fragile cookie-file handoff that could
+            # discard a session token rotated by this very page load.
+            context = launch_persistent_competitor_context(
+                playwright,
+                competitor_key,
+                headless=headless,
+            )
+            page = primary_page(context)
             response = page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
             http_status = response.status if response is not None else None
             # Prices are rendered after load, so give the page time to finish
@@ -84,8 +91,8 @@ def verify_saved_session(
             observation = adapter.parse_product_page(
                 html, probe_part, visible_text=text, final_url=page.url, http_status=http_status
             )
+            save_persistent_session(context, competitor_key)
             context.close()
-            browser.close()
     except (PlaywrightTimeoutError, PlaywrightError) as exc:
         # Not reaching the site says nothing about the sign-in either.
         return (True, f"could not check: the site was unreachable ({type(exc).__name__}). Sign-in kept.")

@@ -688,11 +688,14 @@ def _run_live_check(session_state: str, price_state: str, tmp_path, selling_pric
     from unittest.mock import patch
 
     import app.auth_session as auth
+    import app.browser_profile as profiles
     import app.session_check as check
     from app.models import PartRecord
 
     original = auth.PRIVATE_DIR
+    original_profiles = profiles.PRIVATE_DIR
     auth.PRIVATE_DIR = tmp_path
+    profiles.PRIVATE_DIR = tmp_path
     try:
         state = auth.auth_state_path_for("partzilla")
         state.parent.mkdir(parents=True, exist_ok=True)
@@ -705,7 +708,9 @@ def _run_live_check(session_state: str, price_state: str, tmp_path, selling_pric
         part = PartRecord(test_case_id="t", manufacturer="Kawasaki", oem_part_number="41080-1514")
         with patch.object(check, "sync_playwright") as playwright:
             context = playwright.return_value.__enter__.return_value
-            page = context.chromium.launch.return_value.new_context.return_value.new_page.return_value
+            browser_context = context.chromium.launch_persistent_context.return_value
+            page = browser_context.pages.__iter__.return_value = iter([])
+            page = browser_context.new_page.return_value
             page.goto.return_value.status = 200
             page.content.return_value = "<html></html>"
             page.locator.return_value.count.return_value = 1
@@ -719,6 +724,7 @@ def _run_live_check(session_state: str, price_state: str, tmp_path, selling_pric
                 return check.verify_saved_session("partzilla", part)
     finally:
         auth.PRIVATE_DIR = original
+        profiles.PRIVATE_DIR = original_profiles
 
 
 def test_a_session_invalidated_server_side_is_caught(tmp_path) -> None:
@@ -749,6 +755,16 @@ def test_reading_a_price_confirms_the_sign_in(tmp_path) -> None:
 
     assert confirmed is True
     assert "282.32" in reason
+
+
+def test_live_check_saves_any_session_rotation_before_collection(tmp_path) -> None:
+    import inspect
+
+    from app.session_check import verify_saved_session
+
+    source = inspect.getsource(verify_saved_session)
+    assert "save_persistent_session(context, competitor_key)" in source
+    assert source.index("save_persistent_session(context, competitor_key)") < source.index("context.close()")
 
 
 def test_anything_short_of_a_confirmation_stops_the_run(tmp_path) -> None:
@@ -1009,8 +1025,16 @@ def test_the_sign_in_check_runs_under_the_same_conditions_as_collection() -> Non
     assert signature.parameters["headless"].default is False
 
     source = inspect.getsource(verify_saved_session)
-    assert "DEFAULT_VIEWPORT" in source, "must use the same viewport as collection"
+    assert "launch_persistent_competitor_context" in source, "must use the same profile settings as collection"
     assert "networkidle" in source, "prices render after load, so it must wait"
+
+
+def test_login_verification_and_collection_share_a_persistent_profile() -> None:
+    from pathlib import Path
+
+    for filename in ("app/session_check.py", "auth_bootstrap.py", "collect_parts.py"):
+        source = Path(filename).read_text(encoding="utf-8")
+        assert "launch_persistent_competitor_context" in source, filename
 def test_new_tabs_are_blocked_at_the_browser_level_for_sign_in() -> None:
     """Removing window.open can be worked around by a script. Refusing to create
     new web contents at all is what stops a widget reopening a tab."""

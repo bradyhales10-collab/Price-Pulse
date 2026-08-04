@@ -22,6 +22,11 @@ from app.auth_session import (
     write_sanitized_authenticated_diagnostics,
 )
 from app.browser_probe import detect_page_signals
+from app.browser_profile import (
+    launch_persistent_competitor_context,
+    primary_page,
+    save_persistent_session,
+)
 from app.collection import (
     CollectionRow,
     CollectionRunResult,
@@ -241,14 +246,18 @@ def run_collection(args, plan) -> int:
     _write_progress(args, result, plan, status="running", started_monotonic=started_monotonic)
     try:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=settings.headless)
+            browser = None
             if get_competitor(competitor_key).requires_login:
                 # A saved sign-in that is missing or unreadable fails here,
                 # before any part is attempted. Record why, because this used to
                 # surface as a run that simply reported completed with no rows.
                 state_path = auth_state_path_for(competitor_key)
                 try:
-                    context = browser.new_context(storage_state=str(state_path), viewport=DEFAULT_VIEWPORT)
+                    context = launch_persistent_competitor_context(
+                        playwright,
+                        competitor_key,
+                        headless=settings.headless,
+                    )
                 except Exception as exc:
                     # An already-saved file can contain a cookie with no value,
                     # which Playwright refuses outright. Rewriting it through the
@@ -258,7 +267,11 @@ def run_collection(args, plan) -> int:
                         repaired = save_uploaded_auth_state(
                             competitor_key, auth_state_path_for(competitor_key).read_bytes()
                         )
-                        context = browser.new_context(storage_state=str(repaired), viewport=DEFAULT_VIEWPORT)
+                        context = launch_persistent_competitor_context(
+                            playwright,
+                            competitor_key,
+                            headless=settings.headless,
+                        )
                         print(f"Repaired the saved {competitor_key} sign-in and continued.")
                     except Exception:
                         result.run_status = "failed"
@@ -274,10 +287,11 @@ def run_collection(args, plan) -> int:
                         )
                         raise
             else:
+                browser = playwright.chromium.launch(headless=settings.headless)
                 context = browser.new_context(viewport=DEFAULT_VIEWPORT)
             if args.collection_mode == "lightweight_browser":
                 context.route("**/*", lambda route: route.abort() if route.request.resource_type in HEAVY_RESOURCE_TYPES else route.continue_())
-            page = context.new_page()
+            page = primary_page(context) if get_competitor(competitor_key).requires_login else context.new_page()
             page.set_default_timeout(settings.timeout)
             page.set_default_navigation_timeout(settings.timeout)
             assert_production_collector_exists(competitor_key)
@@ -341,11 +355,12 @@ def run_collection(args, plan) -> int:
                 # discarding those rotations made a saved login expire sooner
                 # than the browser session the user had just established.
                 try:
-                    context.storage_state(path=str(auth_state_path_for(competitor_key)))
+                    save_persistent_session(context, competitor_key)
                 except Exception as exc:
                     print(f"Could not refresh the saved {competitor_key} sign-in: {exc}")
             context.close()
-            browser.close()
+            if browser is not None:
+                browser.close()
     finally:
         result.completed_at = utc_now()
         with connect_database(args.database) as conn:
