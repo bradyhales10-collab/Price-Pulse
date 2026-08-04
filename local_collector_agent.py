@@ -16,7 +16,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from types import SimpleNamespace
 
-from app.auth_session import auth_state_exists, delete_auth_state
+from app.auth_session import auth_state_exists, delete_auth_state, saved_session_is_usable
 from app.competitors.registry import get_competitor
 from app.local_agent_credentials import unprotect_password
 from app.models import PartRecord
@@ -177,11 +177,15 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
     # impossible to actually sign in: the window kept losing focus to pages
     # being opened by the running collectors. Stopping here means the sign-in
     # window is the only thing on screen.
-    needs_sign_in = [
-        competitor
-        for competitor in competitors
-        if get_competitor(competitor).requires_login and not auth_state_exists(competitor)
-    ]
+    needs_sign_in = []
+    sign_in_reasons: dict[str, str] = {}
+    for competitor in competitors:
+        if not get_competitor(competitor).requires_login:
+            continue
+        usable, reason = saved_session_is_usable(competitor)
+        if not usable:
+            needs_sign_in.append(competitor)
+            sign_in_reasons[competitor] = reason
     if needs_sign_in:
         names = [get_competitor(key).display_name for key in needs_sign_in]
         joined = ", ".join(names)
@@ -189,8 +193,11 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
         for key in needs_sign_in:
             adapter = get_competitor(key)
             _open_login_refresh({"competitor_key": key, "display_name": adapter.display_name})
+        detail = "; ".join(
+            f"{get_competitor(key).display_name}: {sign_in_reasons[key]}" for key in needs_sign_in
+        )
         message = (
-            f"Sign in to {joined} first. A sign-in window has opened on this computer. "
+            f"Sign in to {joined} first ({detail}). A sign-in window has opened on this computer. "
             f"Sign in there, close the window, then start the price check again. "
             f"No prices were checked, so nothing was changed."
         )
@@ -250,16 +257,18 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
                 LOGGER.warning("Could not send %s progress for job %s: %s", competitor, job_id, exc)
 
         adapter = get_competitor(competitor)
-        if adapter.requires_login and not auth_state_exists(adapter.competitor_key):
-            # Without a saved sign-in, collect_parts.py would exit non-zero and the
-            # user would only see a generic failure. Report it clearly instead and
-            # open the sign-in window on this computer so they can fix it directly.
-            LOGGER.info("%s has no saved sign-in; opening the sign-in helper", competitor)
+        usable, reason = saved_session_is_usable(adapter.competitor_key) if adapter.requires_login else (True, "")
+        if not usable:
+            # A backstop only. The pre-flight check before any collection began
+            # should already have caught this. No sign-in window is opened here,
+            # because other competitors are driving browsers by now and a window
+            # opened alongside them cannot be used.
+            LOGGER.info("%s sign-in not usable (%s); skipping without collecting", competitor, reason)
             progress = {
                 "status": "login_required",
                 "message": (
-                    f"{adapter.display_name} needs you to sign in. A sign-in window has opened on "
-                    f"this computer. Sign in, then start the price check again."
+                    f"{adapter.display_name} needs you to sign in ({reason}). Start the price check "
+                    f"again and a sign-in window will open before anything else runs."
                 ),
                 "competitor": competitor,
                 "competitor_key": adapter.competitor_key,
@@ -268,9 +277,6 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
                 "total": max_parts,
             }
             send_progress(progress)
-            _open_login_refresh(
-                {"competitor_key": adapter.competitor_key, "display_name": adapter.display_name}
-            )
             return progress
 
         def should_cancel() -> bool:
@@ -336,9 +342,12 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
                 "total": outcome.get("total") or max_parts,
             }
             send_progress(outcome)
-            _open_login_refresh(
-                {"competitor_key": adapter.competitor_key, "display_name": adapter.display_name}
-            )
+            # Deliberately does NOT open a sign-in window here. Other
+            # competitors are still driving browsers at this point, so a window
+            # opened now cannot be used: it loses focus to their pages and the
+            # user is left watching tabs open and close. The stale file has been
+            # deleted, so the pre-flight check at the start of the next run will
+            # open the window when nothing else is running.
         return outcome
 
     with ThreadPoolExecutor(max_workers=max(1, len(jobs))) as executor:

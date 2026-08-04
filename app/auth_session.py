@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -80,6 +81,46 @@ def delete_auth_state(competitor_key: str) -> bool:
         return False
     path.unlink()
     return True
+
+
+def saved_session_is_usable(competitor_key: str, *, now: float | None = None) -> tuple[bool, str]:
+    """Whether a saved sign-in is still good enough to attempt a run with.
+
+    Checking only that the file exists is not enough. An expired session file
+    is still a file, so a run would start, drive a browser, discover the
+    session is dead partway through, and only then ask for a sign-in - by
+    which point other competitors are already driving browsers of their own
+    and the sign-in window cannot be used.
+
+    This reads the cookie expiry times already stored in the file, so it
+    needs no network and no browser. Session cookies (expires -1) cannot be
+    judged this way and are treated as usable, since the alternative is
+    forcing a sign-in before every run.
+    """
+    path = auth_state_path_for(competitor_key)
+    if not path.exists():
+        return (False, "no saved sign-in")
+    try:
+        parsed = _parse_auth_state(path.read_bytes())
+    except InvalidAuthStateError as exc:
+        return (False, f"saved sign-in is unreadable ({exc})")
+
+    cookies = [cookie for cookie in parsed.get("cookies", []) if isinstance(cookie, dict)]
+    if not cookies:
+        return (False, "saved sign-in has no cookies")
+
+    moment = time.time() if now is None else now
+    dated = []
+    for cookie in cookies:
+        expires = cookie.get("expires")
+        if isinstance(expires, int | float) and expires > 0:
+            dated.append(float(expires))
+    if not dated:
+        # Only session cookies, whose lifetime is not recorded in the file.
+        return (True, "saved sign-in present (expiry not recorded)")
+    if max(dated) <= moment:
+        return (False, "saved sign-in has expired")
+    return (True, "saved sign-in looks current")
 
 
 def _safe_competitor_key(value: str) -> str:

@@ -353,7 +353,7 @@ def test_sign_in_is_checked_before_any_collection_starts(monkeypatch, tmp_path) 
     monkeypatch.setattr(agent, "_download", lambda *a, **k: None)
     monkeypatch.setattr(agent, "prepare_local_database", fake_prepare)
     monkeypatch.setattr(agent, "_open_login_refresh", lambda req: calls["logins"].append(req["competitor_key"]))
-    monkeypatch.setattr(agent, "auth_state_exists", lambda key: False)
+    monkeypatch.setattr(agent, "saved_session_is_usable", lambda key: (False, "saved sign-in has expired"))
     monkeypatch.setattr(agent, "BRIDGE_DIR", tmp_path)
 
     agent._run_job_body(
@@ -384,7 +384,7 @@ def test_collection_proceeds_normally_when_sign_ins_are_present(monkeypatch, tmp
 
     monkeypatch.setattr(agent, "_request_json", lambda *a, **k: {})
     monkeypatch.setattr(agent, "_download", lambda *a, **k: None)
-    monkeypatch.setattr(agent, "auth_state_exists", lambda key: True)
+    monkeypatch.setattr(agent, "saved_session_is_usable", lambda key: (True, "current"))
     monkeypatch.setattr(agent, "_open_login_refresh", lambda req: prepared.append("SHOULD NOT HAPPEN"))
     monkeypatch.setattr(agent, "BRIDGE_DIR", tmp_path)
 
@@ -432,3 +432,55 @@ def test_a_sign_in_problem_and_an_unrelated_failure_are_reported_separately() ->
     text = Path(source).read_text(encoding="utf-8")
     assert "Two separate problems" in text
     assert "Second, unrelated" in text
+
+
+def test_an_expired_sign_in_is_caught_before_collecting_not_only_a_missing_one() -> None:
+    """The pre-flight check originally tested only that the sign-in file
+    existed. An expired file is still a file, so the run started anyway,
+    discovered the dead session partway through, and asked for a sign-in while
+    other competitors were already driving browsers - the loop the user hit."""
+    import json
+    import tempfile
+    import time
+    from pathlib import Path
+
+    import app.auth_session as auth
+
+    original_dir = auth.PRIVATE_DIR
+    with tempfile.TemporaryDirectory() as tmp:
+        auth.PRIVATE_DIR = Path(tmp)
+        try:
+            def write(key, expires):
+                path = auth.auth_state_path_for(key)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(
+                    json.dumps({"cookies": [{"name": "s", "domain": ".x.com", "expires": expires}], "origins": []}),
+                    encoding="utf-8",
+                )
+
+            write("expired_case", time.time() - 86400)
+            usable, reason = auth.saved_session_is_usable("expired_case")
+            assert usable is False
+            assert "expired" in reason
+            # The old check would have passed this, since the file is present.
+            assert auth.auth_state_exists("expired_case") is True
+
+            write("valid_case", time.time() + 86400)
+            usable, _ = auth.saved_session_is_usable("valid_case")
+            assert usable is True
+        finally:
+            auth.PRIVATE_DIR = original_dir
+
+
+def test_only_the_preflight_opens_a_sign_in_window() -> None:
+    """Windows opened mid-run cannot be used, because the other competitors'
+    browsers steal focus. Exactly one place should open one."""
+    from pathlib import Path
+
+    source = Path("local_collector_agent.py").read_text(encoding="utf-8")
+    opens = source.count("_open_login_refresh(")
+
+    # One definition, one call from the login-refresh poll loop, and one from
+    # the pre-flight check. No more than that.
+    assert opens <= 3, f"_open_login_refresh referenced {opens} times; a mid-run call may have returned"
+    assert "Deliberately does NOT open a sign-in window here" in source
