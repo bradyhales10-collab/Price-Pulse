@@ -118,7 +118,7 @@ def test_uploaded_auth_state_is_validated_and_saved() -> None:
 
     saved = save_uploaded_auth_state(
         "testauth",
-        b'{"cookies":[{"name":"session","domain":".example.com"}],"origins":[]}',
+        b'{"cookies":[{"name":"session","value":"abc","domain":".example.com"}],"origins":[]}',
     )
 
     assert saved == path

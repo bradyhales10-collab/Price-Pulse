@@ -140,9 +140,28 @@ def _parse_auth_state(content: bytes) -> dict[str, Any]:
     origins = parsed.get("origins", [])
     if not isinstance(cookies, list) or not isinstance(origins, list):
         raise InvalidAuthStateError("Login session file is missing Playwright cookies/origins.")
+    # Playwright refuses an entire session file if any one cookie has a value
+    # that is not a string, failing with
+    # "storageState.cookies[0].value: expected string, got undefined". Validation
+    # here checked name and domain but not value, so such a cookie was saved and
+    # the sign-in then could not be loaded at all: the browser never started and
+    # the competitor checked zero parts.
+    #
+    # A cookie captured mid-navigation can legitimately arrive without a value,
+    # so these are dropped rather than treated as a corrupt file. The rest of the
+    # session is still usable.
+    usable_cookies = []
     for cookie in cookies:
-        if not isinstance(cookie, dict) or not isinstance(cookie.get("name"), str) or not isinstance(cookie.get("domain"), str):
+        if not isinstance(cookie, dict):
             raise InvalidAuthStateError("Login session file has an invalid cookie entry.")
+        if not isinstance(cookie.get("name"), str) or not isinstance(cookie.get("domain"), str):
+            raise InvalidAuthStateError("Login session file has an invalid cookie entry.")
+        if not isinstance(cookie.get("value"), str):
+            continue
+        usable_cookies.append(cookie)
+    if cookies and not usable_cookies:
+        raise InvalidAuthStateError("No cookie in the login session file has a usable value.")
+    parsed["cookies"] = usable_cookies
     return parsed
 
 

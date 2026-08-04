@@ -17,6 +17,7 @@ from app.auth_session import (
     auth_state_path_for,
     mark_authenticated_context,
     require_competitor_auth_state,
+    save_uploaded_auth_state,
     write_authenticated_observation,
     write_sanitized_authenticated_diagnostics,
 )
@@ -249,18 +250,29 @@ def run_collection(args, plan) -> int:
                 try:
                     context = browser.new_context(storage_state=str(state_path), viewport=DEFAULT_VIEWPORT)
                 except Exception as exc:
-                    result.run_status = "failed"
-                    result.stop_reason = "saved_sign_in_unusable"
-                    detail = f"Could not start the browser with the saved {competitor_key} sign-in: {exc}"
-                    print(detail)
-                    crash_dir = OUTPUT_DIR / "collection_crashes"
-                    crash_dir.mkdir(parents=True, exist_ok=True)
-                    (crash_dir / f"{competitor_key}-setup.txt").write_text(
-                        f"{detail}\n\nsign-in file: {state_path}\n"
-                        f"exists: {state_path.exists()}\n\n{traceback.format_exc()}",
-                        encoding="utf-8",
-                    )
-                    raise
+                    # An already-saved file can contain a cookie with no value,
+                    # which Playwright refuses outright. Rewriting it through the
+                    # validator drops those and keeps the rest, so an existing
+                    # sign-in is repaired rather than needing to be redone.
+                    try:
+                        repaired = save_uploaded_auth_state(
+                            competitor_key, auth_state_path_for(competitor_key).read_bytes()
+                        )
+                        context = browser.new_context(storage_state=str(repaired), viewport=DEFAULT_VIEWPORT)
+                        print(f"Repaired the saved {competitor_key} sign-in and continued.")
+                    except Exception:
+                        result.run_status = "failed"
+                        result.stop_reason = "saved_sign_in_unusable"
+                        detail = f"Could not start the browser with the saved {competitor_key} sign-in: {exc}"
+                        print(detail)
+                        crash_dir = OUTPUT_DIR / "collection_crashes"
+                        crash_dir.mkdir(parents=True, exist_ok=True)
+                        (crash_dir / f"{competitor_key}-setup.txt").write_text(
+                            f"{detail}\n\nsign-in file: {state_path}\n"
+                            f"exists: {state_path.exists()}\n\n{traceback.format_exc()}",
+                            encoding="utf-8",
+                        )
+                        raise
             else:
                 context = browser.new_context(viewport=DEFAULT_VIEWPORT)
             if args.collection_mode == "lightweight_browser":

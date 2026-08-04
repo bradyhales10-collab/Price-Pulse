@@ -144,3 +144,58 @@ def test_a_genuinely_closed_browser_still_ends_the_wait() -> None:
     snapshot = _wait_for_manual_sign_in(Page(), Context(), settle_ms=0, timeout_seconds=5, poll_seconds=0)
 
     assert snapshot.closed_by_user is True
+
+
+def test_a_cookie_with_no_value_is_dropped_rather_than_saved() -> None:
+    """The real failure: Playwright refuses an entire session file if any one
+    cookie's value is not a string, with "storageState.cookies[0].value:
+    expected string, got undefined". Validation checked name and domain but not
+    value, so such a cookie was saved and the sign-in could not be loaded at
+    all. The browser never started and Partzilla checked 0 of 100 parts while
+    reporting success."""
+    import json
+
+    from app.auth_session import _parse_auth_state
+
+    content = json.dumps(
+        {
+            "cookies": [
+                {"name": "no_value_at_all", "domain": ".partzilla.com"},
+                {"name": "null_value", "value": None, "domain": ".partzilla.com"},
+                {"name": "good", "value": "keep-me", "domain": ".partzilla.com"},
+            ],
+            "origins": [],
+        }
+    ).encode("utf-8")
+
+    parsed = _parse_auth_state(content)
+
+    assert [cookie["name"] for cookie in parsed["cookies"]] == ["good"]
+
+
+def test_a_session_where_no_cookie_has_a_value_is_refused() -> None:
+    """Saving it would produce a file Playwright rejects outright, which is
+    worse than refusing it here."""
+    import json
+
+    from app.auth_session import InvalidAuthStateError, _parse_auth_state
+
+    content = json.dumps(
+        {"cookies": [{"name": "a", "domain": ".partzilla.com"}], "origins": []}
+    ).encode("utf-8")
+
+    try:
+        _parse_auth_state(content)
+    except InvalidAuthStateError as exc:
+        assert "usable value" in str(exc)
+    else:
+        raise AssertionError("a session with no usable cookie value should be refused")
+
+
+def test_an_already_broken_sign_in_file_is_repaired_rather_than_requiring_a_new_one() -> None:
+    from pathlib import Path
+
+    source = Path("collect_parts.py").read_text(encoding="utf-8")
+
+    assert "Repaired the saved" in source
+    assert "save_uploaded_auth_state(" in source

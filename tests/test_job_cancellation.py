@@ -455,7 +455,7 @@ def test_an_expired_sign_in_is_caught_before_collecting_not_only_a_missing_one()
                 path = auth.auth_state_path_for(key)
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(
-                    json.dumps({"cookies": [{"name": "s", "domain": ".x.com", "expires": expires}], "origins": []}),
+                    json.dumps({"cookies": [{"name": "s", "value": "v", "domain": ".x.com", "expires": expires}], "origins": []}),
                     encoding="utf-8",
                 )
 
@@ -519,7 +519,7 @@ def _run_live_check(session_state: str, price_state: str, tmp_path, selling_pric
         state.parent.mkdir(parents=True, exist_ok=True)
         state.write_text(
             json.dumps(
-                {"cookies": [{"name": "s", "domain": ".partzilla.com", "expires": time.time() + 9999}], "origins": []}
+                {"cookies": [{"name": "s", "value": "v", "domain": ".partzilla.com", "expires": time.time() + 9999}], "origins": []}
             ),
             encoding="utf-8",
         )
