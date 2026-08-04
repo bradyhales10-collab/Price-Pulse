@@ -342,3 +342,28 @@ def test_nothing_is_defined_after_the_script_entry_point() -> None:
             "When the file runs as a script they will not exist yet, and any code "
             "reached from main() that calls them raises NameError."
         )
+
+
+def test_zero_parts_attempted_is_never_reported_as_success() -> None:
+    """Partzilla reported "completed" having attempted 0 of 100 parts, so a run
+    that fell over during browser setup looked like a clean finish: no error, no
+    message, and nothing to investigate."""
+    from collect_parts import _normalized_completed_run_status
+
+    assert _normalized_completed_run_status("completed", completed=0, total=100) == "failed"
+    # Normal outcomes are untouched.
+    assert _normalized_completed_run_status("completed", completed=100, total=100) == "completed"
+    assert _normalized_completed_run_status("completed", completed=40, total=100) == "completed"
+    # Nothing planned at all is not a failure.
+    assert _normalized_completed_run_status("completed", completed=0, total=0) == "completed"
+    # A real stop reason is preserved rather than overwritten.
+    assert _normalized_completed_run_status("stopped_blocked", completed=0, total=100) == "stopped_blocked"
+
+
+def test_an_unusable_saved_sign_in_is_recorded_rather_than_silent() -> None:
+    from pathlib import Path
+
+    source = Path("collect_parts.py").read_text(encoding="utf-8")
+
+    assert "saved_sign_in_unusable" in source
+    assert "collection_crashes" in source

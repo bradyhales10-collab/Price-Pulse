@@ -242,7 +242,25 @@ def run_collection(args, plan) -> int:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=settings.headless)
             if get_competitor(competitor_key).requires_login:
-                context = browser.new_context(storage_state=str(auth_state_path_for(competitor_key)), viewport=DEFAULT_VIEWPORT)
+                # A saved sign-in that is missing or unreadable fails here,
+                # before any part is attempted. Record why, because this used to
+                # surface as a run that simply reported completed with no rows.
+                state_path = auth_state_path_for(competitor_key)
+                try:
+                    context = browser.new_context(storage_state=str(state_path), viewport=DEFAULT_VIEWPORT)
+                except Exception as exc:
+                    result.run_status = "failed"
+                    result.stop_reason = "saved_sign_in_unusable"
+                    detail = f"Could not start the browser with the saved {competitor_key} sign-in: {exc}"
+                    print(detail)
+                    crash_dir = OUTPUT_DIR / "collection_crashes"
+                    crash_dir.mkdir(parents=True, exist_ok=True)
+                    (crash_dir / f"{competitor_key}-setup.txt").write_text(
+                        f"{detail}\n\nsign-in file: {state_path}\n"
+                        f"exists: {state_path.exists()}\n\n{traceback.format_exc()}",
+                        encoding="utf-8",
+                    )
+                    raise
             else:
                 context = browser.new_context(viewport=DEFAULT_VIEWPORT)
             if args.collection_mode == "lightweight_browser":
@@ -335,6 +353,11 @@ def run_collection(args, plan) -> int:
 def _normalized_completed_run_status(database_status: str, *, completed: int, total: int) -> str:
     if database_status == "failed" and total > 0 and completed == total:
         return "completed_with_warnings"
+    # Attempting none of the planned parts is not success. This reported
+    # "completed" for 0 of 100 parts, so a run that fell over during browser
+    # setup looked like a clean finish: no error, no message, nothing to chase.
+    if total > 0 and completed == 0 and database_status not in {"failed", "stopped_blocked", "stopped_challenge"}:
+        return "failed"
     return database_status
 
 
