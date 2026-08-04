@@ -159,10 +159,22 @@ def main() -> int:
         print("Upload a parts file in Part Pulse, then run this again to confirm it.")
         return 0
 
-    confirmed, reason = verify_saved_session(adapter.competitor_key, part, headless=True)
+    confirmed, reason = verify_saved_session(adapter.competitor_key, part, headless=False)
     print(f"         {reason}")
     print("")
     print("=" * 60)
+    if confirmed and "could not check" in reason:
+        # The sign-in is saved and nothing said it was bad. The site simply
+        # refused this one check request, which says nothing about the session.
+        print(f"  {name} sign-in SAVED (not verified).")
+        print("=" * 60)
+        print("")
+        print("The site refused the check request, so it could not be verified.")
+        print("That does not mean the sign-in is bad, and it has been kept.")
+        print("")
+        print('Double-click "Start Part Pulse.cmd" and run your price check.')
+        print(f"If {name} still comes back with no prices, sign in again.")
+        return 0
     if confirmed:
         print(f"  {name} sign-in CONFIRMED.")
         print("=" * 60)
@@ -170,12 +182,11 @@ def main() -> int:
         print('Now double-click "Start Part Pulse.cmd" and run your price check.')
         return 0
 
-    print(f"  {name} sign-in did NOT work.")
+    print(f"  {name} is still not signed in.")
     print("=" * 60)
     print("")
-    print("The sign-in was saved but the site still does not treat us as signed in.")
-    print("Run this again, and check that you can see a price on the site in that")
-    print("same window before closing it.")
+    print("The site says we are not signed in. Run this again, and before closing")
+    print("the window check that you can see a price on a product page.")
     return 1
 
 

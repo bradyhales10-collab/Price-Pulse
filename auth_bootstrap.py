@@ -20,7 +20,7 @@ from app.auth_session import (
 )
 from app.browser_hygiene import (
     NO_POPUP_BROWSER_ARGS,
-    block_tracking_requests,
+    block_popup_widgets,
     close_popup_pages,
     disable_popups,
 )
@@ -116,7 +116,7 @@ def main() -> int:
             # that a normal desktop browser would stop. Some of them open
             # popups, which take focus mid-typing and then close themselves,
             # making it impossible to sign in.
-            block_tracking_requests(context)
+            block_popup_widgets(context)
             if not args.allow_popups:
                 disable_popups(context)
             page = context.new_page()

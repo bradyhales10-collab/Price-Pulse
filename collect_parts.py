@@ -20,7 +20,6 @@ from app.auth_session import (
     write_authenticated_observation,
     write_sanitized_authenticated_diagnostics,
 )
-from app.browser_hygiene import block_tracking_requests
 from app.browser_probe import detect_page_signals
 from app.collection import (
     CollectionRow,
@@ -244,10 +243,8 @@ def run_collection(args, plan) -> int:
             browser = playwright.chromium.launch(headless=settings.headless)
             if get_competitor(competitor_key).requires_login:
                 context = browser.new_context(storage_state=str(auth_state_path_for(competitor_key)), viewport=DEFAULT_VIEWPORT)
-                block_tracking_requests(context)
             else:
                 context = browser.new_context(viewport=DEFAULT_VIEWPORT)
-                block_tracking_requests(context)
             if args.collection_mode == "lightweight_browser":
                 context.route("**/*", lambda route: route.abort() if route.request.resource_type in HEAVY_RESOURCE_TYPES else route.continue_())
             page = context.new_page()

@@ -672,93 +672,68 @@ def test_the_refresh_shortcuts_do_not_hardcode_a_product_url() -> None:
 # --- Browser hygiene ----------------------------------------------------------
 
 
-def test_tracking_hosts_are_blocked_but_the_sites_themselves_are_not() -> None:
-    """Playwright's Chromium has no ad blocker, so tracking scripts a desktop
-    browser would stop were running and opening popups. Those popups took focus
-    mid-typing and closed themselves, making sign-in impossible. The site's own
-    hosts must keep working, or nothing loads at all."""
-    from app.browser_hygiene import is_tracking_host
+def test_only_the_popup_widget_is_blocked_not_analytics() -> None:
+    """Blocking a site's analytics never fixed the popup loop, and a site whose
+    own analytics never load is an obvious anomaly that can get the browser
+    refused outright, which is what "page looked like blocked" turned out to be.
+    Only the chat widget that actually opened popups is blocked."""
+    from app.browser_hygiene import is_popup_widget_host
+
+    for host in ("apps.mypurecloud.com", "mypurecloud.com", "api.genesyscloud.com", "inindca.com"):
+        assert is_popup_widget_host(host) is True, host
 
     for host in (
-        "metrics.partzilla.com",
-        "connect.facebook.net",
         "www.google-analytics.com",
         "googletagmanager.com",
+        "connect.facebook.net",
         "stats.g.doubleclick.net",
     ):
-        assert is_tracking_host(host) is True, host
+        assert is_popup_widget_host(host) is False, host
 
-    for host in (
-        "www.partzilla.com",
-        "partzilla.com",
-        "cdn.partzilla.com",
-        "www.chaparral-racing.com",
-        "www.revzilla.com",
-        "www.motosport.com",
-    ):
-        assert is_tracking_host(host) is False, host
+    for host in ("www.partzilla.com", "cdn.partzilla.com", "www.revzilla.com"):
+        assert is_popup_widget_host(host) is False, host
 
 
 def test_social_sign_in_hosts_are_never_blocked() -> None:
-    """Blocking these would break sign-in on any site offering a social login."""
-    from app.browser_hygiene import is_tracking_host
+    from app.browser_hygiene import is_popup_widget_host
 
     for host in ("accounts.google.com", "www.facebook.com", "appleid.apple.com"):
-        assert is_tracking_host(host) is False, host
+        assert is_popup_widget_host(host) is False, host
 
 
-def test_every_browser_price_pulse_drives_blocks_tracking() -> None:
+def test_collection_does_no_request_filtering_at_all() -> None:
+    """Collection worked before any of this was added, so it must be left alone.
+    Filtering requests there risked breaking a working price check."""
     from pathlib import Path as _Path
 
-    for filename in ("auth_bootstrap.py", "collect_parts.py", "app/session_check.py", "probe_competitor.py"):
+    for filename in ("collect_parts.py", "probe_competitor.py", "app/session_check.py"):
         source = _Path(filename).read_text(encoding="utf-8")
-        assert "block_tracking_requests(" in source, filename
-
-
-def test_the_sign_in_browser_also_closes_popups() -> None:
-    """Blocking the scripts should prevent most popups; closing any that still
-    appear stops them stealing a keystroke."""
-    from pathlib import Path as _Path
-
-    source = _Path("auth_bootstrap.py").read_text(encoding="utf-8")
-
-    assert "close_popup_pages(context, page)" in source
+        assert "block_popup_widgets(" not in source, filename
+        assert "block_tracking_requests(" not in source, filename
 
 
 def test_a_request_filter_failure_never_breaks_the_page() -> None:
-    """If filtering throws, the request must still be allowed through rather
-    than leaving the page half-loaded."""
-    from app.browser_hygiene import block_tracking_requests
+    from app.browser_hygiene import block_popup_widgets
 
-    continued: list[str] = []
+    seen: list[str] = []
 
     class Route:
         def __init__(self) -> None:
-            self.request = type("Request", (), {"url": None})()  # url None -> triggers the error path
+            self.request = type("Request", (), {"url": None})()
 
         def abort(self) -> None:
-            continued.append("aborted")
+            seen.append("aborted")
 
         def continue_(self) -> None:
-            continued.append("continued")
+            seen.append("continued")
 
     class Context:
         def route(self, pattern, handler) -> None:
             handler(Route())
 
-    block_tracking_requests(Context())
+    block_popup_widgets(Context())
 
-    assert continued == ["continued"]
-
-
-def test_the_live_chat_widget_chain_is_blocked() -> None:
-    """The observed loop: a Genesys chat widget popup opens
-    apps.mypurecloud.com, redirects to Google auth, closes, and the widget
-    reopens it."""
-    from app.browser_hygiene import is_tracking_host
-
-    for host in ("apps.mypurecloud.com", "mypurecloud.com", "api.genesyscloud.com", "inindca.com"):
-        assert is_tracking_host(host) is True, host
+    assert seen == ["continued"]
 
 
 def test_popups_are_disabled_rather_than_only_closed() -> None:

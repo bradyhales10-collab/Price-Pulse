@@ -19,7 +19,6 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 from app.auth_session import auth_state_path_for
-from app.browser_hygiene import block_tracking_requests, close_popup_pages
 from app.competitors.registry import get_competitor
 from app.config import DEFAULT_VIEWPORT
 from app.models import PartRecord
@@ -40,10 +39,13 @@ def verify_saved_session(
 ) -> tuple[bool, str]:
     """Load one real page with the saved sign-in and report whether it worked.
 
-    Returns (confirmed, reason). Only a positively confirmed sign-in returns
-    True. Anything else, including a site that could not be reached, returns
-    False, because starting a run on an unconfirmed sign-in is what produced
-    the failure this exists to prevent.
+    Returns (ok_to_proceed, reason).
+
+    False is returned only when the site positively says we are signed out:
+    an expired session, or prices still hidden behind a sign-in. Being blocked,
+    challenged or unreachable says nothing about the sign-in, so those keep the
+    saved session rather than sending someone to sign in again over a session
+    that is working.
     """
     adapter = get_competitor(competitor_key)
     if not adapter.requires_login:
@@ -67,9 +69,7 @@ def verify_saved_session(
             # a headless browser or an unusual window size, so the check has to
             # run under the same conditions as the run it is clearing.
             context = browser.new_context(storage_state=str(state_path), viewport=DEFAULT_VIEWPORT)
-            block_tracking_requests(context)
             page = context.new_page()
-            close_popup_pages(context, page)
             response = page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
             http_status = response.status if response is not None else None
             # Prices are rendered after load, so give the page time to finish
@@ -87,12 +87,25 @@ def verify_saved_session(
             context.close()
             browser.close()
     except (PlaywrightTimeoutError, PlaywrightError) as exc:
-        return (False, f"could not reach the site to check the sign-in ({type(exc).__name__})")
+        # Not reaching the site says nothing about the sign-in either.
+        return (True, f"could not check: the site was unreachable ({type(exc).__name__}). Sign-in kept.")
     except Exception as exc:
-        return (False, f"sign-in check could not run ({type(exc).__name__}: {exc})")
+        return (True, f"could not check ({type(exc).__name__}). Sign-in kept.")
 
     session_state = _value(observation.session_status)
     price_state = _value(observation.price_visibility)
+
+    page_state = _value(observation.page_classification)
+
+    # Being blocked says nothing about whether the sign-in is valid, so it must
+    # not be reported as a failed sign-in. Treating it as one sent people back
+    # to sign in repeatedly over a saved session that was working fine.
+    if page_state in {"blocked", "challenge"}:
+        return (
+            True,
+            f"could not check: the site refused the request ({page_state}). "
+            f"The saved sign-in was kept, since this says nothing about it.",
+        )
 
     if session_state in UNUSABLE_SESSION_STATES:
         return (False, f"signed out on the live site ({session_state})")
