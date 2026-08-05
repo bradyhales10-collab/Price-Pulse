@@ -347,10 +347,9 @@ def test_probe_input_file_is_well_formed_and_includes_a_polaris_control() -> Non
 # --- Regressions from the first live probe ------------------------------------
 
 
-def test_out_of_stock_listing_is_detected_despite_add_to_cart_and_ships_free() -> None:
-    """The first live run recorded this part as in stock at $326, because
-    "Ships FREE" was read as a stock signal and "AvailabilityOut of Stock" was
-    rejected by a word boundary. It is out of stock and worth no price."""
+def test_out_of_stock_listing_keeps_price_and_is_labeled_unavailable() -> None:
+    """An exact product page can still provide useful competitor pricing when
+    stock is temporarily unavailable. Keep the price without calling it stock."""
     observation = RevzillaAdapter().parse_product_page(
         REAL_OUT_OF_STOCK_PAGE,
         _part("41080-0162"),
@@ -359,8 +358,32 @@ def test_out_of_stock_listing_is_detected_despite_add_to_cart_and_ships_free() -
     )
 
     assert observation.availability_status == "out_of_stock"
-    assert observation.selling_price is None
-    assert "price_ignored_out_of_stock" in observation.warnings
+    assert observation.selling_price == Decimal("326.42")
+    assert "listed_price_out_of_stock" in observation.warnings
+
+
+def test_reported_revzilla_part_keeps_899_95_out_of_stock_price() -> None:
+    html = """
+    <html><head>
+      <meta name="sailthru.price" content="89995">
+      <meta name="sailthru.inventory" content="0">
+      <meta name="sailthru.tags" content="stock-level-out-of-stock">
+    </head><body>
+      <p>OEM Part Number: 11008-0842</p>
+      <p>Current price is $899.95</p>
+    </body></html>
+    """
+    observation = RevzillaAdapter().parse_product_page(
+        html,
+        _part("11008-0842"),
+        visible_text="OEM Part Number: 11008-0842\nCurrent price is $899.95",
+        final_url="https://www.revzilla.com/oem/kawasaki/kawasaki-11008-0842-head-comp-cylinder",
+        http_status=200,
+    )
+
+    assert observation.selling_price == Decimal("899.95")
+    assert observation.availability_status == "out_of_stock"
+    assert observation.raw_evidence_summary["price_evidence"]["price_accepted"] is True
 
 
 def test_shipping_promo_is_not_treated_as_stock_information() -> None:

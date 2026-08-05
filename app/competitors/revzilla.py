@@ -64,10 +64,10 @@ BLOCK_RE = re.compile(r"\b(access\s+denied|rate\s+limited|too\s+many\s+requests|
 NOT_FOUND_RE = re.compile(r"\b(no\s+results|0\s+results|we\s+couldn'?t\s+find|no\s+products\s+found)\b", re.IGNORECASE)
 SUPERSESSION_RE = re.compile(r"\bsupersedes\s+part\s+([A-Z0-9][A-Z0-9.\-/]*)", re.IGNORECASE)
 
-# RevZilla shows a price on listings it cannot actually sell, so a price is only
-# accepted when the stock level positively says in stock. Anything else, including
-# unknown, is not a price we can compete with.
-SELLABLE_AVAILABILITY = {"in_stock"}
+# Exact out-of-stock product pages still carry useful competitor pricing. Keep
+# that price in the catalog while preserving the availability status so users
+# can distinguish a current in-stock offer from an unavailable listed price.
+# Discontinued pages remain excluded because their price is no longer current.
 
 
 @dataclass(frozen=True)
@@ -150,9 +150,13 @@ class RevzillaAdapter:
         selling_price = match.selling_price
         price_source = match.price_source
 
-        # RevZilla keeps showing a price on listings it cannot sell. Only a
-        # positively in-stock listing gives a price we can compete with.
-        if selling_price is not None and match.availability_status not in SELLABLE_AVAILABILITY:
+        if selling_price is not None and match.availability_status == "discontinued":
+            warnings.append("price_ignored_discontinued")
+            selling_price = None
+            price_source = "unavailable_listing"
+        elif selling_price is not None and match.availability_status == "out_of_stock":
+            warnings.append("listed_price_out_of_stock")
+        elif selling_price is not None and match.availability_status not in {"in_stock", "backordered"}:
             warnings.append(f"price_ignored_{match.availability_status or 'unknown_availability'}")
             selling_price = None
             price_source = "unavailable_listing"
