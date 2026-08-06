@@ -347,17 +347,23 @@ def test_nothing_is_defined_after_the_script_entry_point() -> None:
 def test_zero_parts_attempted_is_never_reported_as_success() -> None:
     """Partzilla reported "completed" having attempted 0 of 100 parts, so a run
     that fell over during browser setup looked like a clean finish: no error, no
-    message, and nothing to investigate."""
+    message, and nothing to investigate. A later, real run reported "completed
+    with warnings" at 95 of 994 parts, showing the same problem applied to any
+    partial run, not only a run that attempted nothing at all: reaching this
+    function with result.run_status still "running" means the loop never
+    recorded why it stopped, regardless of how far it got."""
     from collect_parts import _normalized_completed_run_status
 
     assert _normalized_completed_run_status("completed", completed=0, total=100) == "failed"
-    # Normal outcomes are untouched.
+    assert _normalized_completed_run_status("completed_with_warnings", completed=95, total=994) == "failed"
+    # A genuinely full run is untouched.
     assert _normalized_completed_run_status("completed", completed=100, total=100) == "completed"
-    assert _normalized_completed_run_status("completed", completed=40, total=100) == "completed"
+    assert _normalized_completed_run_status("completed_with_warnings", completed=994, total=994) == "completed_with_warnings"
     # Nothing planned at all is not a failure.
     assert _normalized_completed_run_status("completed", completed=0, total=0) == "completed"
     # A real stop reason is preserved rather than overwritten.
     assert _normalized_completed_run_status("stopped_blocked", completed=0, total=100) == "stopped_blocked"
+    assert _normalized_completed_run_status("stopped_blocked", completed=50, total=994) == "stopped_blocked"
 
 
 def test_an_unusable_saved_sign_in_is_recorded_rather_than_silent() -> None:

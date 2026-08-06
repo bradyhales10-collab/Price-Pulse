@@ -389,10 +389,15 @@ def run_collection(args, plan) -> int:
 def _normalized_completed_run_status(database_status: str, *, completed: int, total: int) -> str:
     if database_status == "failed" and total > 0 and completed == total:
         return "completed_with_warnings"
-    # Attempting none of the planned parts is not success. This reported
-    # "completed" for 0 of 100 parts, so a run that fell over during browser
-    # setup looked like a clean finish: no error, no message, nothing to chase.
-    if total > 0 and completed == 0 and database_status not in {"failed", "stopped_blocked", "stopped_challenge"}:
+    # Reaching this branch at all means result.run_status was still "running"
+    # when the run ended: nothing in the loop ever recorded an explicit reason
+    # to stop. That can only happen if something escaped the per-part error
+    # handling and ended the run outside the normal loop. Attempting fewer
+    # than the full plan is therefore never a normal outcome here, whether
+    # that is 0 parts or most of them: a run of 994 that stops at 95 with no
+    # recorded reason is exactly as wrong as one that never starts, and
+    # reporting it as "completed with warnings" hid that something crashed.
+    if total > 0 and completed < total and database_status not in {"failed", "stopped_blocked", "stopped_challenge"}:
         return "failed"
     return database_status
 
