@@ -1467,3 +1467,85 @@ def _rewrite_workbook_relationship_target(path: Path, old: str, new: str) -> Non
                 content = content.decode("utf-8").replace(old, new).encode("utf-8")
             target.writestr(item, content)
     temp_path.replace(path)
+
+
+def test_negative_inventory_is_treated_as_on_order_not_a_validation_error() -> None:
+    """A negative inventory value typically means the part is on order rather
+    than a real negative stock count. It used to fail validation outright
+    ("must be a non-negative integer"), which blocked the whole row and
+    stopped a price check from running on that part."""
+    from app.imports import _merge_internal, _validate_row
+
+    row = {
+        "manufacturer": "Kawasaki",
+        "oem_part_number": "41080-1514",
+        "internal_sku": "SKU1",
+        "our_current_price": "19.99",
+        "inventory_qty": "-5",
+        "units_sold_12m": "3",
+    }
+
+    assert _validate_row(row, set(), set()) == []
+
+    merged = _merge_internal({}, {**row, "current_cost": ""})
+    assert merged["inventory"] == 0
+
+
+def test_a_non_numeric_inventory_value_is_still_rejected() -> None:
+    from app.imports import _validate_row
+
+    row = {
+        "manufacturer": "Kawasaki",
+        "oem_part_number": "41080-1514",
+        "internal_sku": "SKU1",
+        "our_current_price": "19.99",
+        "inventory_qty": "N/A",
+    }
+
+    errors = _validate_row(row, set(), set())
+    assert any("inventory_qty" in error for error in errors)
+
+
+def test_catalog_highlights_the_lowest_competitor_column_like_price_check() -> None:
+    """The product catalog used to show "Chaparral $12.34" in a standalone
+    Lowest Competitor column instead of highlighting the winning competitor's
+    own column, unlike the price check screen, which highlights the cell in
+    place. The catalog now matches: the Lowest Competitor column shows only
+    the price, and the corresponding competitor cell is highlighted."""
+    import re
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    from fastapi.testclient import TestClient
+
+    from app.web.app import create_app
+
+    db = _comparison_db("catalog_lowest_highlight.db")
+    page = TestClient(create_app(db), raise_server_exceptions=False).get("/products").text
+
+    rows = re.findall(r"<tr>(.*?)</tr>", page, re.S)
+    target = next(row for row in rows if "K-PRICE" in row)
+
+    assert 'title="Lowest competitor"' in target
+    # The old "<competitor name> <price>" format must be gone.
+    assert not re.search(r"Partzilla\s*\$?[\d.]+", target)
+
+
+def test_product_detail_shows_margin_dollar_and_percent() -> None:
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    from fastapi.testclient import TestClient
+
+    from app.web.app import create_app
+
+    db = _comparison_db("margin_display.db")
+    product_id = _product_id(db, "K-PRICE")
+    page = TestClient(create_app(db), raise_server_exceptions=False).get(f"/products/{product_id}").text
+
+    section = page[page.index("Our Pricing") : page.index("Our Pricing") + 400]
+    assert "Margin" in section
+    assert "5.34" in section
+    assert "43.27" in section

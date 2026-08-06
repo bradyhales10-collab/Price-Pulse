@@ -723,6 +723,11 @@ def _catalog_product_row(row: sqlite3.Row) -> dict[str, Any]:
                 "key": key,
                 "display_name": adapter.display_name,
                 "short_name": short_display_name(adapter),
+                "is_lowest": bool(
+                    cell.get("price_cents") is not None
+                    and lowest_cents is not None
+                    and cell["price_cents"] == lowest_cents
+                ),
             }
         )
         data[key] = cell
@@ -737,6 +742,7 @@ def _competitor_cell(data: dict[str, Any], key: str) -> dict[str, Any]:
     status = data.get(f"{key}_status") or "not_checked"
     warning_count = data.get(f"{key}_warning_count") or 0
     return {
+        "price_cents": price_cents,
         "price": cents_to_money(price_cents),
         "reference_price": cents_to_money(data.get(f"{key}_reference_price_cents")),
         "savings_percent": data.get(f"{key}_savings_percent"),
@@ -752,11 +758,19 @@ def _fixed_money(cents: int) -> str:
 
 def _catalog_row(row: sqlite3.Row) -> dict[str, Any]:
     data = dict(row)
-    data["our_current_price"] = cents_to_money(data.get("our_current_price_cents"))
-    data["current_cost"] = cents_to_money(data.get("current_cost_cents"))
+    our_cents = data.get("our_current_price_cents")
+    cost_cents = data.get("current_cost_cents")
+    data["our_current_price"] = cents_to_money(our_cents)
+    data["current_cost"] = cents_to_money(cost_cents)
     data["selling_price"] = cents_to_money(data.get("selling_price_cents"))
     data["reference_price"] = cents_to_money(data.get("reference_price_cents"))
     data["supersession_detected"] = bool(data.get("supersession_detected") or False)
+    if our_cents is not None and cost_cents is not None:
+        data["our_margin"] = _fixed_money(our_cents - cost_cents)
+        data["our_margin_pct"] = _percent_cents(our_cents - cost_cents, our_cents) if our_cents else ""
+    else:
+        data["our_margin"] = ""
+        data["our_margin_pct"] = ""
     data["needs_review"] = (
         data.get("selling_price_cents") is None
         or data.get("selling_price_confidence") == "low"

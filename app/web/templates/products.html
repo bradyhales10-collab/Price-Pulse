@@ -52,8 +52,8 @@
           <td><a href="/products/{{ item.product_id }}">{{ item.oem_part_number }}</a></td>
           <td>{{ item.internal_sku or '' }}</td>
           <td class="col-product"><span class="truncate" title="{{ item.product_name or 'Unnamed product' }}">{{ item.product_name or 'Unnamed product' }}</span></td>
-          {% for competitor in item.competitors %}<td>{{ competitor_cell(competitor) }}</td>{% endfor %}
-          <td>{% if item.lowest_competitor_name %}{{ item.lowest_competitor_name|short_competitor }} {{ money(item.lowest_competitor_price, True) }}{% else %}<span class="muted">None</span>{% endif %}</td>
+          {% for competitor in item.competitors %}<td class="{{ item.our_price_class if competitor.is_lowest else '' }}"{% if competitor.is_lowest %} title="Lowest competitor"{% endif %}>{{ competitor_cell(competitor) }}</td>{% endfor %}
+          <td>{% if item.lowest_competitor_price %}{{ money(item.lowest_competitor_price, True) }}{% else %}<span class="muted">None</span>{% endif %}</td>
           <td class="{{ item.price_difference_class }}">{% if item.difference_vs_lowest_competitor %}<span class="money strong">{{ item.difference_vs_lowest_competitor|price }}</span>{% else %}<span class="muted">None</span>{% endif %}</td>
           <td class="{{ item.our_price_class }}">{{ money(item.our_current_price, True) }}</td>
           <td>{{ money(item.current_cost) }}</td>

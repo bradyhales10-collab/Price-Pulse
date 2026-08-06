@@ -491,8 +491,8 @@ def _validate_row(row: dict[str, str], duplicate_skus: set[str], duplicate_parts
             if value is None or value < 0:
                 errors.append(f"{field} must be a non-negative money value")
     for field in ("units_sold_12m", "inventory_qty"):
-        if row.get(field) and not re.fullmatch(r"\d+", row[field]):
-            errors.append(f"{field} must be a non-negative integer")
+        if row.get(field) and not re.fullmatch(r"-?\d+", row[field]):
+            errors.append(f"{field} must be a whole number")
     return errors
 
 
@@ -501,8 +501,11 @@ def _merge_internal(existing: Any, values: dict[str, str]) -> dict[str, Any]:
         "price": money_to_cents(_decimal(values["our_current_price"])),
         "cost": money_to_cents(_decimal(values.get("current_cost", ""))) if values.get("current_cost") else None,
         "category": values.get("product_category", ""),
-        "units": int(values["units_sold_12m"]) if values.get("units_sold_12m") else None,
-        "inventory": int(values["inventory_qty"]) if values.get("inventory_qty") else None,
+        "units": max(0, int(values["units_sold_12m"])) if values.get("units_sold_12m") else None,
+        # A negative value here typically means "on order" rather than a real
+        # negative stock count. Treating it as 0 avoids blocking the import or
+        # showing a nonsensical negative inventory number.
+        "inventory": max(0, int(values["inventory_qty"])) if values.get("inventory_qty") else None,
         "priority": values.get("scan_priority", ""),
         "active": _active_value(existing, values),
     }
