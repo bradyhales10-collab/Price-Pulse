@@ -414,7 +414,6 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
     )
     outcomes: dict[str, dict[str, object]] = {}
     progress_offsets: dict[str, int] = {}
-    MAX_SIGN_IN_RETRIES = 3
 
     def run_competitor(local_job: tuple[str, Path, int]) -> dict[str, object]:
         competitor, local_db, expected_run_id = local_job
@@ -588,7 +587,14 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
         latest_db, latest_run_id = local_db, expected_run_id
         attempted_keys: set[tuple[str, str]] = set()
         retries = 0
-        while outcome.get("status") == "login_required" and retries < MAX_SIGN_IN_RETRIES:
+        # No cap on the number of retries here. _wait_for_saved_sign_in already
+        # gives up on its own if nobody signs in within its own timeout, which
+        # is the actual protection against waiting forever unattended. A
+        # separate numeric cap on top of that gave up on a competitor after 3
+        # sign-ins even when the person kept signing in successfully every
+        # time, with no way to resume afterward: the loop had already returned,
+        # so signing in again had nothing left to reconnect to.
+        while outcome.get("status") == "login_required":
             retries += 1
             _open_login_refresh({"competitor_key": competitor, "display_name": adapter.display_name})
             ready, reason = _wait_for_saved_sign_in(

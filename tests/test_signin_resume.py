@@ -294,3 +294,110 @@ def test_two_sequential_sign_in_expirations_correctly_accumulate_to_the_full_tot
         "the completion message should state the real total explicitly, so a small "
         "final batch (26 parts) is never mistaken for the whole result"
     )
+
+
+def test_more_than_three_sign_in_expirations_still_completes(monkeypatch, tmp_path) -> None:
+    """The exact reported problem: a numeric cap of 3 retries meant that if
+    the fourth sign-in was ever needed, Partzilla's thread had already given
+    up and returned, so opening the sign-in window and signing in again had
+    nothing left to reconnect to - no new browser opened for it, and it had
+    permanently stopped checking parts for that run. Five sign-ins in a row,
+    each one resolving successfully, must still finish the run in full.
+    """
+    import csv
+    import json
+    from unittest.mock import patch
+
+    import local_collector_agent as agent
+    from app.database import connect_database, create_scan_run, seed_partzilla
+
+    attempts = {"count": 0}
+    total_parts = 500
+    expirations = 5  # More than the old cap of 3.
+
+    def fake_request_json(url, auth_header, *, method="GET", payload=None, allow_empty=False):
+        if url.endswith("/cancelled"):
+            return {"cancelled": False}
+        return {}
+
+    def fake_run_competitor(
+        input_path, local_db, max_parts, competitor, runner_args, *,
+        expected_run_id, progress_callback, should_cancel,
+    ):
+        attempts["count"] += 1
+        attempt_number = attempts["count"]
+        with connect_database(local_db) as conn:
+            competitor_id = seed_partzilla(conn)
+            real_run_id = create_scan_run(conn, competitor_id=competitor_id, requested_part_count=max_parts)
+            assert real_run_id == expected_run_id
+            listings = conn.execute(
+                "SELECT l.listing_id FROM competitor_listings l "
+                "JOIN products p ON p.product_id=l.product_id ORDER BY p.oem_part_number"
+            ).fetchall()
+
+        # Each attempt, including the sixth, checks a handful of parts before
+        # "expiring" again, except the final one, which finishes the rest.
+        checked_here = 10 if attempt_number <= expirations else len(listings)
+        checked_ids = [row["listing_id"] for row in listings[:checked_here]]
+        with connect_database(local_db) as conn:
+            for listing_id in checked_ids:
+                conn.execute(
+                    "INSERT INTO scan_events(scan_run_id, listing_id, checked_at, page_classification, "
+                    "session_status, navigation_succeeded, price_found, parse_warning_count) "
+                    "VALUES (?,?,?,?,?,?,?,0)",
+                    (real_run_id, listing_id, "2026-08-06T00:00:00Z", "normal_product", "authenticated", 1, 1),
+                )
+
+        completed_this_attempt = attempt_number > expirations
+        (tmp_path / f"progress-{expected_run_id}-{competitor}.json").write_text(
+            json.dumps(
+                {
+                    "status": "completed" if completed_this_attempt else "failed",
+                    "stop_reason": None if completed_this_attempt else "authentication_lost",
+                    "completed": checked_here,
+                    "total": max_parts,
+                }
+            ),
+            encoding="utf-8",
+        )
+        return tmp_path / f"summary-{expected_run_id}.csv"
+
+    input_csv = tmp_path / "src.csv"
+    columns = [
+        "Test_Case_ID", "Manufacturer", "OEM_Part_Number", "Search_Observed_Product_Name",
+        "Search_Observed_MSRP", "Expected_Partzilla_URL", "Test_Purpose", "Verified_Date", "Source_URL",
+    ]
+    with input_csv.open("w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(columns)
+        for index in range(total_parts):
+            writer.writerow([f"T{index}", "Kawasaki", f"PART-{index:04d}", "", "", "", "", "", ""])
+
+    with (
+        patch.object(agent, "_request_json", fake_request_json),
+        patch.object(agent, "_download", lambda url, path, auth: path.write_bytes(input_csv.read_bytes())),
+        patch.object(agent, "saved_session_is_usable", lambda key: (True, "saved")),
+        patch.object(agent, "verify_saved_session", lambda *a, **k: (True, "confirmed")),
+        patch.object(agent, "first_probe_part", lambda path, key: None),
+        patch.object(agent, "delete_auth_state", lambda key: None),
+        patch.object(agent, "_run_competitor", fake_run_competitor),
+        patch.object(agent, "upload_with_retry", lambda *a, **k: {"status": "imported"}),
+        patch.object(agent, "_open_login_refresh", lambda request: None),
+        patch.object(
+            agent,
+            "_wait_for_saved_sign_in",
+            lambda competitor, *, report, should_cancel, total, **k: (True, "saved"),
+        ),
+        patch.object(agent, "BRIDGE_DIR", tmp_path),
+    ):
+        agent._run_job_body(
+            {"job_id": "job-five-expiries", "competitors": ["partzilla"], "input_url": "/x", "planned_count": total_parts},
+            {},
+            "http://server",
+            None,
+            "agent-1",
+        )
+
+    # One original attempt plus five retries: the run must not have given up
+    # after only three.
+    assert attempts["count"] == expirations + 1

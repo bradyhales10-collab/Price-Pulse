@@ -578,12 +578,20 @@ def test_sign_in_retry_happens_in_the_same_thread_without_waiting_for_others() -
     assert "continue automatically" in source
 
 
-def test_repeated_sign_in_expiry_does_not_loop_forever() -> None:
+def test_repeated_sign_in_expiry_keeps_retrying_as_long_as_the_person_keeps_signing_in() -> None:
+    """A numeric cap on the number of retries used to give up on a competitor
+    after 3 sign-ins, even when the person kept signing in successfully every
+    time. Once that loop returned, signing in again had nothing left to
+    reconnect to: the price check had already stopped checking that
+    competitor for good, with no way to resume it short of starting over.
+    The safety against waiting forever unattended belongs to
+    _wait_for_saved_sign_in's own timeout, not a separate retry count."""
     from pathlib import Path
 
     source = Path("local_collector_agent.py").read_text(encoding="utf-8")
 
-    assert "MAX_SIGN_IN_RETRIES" in source
+    assert "MAX_SIGN_IN_RETRIES" not in source
+    assert 'while outcome.get("status") == "login_required":' in source
 
 
 def test_waiting_for_sign_in_reports_progress_and_resumes(monkeypatch) -> None:
