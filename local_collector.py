@@ -19,6 +19,7 @@ from app.competitors.registry import get_competitor
 from app.database import (
     connect_database,
     initialize_database,
+    normalize_part_number,
     seed_competitor,
     upsert_competitor_listing,
     upsert_product_and_listing,
@@ -158,11 +159,61 @@ def _count_csv_rows(path: Path) -> int:
         return sum(1 for _ in csv.DictReader(file))
 
 
-def prepare_local_database(input_path: Path, local_db: Path, competitors: list[str], *, run_id_floor: int | None = None) -> int:
+def already_attempted_part_keys(local_db: Path, scan_run_id: int) -> set[tuple[str, str]]:
+    """(manufacturer, OEM part number) pairs already attempted in a scan run.
+
+    The progress payload keeps only the last 50 rows (see collect_parts.py's
+    _write_progress), so after an interruption on part 300 of 1000 it names
+    only parts 251-300. Using that to decide what to skip on a retry would
+    re-check the first 250 parts for nothing. The local database's
+    scan_events table has every attempt from this run, regardless of outcome,
+    so it is the reliable source for what can be skipped.
+    """
+    if not local_db.exists():
+        return set()
+    try:
+        with connect_database(local_db) as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT p.manufacturer, p.oem_part_number
+                FROM scan_events se
+                JOIN competitor_listings l ON l.listing_id = se.listing_id
+                JOIN products p ON p.product_id = l.product_id
+                WHERE se.scan_run_id = ?
+                """,
+                (scan_run_id,),
+            ).fetchall()
+    except Exception:
+        return set()
+    return {
+        (str(row["manufacturer"]).strip().upper(), normalize_part_number(str(row["oem_part_number"])))
+        for row in rows
+    }
+
+
+def prepare_local_database(
+    input_path: Path,
+    local_db: Path,
+    competitors: list[str],
+    *,
+    run_id_floor: int | None = None,
+    skip_keys: set[tuple[str, str]] | None = None,
+) -> int:
     load_result = load_parts_csv(input_path)
+    records = load_result.records
+    if skip_keys:
+        # A retry after a mid-run sign-in expiry should only attempt what was
+        # not already checked. Without this, "resuming" rechecked every part
+        # from the beginning, wasting time and repeating whatever the site did
+        # that caused the session to be lost in the first place.
+        records = [
+            record
+            for record in records
+            if (record.manufacturer.strip().upper(), normalize_part_number(record.oem_part_number)) not in skip_keys
+        ]
     initialize_database(local_db)
     with connect_database(local_db) as conn:
-        for record in load_result.records:
+        for record in records:
             product_id, _, _, _ = upsert_product_and_listing(conn, record)
             for competitor in competitors:
                 competitor_id = seed_competitor(conn, competitor)

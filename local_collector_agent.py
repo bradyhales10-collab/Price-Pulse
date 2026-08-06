@@ -28,6 +28,7 @@ from local_collector import (
     _download,
     _run_competitor,
     _upload,
+    already_attempted_part_keys,
     prepare_local_database,
 )
 from setup_local_collector_agent import normalize_server_url
@@ -412,11 +413,24 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
         headless=headless,
     )
     outcomes: dict[str, dict[str, object]] = {}
+    progress_offsets: dict[str, int] = {}
 
     def run_competitor(local_job: tuple[str, Path, int]) -> dict[str, object]:
         competitor, local_db, expected_run_id = local_job
 
         def send_progress(progress: dict[str, object]) -> None:
+            offset = progress_offsets.get(competitor)
+            if offset:
+                # A retry after sign-in only processes the remaining parts, so
+                # collect_parts.py's own total/completed describe that smaller
+                # remainder. Without adjusting them here, the screen would show
+                # progress reset to 0 of a smaller number, which looks exactly
+                # like the whole competitor restarted even though the already
+                # -checked parts were not repeated.
+                progress = dict(progress)
+                progress["completed"] = offset + int(progress.get("completed") or 0)
+                progress["total"] = max_parts
+                progress["remaining"] = max(0, max_parts - progress["completed"])
             try:
                 _request_json(
                     f"{server_url}/collector/agent/jobs/{job_id}/progress/{competitor}?{urllib.parse.urlencode({'agent_id': agent_id})}",
@@ -551,6 +565,11 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
     expired_during_run = [
         key for key, value in outcomes.items() if value.get("status") == "login_required"
     ]
+    # Map each competitor to its original (local_db, scan_run_id), so the retry
+    # can look up what was already attempted rather than redo it. Without this,
+    # "resuming" rechecked every part of a large run from the beginning, which
+    # is indistinguishable from the whole competitor having started over.
+    first_attempt_by_competitor = {key: (local_db, run_id) for key, local_db, run_id in jobs}
     for retry_index, competitor in enumerate(expired_during_run, start=len(jobs)):
         adapter = get_competitor(competitor)
         _open_login_refresh({"competitor_key": competitor, "display_name": adapter.display_name})
@@ -566,6 +585,27 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
                 "message": reason,
             }
             continue
+        already_attempted: set[tuple[str, str]] = set()
+        first_attempt = first_attempt_by_competitor.get(competitor)
+        if first_attempt is not None:
+            first_local_db, first_run_id = first_attempt
+            already_attempted = already_attempted_part_keys(first_local_db, first_run_id)
+            if already_attempted:
+                report(
+                    competitor,
+                    {
+                        "status": "running",
+                        "message": (
+                            f"Resuming {adapter.display_name}: {len(already_attempted)} parts already "
+                            f"checked before the sign-in expired will not be repeated."
+                        ),
+                        "competitor": competitor,
+                        "competitor_key": competitor,
+                        "rows": [],
+                        "completed": len(already_attempted),
+                        "total": max_parts,
+                    },
+                )
         retry_db = job_dir / f"collector-{competitor}-retry.db"
         retry_floor = (int(time.time() * 1000) * 10) + (retry_index * 2)
         retry_run_id = prepare_local_database(
@@ -573,7 +613,9 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
             retry_db,
             [competitor],
             run_id_floor=retry_floor,
+            skip_keys=already_attempted,
         )
+        progress_offsets[competitor] = len(already_attempted)
         try:
             outcomes[competitor] = run_competitor((competitor, retry_db, retry_run_id))
         except Exception as exc:
