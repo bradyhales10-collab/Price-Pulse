@@ -414,6 +414,7 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
     )
     outcomes: dict[str, dict[str, object]] = {}
     progress_offsets: dict[str, int] = {}
+    MAX_SIGN_IN_RETRIES = 3
 
     def run_competitor(local_job: tuple[str, Path, int]) -> dict[str, object]:
         competitor, local_db, expected_run_id = local_job
@@ -442,110 +443,178 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
                 LOGGER.warning("Could not send %s progress for job %s: %s", competitor, job_id, exc)
 
         adapter = get_competitor(competitor)
-        usable, reason = saved_session_is_usable(adapter.competitor_key) if adapter.requires_login else (True, "")
-        if not usable:
-            # A backstop only. The pre-flight check before any collection began
-            # should already have caught this. The retry phase opens the sign-in
-            # window after the other competitors have finished.
-            LOGGER.info("%s sign-in not usable (%s); skipping without collecting", competitor, reason)
-            progress = {
-                "status": "login_required",
-                "message": (
-                    f"{adapter.display_name} needs you to sign in ({reason}). This price check "
-                    f"will pause, open one sign-in window, and continue automatically."
-                ),
-                "competitor": competitor,
-                "competitor_key": adapter.competitor_key,
-                "rows": [],
-                "completed": 0,
-                "total": max_parts,
-            }
-            send_progress(progress)
-            return progress
 
-        def should_cancel() -> bool:
-            return job_cancelled()
+        def attempt(db_path: Path, run_id: int) -> dict[str, object]:
+            """Run collect_parts.py once and report what happened.
 
-        try:
-            summary = _run_competitor(
-                input_path,
-                local_db,
-                max_parts,
-                competitor,
-                runner_args,
-                expected_run_id=expected_run_id,
-                progress_callback=send_progress,
-                should_cancel=should_cancel,
-            )
-        except subprocess.CalledProcessError:
-            progress_path = BRIDGE_DIR / f"progress-{expected_run_id}-{competitor}.json"
-            failed_progress = _read_progress(progress_path)
-            if str(failed_progress.get("stop_reason") or "") == "saved_sign_in_unusable":
-                try:
-                    delete_auth_state(adapter.competitor_key)
-                except Exception as exc:
-                    LOGGER.warning("Could not remove the unusable %s sign-in: %s", competitor, exc)
+            A competitor requiring login needing a fresh sign-in, whether
+            noticed before starting or discovered mid-run, is reported back as
+            status "login_required" rather than raised, so the caller can
+            decide whether to wait and retry.
+            """
+
+            def should_cancel() -> bool:
+                return job_cancelled()
+
+            try:
+                summary = _run_competitor(
+                    input_path,
+                    db_path,
+                    max_parts,
+                    competitor,
+                    runner_args,
+                    expected_run_id=run_id,
+                    progress_callback=send_progress,
+                    should_cancel=should_cancel,
+                )
+            except subprocess.CalledProcessError:
+                progress_path = BRIDGE_DIR / f"progress-{run_id}-{competitor}.json"
+                failed_progress = _read_progress(progress_path)
+                if str(failed_progress.get("stop_reason") or "") == "saved_sign_in_unusable":
+                    try:
+                        delete_auth_state(adapter.competitor_key)
+                    except Exception as exc:
+                        LOGGER.warning("Could not remove the unusable %s sign-in: %s", competitor, exc)
+                    progress = {
+                        "status": "login_required",
+                        "message": (
+                            f"The saved {adapter.display_name} sign-in could not be loaded and was "
+                            f"removed. This price check will pause for sign-in and then continue "
+                            f"automatically."
+                        ),
+                        "competitor": competitor,
+                        "competitor_key": adapter.competitor_key,
+                        "rows": [],
+                        "completed": 0,
+                        "total": max_parts,
+                    }
+                    send_progress(progress)
+                    return progress
+                raise
+            except CollectionCancelled:
                 progress = {
-                    "status": "login_required",
-                    "message": (
-                        f"The saved {adapter.display_name} sign-in could not be loaded and was removed. "
-                        f"This price check will pause for sign-in and then continue automatically."
-                    ),
+                    "status": "cancelled",
+                    "message": "Cancelled.",
                     "competitor": competitor,
-                    "competitor_key": adapter.competitor_key,
+                    "competitor_key": competitor,
                     "rows": [],
                     "completed": 0,
                     "total": max_parts,
                 }
                 send_progress(progress)
                 return progress
-            raise
-        except CollectionCancelled:
-            progress = {
-                "status": "cancelled",
-                "message": "Cancelled.",
+            upload_result = _upload(
+                f"{server_url}/collector/results/upload?{urllib.parse.urlencode({'competitor': competitor, 'filename': summary.name, 'job_id': job_id})}",
+                summary,
+                auth_header,
+            )
+            LOGGER.info("%s job %s upload: %s", competitor, job_id, upload_result)
+            progress_path = BRIDGE_DIR / f"progress-{run_id}-{competitor}.json"
+            outcome = json.loads(progress_path.read_text(encoding="utf-8")) if progress_path.exists() else {"status": "completed"}
+
+            # A saved sign-in that has since expired would otherwise fail every
+            # run forever: the file still exists, so a plain existence check
+            # never fires and the sign-in window never reopens. Clear it and
+            # ask for a fresh sign-in.
+            if str(outcome.get("stop_reason") or "") == "authentication_lost":
+                LOGGER.info("%s sign-in has expired; clearing it and reopening the sign-in helper", competitor)
+                try:
+                    delete_auth_state(adapter.competitor_key)
+                except Exception as exc:
+                    LOGGER.warning("Could not remove the expired %s sign-in: %s", competitor, exc)
+                outcome = {
+                    "status": "login_required",
+                    "message": (
+                        f"Your saved {adapter.display_name} sign-in has expired. This price check is "
+                        f"paused and will continue automatically after you sign in."
+                    ),
+                    "competitor": competitor,
+                    "competitor_key": adapter.competitor_key,
+                    "rows": outcome.get("rows") or [],
+                    "completed": outcome.get("completed") or 0,
+                    "total": outcome.get("total") or max_parts,
+                }
+                send_progress(outcome)
+            return outcome
+
+        usable, reason = saved_session_is_usable(adapter.competitor_key) if adapter.requires_login else (True, "")
+        if usable:
+            outcome = attempt(local_db, expected_run_id)
+        else:
+            # A backstop only. The pre-flight check before any collection began
+            # should already have caught this.
+            LOGGER.info("%s sign-in not usable (%s) before starting", competitor, reason)
+            outcome = {
+                "status": "login_required",
+                "message": f"{adapter.display_name} needs you to sign in ({reason}).",
                 "competitor": competitor,
-                "competitor_key": competitor,
+                "competitor_key": adapter.competitor_key,
                 "rows": [],
                 "completed": 0,
                 "total": max_parts,
             }
-            send_progress(progress)
-            return progress
-        upload_result = _upload(
-            f"{server_url}/collector/results/upload?{urllib.parse.urlencode({'competitor': competitor, 'filename': summary.name, 'job_id': job_id})}",
-            summary,
-            auth_header,
-        )
-        LOGGER.info("%s job %s upload: %s", competitor, job_id, upload_result)
-        progress_path = BRIDGE_DIR / f"progress-{expected_run_id}-{competitor}.json"
-        outcome = json.loads(progress_path.read_text(encoding="utf-8")) if progress_path.exists() else {"status": "completed"}
-
-        # A saved sign-in that has since expired would otherwise fail every run
-        # forever: the file still exists, so the pre-check above never fires and
-        # the sign-in window never reopens. Clear it and ask for a fresh sign-in.
-        if str(outcome.get("stop_reason") or "") == "authentication_lost":
-            LOGGER.info("%s sign-in has expired; clearing it and reopening the sign-in helper", competitor)
-            try:
-                delete_auth_state(adapter.competitor_key)
-            except Exception as exc:
-                LOGGER.warning("Could not remove the expired %s sign-in: %s", competitor, exc)
-            outcome = {
-                "status": "login_required",
-                "message": (
-                    f"Your saved {adapter.display_name} sign-in has expired. This price check is "
-                    f"paused and will continue automatically after you sign in."
-                ),
-                "competitor": competitor,
-                "competitor_key": adapter.competitor_key,
-                "rows": outcome.get("rows") or [],
-                "completed": outcome.get("completed") or 0,
-                "total": outcome.get("total") or max_parts,
-            }
             send_progress(outcome)
-            # The outer retry phase waits until the parallel collectors finish
-            # before opening the sign-in window, so it will not lose focus to
-            # competitor pages that are still being driven.
+
+        # If a site invalidated a session mid-run, or the sign-in was never
+        # usable to begin with, open the sign-in window and wait for it right
+        # here, in this competitor's own thread. The other competitors keep
+        # running in their own threads throughout, since Python threads run
+        # concurrently. Waiting for every other competitor to finish first,
+        # which an earlier version of this did, meant a session expiring on
+        # one competitor added its own wait time on top of the others instead
+        # of overlapping with it - doubling the time a large run took.
+        latest_db, latest_run_id = local_db, expected_run_id
+        attempted_keys: set[tuple[str, str]] = set()
+        retries = 0
+        while outcome.get("status") == "login_required" and retries < MAX_SIGN_IN_RETRIES:
+            retries += 1
+            _open_login_refresh({"competitor_key": competitor, "display_name": adapter.display_name})
+            ready, reason = _wait_for_saved_sign_in(
+                competitor,
+                report=report,
+                should_cancel=job_cancelled,
+                total=max_parts,
+            )
+            if not ready:
+                outcome = {
+                    "status": "cancelled" if reason == "cancelled" else "login_required",
+                    "message": reason,
+                }
+                break
+            attempted_keys |= already_attempted_part_keys(latest_db, latest_run_id)
+            if attempted_keys:
+                report(
+                    competitor,
+                    {
+                        "status": "running",
+                        "message": (
+                            f"Resuming {adapter.display_name}: {len(attempted_keys)} parts already "
+                            f"checked before the sign-in expired will not be repeated."
+                        ),
+                        "competitor": competitor,
+                        "competitor_key": competitor,
+                        "rows": [],
+                        "completed": len(attempted_keys),
+                        "total": max_parts,
+                    },
+                )
+            retry_db = job_dir / f"collector-{competitor}-retry-{retries}.db"
+            retry_floor = (int(time.time() * 1000) * 10) + (retries * 2)
+            retry_run_id = prepare_local_database(
+                input_path,
+                retry_db,
+                [competitor],
+                run_id_floor=retry_floor,
+                skip_keys=attempted_keys,
+            )
+            progress_offsets[competitor] = len(attempted_keys)
+            latest_db, latest_run_id = retry_db, retry_run_id
+            try:
+                outcome = attempt(retry_db, retry_run_id)
+            except Exception as exc:
+                LOGGER.exception("%s failed during automatic sign-in retry for job %s", competitor, job_id)
+                outcome = {"status": "failed", "message": str(exc)}
+                break
         return outcome
 
     with ThreadPoolExecutor(max_workers=max(1, len(jobs))) as executor:
@@ -557,70 +626,6 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
             except Exception as exc:
                 LOGGER.exception("%s failed during job %s", competitor, job_id)
                 outcomes[competitor] = {"status": "failed", "message": str(exc)}
-
-    # If a site invalidated a session server-side, its cookie file can still
-    # look current during preflight. Wait until the other competitors finish,
-    # open one sign-in window, then retry only that competitor in this same job.
-    # The person never has to cancel, refresh, or start the price check again.
-    expired_during_run = [
-        key for key, value in outcomes.items() if value.get("status") == "login_required"
-    ]
-    # Map each competitor to its original (local_db, scan_run_id), so the retry
-    # can look up what was already attempted rather than redo it. Without this,
-    # "resuming" rechecked every part of a large run from the beginning, which
-    # is indistinguishable from the whole competitor having started over.
-    first_attempt_by_competitor = {key: (local_db, run_id) for key, local_db, run_id in jobs}
-    for retry_index, competitor in enumerate(expired_during_run, start=len(jobs)):
-        adapter = get_competitor(competitor)
-        _open_login_refresh({"competitor_key": competitor, "display_name": adapter.display_name})
-        ready, reason = _wait_for_saved_sign_in(
-            competitor,
-            report=report,
-            should_cancel=job_cancelled,
-            total=max_parts,
-        )
-        if not ready:
-            outcomes[competitor] = {
-                "status": "cancelled" if reason == "cancelled" else "login_required",
-                "message": reason,
-            }
-            continue
-        already_attempted: set[tuple[str, str]] = set()
-        first_attempt = first_attempt_by_competitor.get(competitor)
-        if first_attempt is not None:
-            first_local_db, first_run_id = first_attempt
-            already_attempted = already_attempted_part_keys(first_local_db, first_run_id)
-            if already_attempted:
-                report(
-                    competitor,
-                    {
-                        "status": "running",
-                        "message": (
-                            f"Resuming {adapter.display_name}: {len(already_attempted)} parts already "
-                            f"checked before the sign-in expired will not be repeated."
-                        ),
-                        "competitor": competitor,
-                        "competitor_key": competitor,
-                        "rows": [],
-                        "completed": len(already_attempted),
-                        "total": max_parts,
-                    },
-                )
-        retry_db = job_dir / f"collector-{competitor}-retry.db"
-        retry_floor = (int(time.time() * 1000) * 10) + (retry_index * 2)
-        retry_run_id = prepare_local_database(
-            input_path,
-            retry_db,
-            [competitor],
-            run_id_floor=retry_floor,
-            skip_keys=already_attempted,
-        )
-        progress_offsets[competitor] = len(already_attempted)
-        try:
-            outcomes[competitor] = run_competitor((competitor, retry_db, retry_run_id))
-        except Exception as exc:
-            LOGGER.exception("%s failed during automatic sign-in retry for job %s", competitor, job_id)
-            outcomes[competitor] = {"status": "failed", "message": str(exc)}
 
     failed = [key for key, value in outcomes.items() if value.get("status") == "failed"]
     needs_login = [key for key, value in outcomes.items() if value.get("status") == "login_required"]

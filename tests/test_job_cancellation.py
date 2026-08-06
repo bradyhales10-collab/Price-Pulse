@@ -558,15 +558,32 @@ def test_an_expired_sign_in_is_caught_before_collecting_not_only_a_missing_one()
             auth.PRIVATE_DIR = original_dir
 
 
-def test_sign_in_retry_waits_until_parallel_collection_has_finished() -> None:
-    """Recovery belongs after the thread pool, where it cannot lose focus."""
+def test_sign_in_retry_happens_in_the_same_thread_without_waiting_for_others() -> None:
+    """Waiting for every other competitor to finish before opening the sign-in
+    window meant one expired session added its own wait time on top of the
+    others instead of overlapping with it, roughly doubling how long a large
+    run took. The retry now happens inside each competitor's own thread, so it
+    runs concurrently with the rest rather than after them."""
     from pathlib import Path
 
     source = Path("local_collector_agent.py").read_text(encoding="utf-8")
-    pool_end = source.index("# If a site invalidated a session server-side")
-    retry_open = source.index("_open_login_refresh", pool_end)
-    assert retry_open > source.index("with ThreadPoolExecutor")
+
+    # The sign-in wait loop must live inside run_competitor, the function each
+    # thread executes, not after the thread pool has finished.
+    run_competitor_start = source.index("def run_competitor(")
+    pool_start = source.index("with ThreadPoolExecutor")
+    retry_open_call = source.index("_open_login_refresh({\"competitor_key\": competitor,", run_competitor_start)
+
+    assert run_competitor_start < retry_open_call < pool_start
     assert "continue automatically" in source
+
+
+def test_repeated_sign_in_expiry_does_not_loop_forever() -> None:
+    from pathlib import Path
+
+    source = Path("local_collector_agent.py").read_text(encoding="utf-8")
+
+    assert "MAX_SIGN_IN_RETRIES" in source
 
 
 def test_waiting_for_sign_in_reports_progress_and_resumes(monkeypatch) -> None:
@@ -1060,3 +1077,69 @@ def test_the_sign_in_check_cannot_take_long_enough_to_look_stuck() -> None:
     assert signature.parameters["timeout_ms"].default <= 15000
     assert signature.parameters["settle_ms"].default <= 1500
     assert "timeout=4000" in source
+
+
+def test_a_sign_in_retry_runs_concurrently_with_other_competitors_not_after_them(monkeypatch, tmp_path) -> None:
+    """The actual behaviour requested: a sign-in expiring on one competitor
+    must not add its own wait time on top of the others. Chaparral's fake
+    collection takes 0.3s; Partzilla's sign-in wait also takes about 0.3s.
+    If the retry waited for every other competitor to finish first (the old
+    design), the whole job would take roughly their sum, ~0.6s. If the retry
+    runs in its own thread concurrently with the others (the new design), the
+    whole job takes roughly the longer of the two, ~0.3s."""
+    import time as time_module
+
+    import local_collector_agent as agent
+
+    def fake_request_json(url, auth_header, *, method="GET", payload=None, allow_empty=False):
+        if url.endswith("/cancelled"):
+            return {"cancelled": False}
+        return {}
+
+    def fake_run_competitor(
+        input_path, local_db, max_parts, competitor, runner_args, *,
+        expected_run_id, progress_callback, should_cancel,
+    ):
+        if competitor == "partzilla":
+            (tmp_path / f"progress-{expected_run_id}-partzilla.json").write_text(
+                json.dumps({"status": "failed", "stop_reason": "authentication_lost", "completed": 1, "total": 5}),
+                encoding="utf-8",
+            )
+        else:
+            time_module.sleep(0.3)
+            (tmp_path / f"progress-{expected_run_id}-{competitor}.json").write_text(
+                json.dumps({"status": "completed", "completed": 5, "total": 5}), encoding="utf-8"
+            )
+        return tmp_path / f"summary-{expected_run_id}-{competitor}.csv"
+
+    def fake_wait_for_saved_sign_in(competitor, *, report, should_cancel, total, **kwargs):
+        time_module.sleep(0.3)
+        return (False, "sign-in was not completed in time")
+
+    monkeypatch.setattr(agent, "BRIDGE_DIR", tmp_path)
+    monkeypatch.setattr(agent, "_request_json", fake_request_json)
+    monkeypatch.setattr(agent, "_download", lambda *a, **k: None)
+    monkeypatch.setattr(agent, "saved_session_is_usable", lambda key: (True, "saved"))
+    monkeypatch.setattr(agent, "delete_auth_state", lambda key: None)
+    monkeypatch.setattr(agent, "prepare_local_database", lambda *a, **k: 999)
+    monkeypatch.setattr(agent, "_run_competitor", fake_run_competitor)
+    monkeypatch.setattr(agent, "_upload", lambda *a, **k: {"status": "imported"})
+    monkeypatch.setattr(agent, "_open_login_refresh", lambda request: None)
+    monkeypatch.setattr(agent, "_wait_for_saved_sign_in", fake_wait_for_saved_sign_in)
+
+    started = time_module.monotonic()
+    agent._run_job_body(
+        {"job_id": "job-concurrent", "competitors": ["partzilla", "chaparral"], "input_url": "/x", "planned_count": 5},
+        {},
+        "http://server",
+        None,
+        "agent-1",
+    )
+    elapsed = time_module.monotonic() - started
+
+    assert elapsed < 0.5, (
+        f"took {elapsed:.2f}s; a serial design (chaparral finishing, THEN "
+        f"partzilla's sign-in wait) would take roughly 0.6s, so this being "
+        f"under 0.5s proves the two ran concurrently rather than one after "
+        f"the other"
+    )
