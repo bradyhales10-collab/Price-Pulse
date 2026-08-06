@@ -5,6 +5,7 @@ import base64
 import csv
 import getpass
 import json
+import logging
 import subprocess
 import sys
 import time
@@ -26,6 +27,8 @@ from app.database import (
 )
 from app.input_loader import load_parts_csv
 from app.manufacturer_registry import competitor_supports_manufacturer
+
+LOGGER = logging.getLogger("part-pulse-local-collector")
 
 ROOT = Path(__file__).resolve().parent
 BRIDGE_DIR = ROOT / "data" / "output" / "local_bridge"
@@ -152,6 +155,49 @@ def _upload(url: str, path: Path, auth_header: str | None) -> str:
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"Upload failed: HTTP {exc.code} {detail}") from exc
+
+
+def upload_with_retry(
+    url: str,
+    path: Path,
+    auth_header: str | None,
+    *,
+    attempts: int = 5,
+    delay_seconds: float = 15.0,
+) -> str:
+    """Upload a finished collection's results, retrying if Part Pulse is briefly
+    unreachable.
+
+    A single failed upload used to lose that competitor's results outright:
+    collect_parts.py had already written them to
+    data/output/collection_runs/<scan_run_id>/collection_summary.csv, but
+    nothing ever imported that file into the database, so parts that had
+    genuinely been checked showed as never checked in the catalog. This
+    retries several times with a wait in between, since the most common cause
+    - the Dashboard briefly restarting - resolves itself within a minute or
+    two, and gives up only after a real, sustained outage.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return _upload(url, path, auth_header)
+        except RuntimeError:
+            # The server responded with a real error, which retrying will not
+            # fix on its own.
+            raise
+        except Exception as exc:
+            last_exc = exc
+            if attempt < attempts:
+                LOGGER.warning(
+                    "Could not upload results (attempt %s of %s): %s. Retrying in %ss.",
+                    attempt,
+                    attempts,
+                    exc,
+                    delay_seconds,
+                )
+                time.sleep(delay_seconds)
+    assert last_exc is not None
+    raise last_exc
 
 
 def _count_csv_rows(path: Path) -> int:

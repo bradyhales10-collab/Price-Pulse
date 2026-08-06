@@ -27,9 +27,9 @@ from local_collector import (
     _auth_header,
     _download,
     _run_competitor,
-    _upload,
     already_attempted_part_keys,
     prepare_local_database,
+    upload_with_retry,
 )
 from setup_local_collector_agent import normalize_server_url
 
@@ -503,11 +503,33 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
                 }
                 send_progress(progress)
                 return progress
-            upload_result = _upload(
-                f"{server_url}/collector/results/upload?{urllib.parse.urlencode({'competitor': competitor, 'filename': summary.name, 'job_id': job_id})}",
-                summary,
-                auth_header,
-            )
+            try:
+                upload_result = upload_with_retry(
+                    f"{server_url}/collector/results/upload?{urllib.parse.urlencode({'competitor': competitor, 'filename': summary.name, 'job_id': job_id})}",
+                    summary,
+                    auth_header,
+                )
+            except Exception as exc:
+                # collect_parts.py already wrote these results to disk under
+                # data/output/collection_runs/, independent of whether Part
+                # Pulse could be reached. Reporting that path here means the
+                # data is recoverable even after every retry has failed.
+                LOGGER.exception("%s job %s: could not upload results after retrying", competitor, job_id)
+                progress = {
+                    "status": "failed",
+                    "message": (
+                        f"{adapter.display_name} finished checking prices, but the results could not "
+                        f"be uploaded to Part Pulse ({exc}). They are saved on this computer at "
+                        f"{summary.resolve()} and are not lost; run recover_lost_results.py to import them."
+                    ),
+                    "competitor": competitor,
+                    "competitor_key": competitor,
+                    "rows": [],
+                    "completed": 0,
+                    "total": max_parts,
+                }
+                send_progress(progress)
+                return progress
             LOGGER.info("%s job %s upload: %s", competitor, job_id, upload_result)
             progress_path = BRIDGE_DIR / f"progress-{run_id}-{competitor}.json"
             outcome = json.loads(progress_path.read_text(encoding="utf-8")) if progress_path.exists() else {"status": "completed"}

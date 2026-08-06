@@ -664,7 +664,7 @@ def test_expired_session_retries_only_that_competitor_in_the_same_job(monkeypatc
     monkeypatch.setattr(agent, "delete_auth_state", lambda key: None)
     monkeypatch.setattr(agent, "prepare_local_database", lambda *a, **k: next(run_ids))
     monkeypatch.setattr(agent, "_run_competitor", collect)
-    monkeypatch.setattr(agent, "_upload", lambda *a, **k: {"status": "imported"})
+    monkeypatch.setattr(agent, "upload_with_retry", lambda *a, **k: {"status": "imported"})
     monkeypatch.setattr(
         agent,
         "_open_login_refresh",
@@ -1123,7 +1123,7 @@ def test_a_sign_in_retry_runs_concurrently_with_other_competitors_not_after_them
     monkeypatch.setattr(agent, "delete_auth_state", lambda key: None)
     monkeypatch.setattr(agent, "prepare_local_database", lambda *a, **k: 999)
     monkeypatch.setattr(agent, "_run_competitor", fake_run_competitor)
-    monkeypatch.setattr(agent, "_upload", lambda *a, **k: {"status": "imported"})
+    monkeypatch.setattr(agent, "upload_with_retry", lambda *a, **k: {"status": "imported"})
     monkeypatch.setattr(agent, "_open_login_refresh", lambda request: None)
     monkeypatch.setattr(agent, "_wait_for_saved_sign_in", fake_wait_for_saved_sign_in)
 

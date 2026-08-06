@@ -262,7 +262,7 @@ def test_two_sequential_sign_in_expirations_correctly_accumulate_to_the_full_tot
         patch.object(agent, "first_probe_part", lambda path, key: None),
         patch.object(agent, "delete_auth_state", lambda key: None),
         patch.object(agent, "_run_competitor", fake_run_competitor),
-        patch.object(agent, "_upload", lambda *a, **k: {"status": "imported"}),
+        patch.object(agent, "upload_with_retry", lambda *a, **k: {"status": "imported"}),
         patch.object(agent, "_open_login_refresh", lambda request: None),
         patch.object(
             agent,
