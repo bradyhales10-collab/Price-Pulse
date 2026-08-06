@@ -302,42 +302,82 @@ def run_collection(args, plan) -> int:
                     f"{args.delay_seconds}s, because this run covers {len(plan.planned_parts)} parts."
                 )
             for planned in plan.planned_parts:
-                if result.rows and competitor_supports_manufacturer(competitor_key, planned.manufacturer):
-                    time.sleep(jittered_delay(run_delay_seconds))
                 try:
-                    collector = PRODUCTION_COLLECTORS[competitor_key]
-                    row = collector(
-                        args.database, page, planned, scan_run_id, settings,
-                        delay_seconds=run_delay_seconds,
-                    )
+                    if result.rows and competitor_supports_manufacturer(competitor_key, planned.manufacturer):
+                        time.sleep(jittered_delay(run_delay_seconds))
+                    try:
+                        collector = PRODUCTION_COLLECTORS[competitor_key]
+                        row = collector(
+                            args.database, page, planned, scan_run_id, settings,
+                            delay_seconds=run_delay_seconds,
+                        )
+                    except Exception as exc:
+                        # str(exc) alone loses the traceback, which is what
+                        # identifies the file and line that actually raised, and
+                        # therefore which copy of the code was running. Write it
+                        # out so a failure can be traced rather than guessed at.
+                        try:
+                            crash_dir = OUTPUT_DIR / "collection_crashes"
+                            crash_dir.mkdir(parents=True, exist_ok=True)
+                            crash_path = crash_dir / f"{competitor_key}-{planned.oem_part_number}.txt".replace("/", "_")
+                            crash_path.write_text(
+                                f"competitor: {competitor_key}\n"
+                                f"part: {planned.oem_part_number}\n"
+                                f"collect_parts.py: {Path(__file__).resolve()}\n"
+                                f"python: {sys.executable}\n"
+                                f"working directory: {Path.cwd()}\n\n"
+                                + traceback.format_exc(),
+                                encoding="utf-8",
+                            )
+                            print(f"  Full error details written to: {crash_path}")
+                        except Exception:
+                            pass
+                        row = collection_error_row(args.database, planned, scan_run_id, competitor_key, exc)
+                    result.rows.append(row)
+                    result.last_attempted_part = planned.oem_part_number
+                    print(f"[{planned.run_order}/{len(plan.planned_parts)}] {planned.oem_part_number} | {row.selling_price or ''} | {row.result_type.upper()}")
+                    _write_progress(args, result, plan, status="running", started_monotonic=started_monotonic)
+                    stop_status = stop_status_for(row)
+                    if stop_status:
+                        result.run_status = stop_status
+                        result.stop_reason = row.result_type
+                        break
+                    if row.result_type in {"navigation_error", "error"}:
+                        consecutive_errors += 1
+                        if consecutive_errors >= 2:
+                            result.run_status = "failed"
+                            result.stop_reason = "two_consecutive_operational_errors"
+                            break
+                    else:
+                        consecutive_errors = 0
                 except Exception as exc:
-                    # str(exc) alone loses the traceback, which is what
-                    # identifies the file and line that actually raised, and
-                    # therefore which copy of the code was running. Write it
-                    # out so a failure can be traced rather than guessed at.
+                    # Everything above this point, other than the collector call
+                    # itself, was unprotected: a failure in recording progress, in
+                    # the stop-condition check, or anywhere else in this loop
+                    # would end the run silently. A real run stopped at 95 of 994
+                    # parts with no stop_reason recorded anywhere and no crash
+                    # file, which can only mean something escaped from exactly
+                    # this gap. This is the backstop: whatever it turns out to be,
+                    # it is now written down with a full traceback instead of
+                    # disappearing.
                     try:
                         crash_dir = OUTPUT_DIR / "collection_crashes"
                         crash_dir.mkdir(parents=True, exist_ok=True)
-                        crash_path = crash_dir / f"{competitor_key}-{planned.oem_part_number}.txt".replace("/", "_")
+                        crash_path = crash_dir / f"{competitor_key}-loop-{planned.oem_part_number}.txt".replace("/", "_")
                         crash_path.write_text(
                             f"competitor: {competitor_key}\n"
                             f"part: {planned.oem_part_number}\n"
-                            f"collect_parts.py: {Path(__file__).resolve()}\n"
-                            f"python: {sys.executable}\n"
-                            f"working directory: {Path.cwd()}\n\n"
+                            f"parts completed before this: {len(result.rows)} of {len(plan.planned_parts)}\n"
+                            f"collect_parts.py: {Path(__file__).resolve()}\n\n"
                             + traceback.format_exc(),
                             encoding="utf-8",
                         )
                         print(f"  Full error details written to: {crash_path}")
                     except Exception:
                         pass
-                    row = collection_error_row(args.database, planned, scan_run_id, competitor_key, exc)
-                result.rows.append(row)
-                result.last_attempted_part = planned.oem_part_number
-                print(f"[{planned.run_order}/{len(plan.planned_parts)}] {planned.oem_part_number} | {row.selling_price or ''} | {row.result_type.upper()}")
-                _write_progress(args, result, plan, status="running", started_monotonic=started_monotonic)
-                stop_status = stop_status_for(row)
-                if stop_status:
+                    result.run_status = "failed"
+                    result.stop_reason = f"unexpected_error_in_collection_loop: {type(exc).__name__}"
+                    break
                     result.run_status = stop_status
                     result.stop_reason = row.result_type
                     break
