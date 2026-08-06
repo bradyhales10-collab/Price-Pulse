@@ -1549,3 +1549,72 @@ def test_product_detail_shows_margin_dollar_and_percent() -> None:
     assert "Margin" in section
     assert "5.34" in section
     assert "43.27" in section
+
+
+def test_review_explains_why_fewer_parts_than_expected_were_planned() -> None:
+    """A run that only planned 95 of 1000 input rows looked identical to one
+    that stopped partway through 1000 - both show 'requested fewer than
+    expected'. This states the real reason and the actual excluded part
+    numbers up front, so it does not require a separate diagnostic to see."""
+    import tempfile
+    from pathlib import Path
+
+    from app.collection import CollectionPlan, CollectionRunResult, _write_review
+
+    plan = CollectionPlan(
+        competitor_key="chaparral",
+        input_file=Path("parts.csv"),
+        valid_rows=1000,
+        invalid_rows=0,
+        unique_oem_parts=1000,
+        database_products_matched=1000,
+        database_listings_matched=95,
+        missing_products=[],
+        missing_listings=[f"PART-{i:04d}" for i in range(905)],
+        maximum_allowed_parts=1000,
+        planned_parts=[],
+    )
+    result = CollectionRunResult(
+        scan_run_id=1, started_at="now", completed_at="now", run_status="completed_with_warnings"
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "review.txt"
+        _write_review(path, result, plan)
+        text = path.read_text(encoding="utf-8")
+
+    assert "Rows in the input file: 1000" in text
+    assert "Excluded before this run started: 905 of 1000" in text
+    assert "905 with no chaparral listing" in text
+    assert "0 not found as a product" in text
+
+
+def test_review_says_nothing_extra_when_every_row_was_planned() -> None:
+    """A normal run, with nothing excluded, should not mention exclusions at
+    all - only a run that actually had some should."""
+    import tempfile
+    from pathlib import Path
+
+    from app.collection import CollectionPlan, CollectionRunResult, _write_review
+
+    plan = CollectionPlan(
+        competitor_key="partzilla",
+        input_file=Path("parts.csv"),
+        valid_rows=10,
+        invalid_rows=0,
+        unique_oem_parts=10,
+        database_products_matched=10,
+        database_listings_matched=10,
+        missing_products=[],
+        missing_listings=[],
+        maximum_allowed_parts=10,
+        planned_parts=[],
+    )
+    result = CollectionRunResult(scan_run_id=1, started_at="now", completed_at="now", run_status="completed")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "review.txt"
+        _write_review(path, result, plan)
+        text = path.read_text(encoding="utf-8")
+
+    assert "Excluded before this run started" not in text

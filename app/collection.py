@@ -310,8 +310,31 @@ def _write_review(path: Path, result: CollectionRunResult, plan: CollectionPlan)
         f"Started: {result.started_at}",
         f"Completed: {result.completed_at or ''}",
         f"Run status: {result.run_status}",
+        f"Rows in the input file: {plan.valid_rows}",
         f"Parts requested: {len(plan.planned_parts)}",
         f"Parts attempted: {len(result.rows)}",
+    ]
+    # If planning excluded rows before a single part was attempted, that is
+    # frequently mistaken for the run stopping partway through, since both
+    # show up as "attempted fewer than expected". Stating why up front, with
+    # the actual excluded part numbers, means the difference is visible
+    # without a separate diagnostic.
+    excluded = len(plan.missing_products) + len(plan.missing_listings)
+    if excluded:
+        lines.append(
+            f"Excluded before this run started: {excluded} of {plan.valid_rows} rows in the "
+            f"input file ({len(plan.missing_products)} not found as a product, "
+            f"{len(plan.missing_listings)} with no {plan.competitor_key} listing)."
+        )
+        if plan.missing_products:
+            sample = ", ".join(plan.missing_products[:10])
+            more = f" (+{len(plan.missing_products) - 10} more)" if len(plan.missing_products) > 10 else ""
+            lines.append(f"  Not found as a product: {sample}{more}")
+        if plan.missing_listings:
+            sample = ", ".join(plan.missing_listings[:10])
+            more = f" (+{len(plan.missing_listings) - 10} more)" if len(plan.missing_listings) > 10 else ""
+            lines.append(f"  No {plan.competitor_key} listing: {sample}{more}")
+    lines += [
         f"Successful: {sum(1 for row in result.rows if row.result_type in SUCCESS_RESULT_TYPES)}",
         f"First observations: {sum(1 for row in result.rows if row.result_type == 'first_observation')}",
         f"No changes: {sum(1 for row in result.rows if row.result_type == 'no_change')}",
