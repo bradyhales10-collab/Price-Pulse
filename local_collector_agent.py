@@ -646,8 +646,26 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
             try:
                 outcomes[competitor] = future.result()
             except Exception as exc:
+                # This used to update only the local outcomes dict, never
+                # telling the server anything went wrong. A competitor whose
+                # subprocess crashed after this point kept showing whatever
+                # progress it last reported before the crash - a status that
+                # looked clean and complete, forever, even though the agent
+                # itself already knew it had actually failed.
                 LOGGER.exception("%s failed during job %s", competitor, job_id)
                 outcomes[competitor] = {"status": "failed", "message": str(exc)}
+                report(
+                    competitor,
+                    {
+                        "status": "failed",
+                        "message": f"{get_competitor(competitor).display_name} stopped unexpectedly: {exc}",
+                        "competitor": competitor,
+                        "competitor_key": competitor,
+                        "rows": [],
+                        "completed": 0,
+                        "total": max_parts,
+                    },
+                )
 
     failed = [key for key, value in outcomes.items() if value.get("status") == "failed"]
     needs_login = [key for key, value in outcomes.items() if value.get("status") == "login_required"]

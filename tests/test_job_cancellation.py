@@ -1143,3 +1143,56 @@ def test_a_sign_in_retry_runs_concurrently_with_other_competitors_not_after_them
         f"under 0.5s proves the two ran concurrently rather than one after "
         f"the other"
     )
+
+
+def test_a_thread_level_crash_is_reported_to_the_server_not_only_logged_locally(monkeypatch, tmp_path) -> None:
+    """The exact gap behind a stale, misleadingly clean dashboard card: a raw
+    progress file showed every one of 95 parts succeeding cleanly, then the
+    run ended 3 seconds after the last success with no error recorded
+    anywhere. If a competitor's thread crashes with an exception that escapes
+    everything else, the agent's own bookkeeping correctly marked it failed,
+    but never told the server - so the dashboard kept showing the last
+    progress update from before the crash, forever, looking like a normal
+    finish."""
+    import local_collector_agent as agent
+
+    reported: list[dict[str, object]] = []
+
+    def fake_request_json(url, auth_header, *, method="GET", payload=None, allow_empty=False):
+        if url.endswith("/cancelled"):
+            return {"cancelled": False}
+        if "/progress/" in url and payload:
+            reported.append(dict(payload))
+        return {}
+
+    def crashing_run_competitor(local_job):
+        raise RuntimeError("simulated: something escaped everything and killed the thread")
+
+    monkeypatch.setattr(agent, "_request_json", fake_request_json)
+    monkeypatch.setattr(agent, "_download", lambda *a, **k: None)
+    monkeypatch.setattr(agent, "saved_session_is_usable", lambda key: (True, "saved"))
+    monkeypatch.setattr(agent, "verify_saved_session", lambda *a, **k: (True, "confirmed"))
+    monkeypatch.setattr(agent, "first_probe_part", lambda path, key: None)
+    monkeypatch.setattr(agent, "prepare_local_database", lambda *a, **k: 999)
+    monkeypatch.setattr(agent, "BRIDGE_DIR", tmp_path)
+
+    # Patch the module-level run_competitor closure indirectly: easiest is to
+    # patch ThreadPoolExecutor's target via _run_competitor raising, since
+    # run_competitor is defined inside _run_job_body and not directly
+    # patchable. Instead, make the underlying subprocess call raise.
+    def crashing_subprocess(*a, **k):
+        raise RuntimeError("simulated: something escaped everything and killed the thread")
+
+    monkeypatch.setattr(agent, "_run_competitor", crashing_subprocess)
+
+    agent._run_job_body(
+        {"job_id": "job-thread-crash", "competitors": ["chaparral"], "input_url": "/x", "planned_count": 994},
+        {},
+        "http://server",
+        None,
+        "agent-1",
+    )
+
+    failure_reports = [item for item in reported if item.get("status") == "failed"]
+    assert failure_reports, "the server must be told about a thread-level crash, not just logged locally"
+    assert "stopped unexpectedly" in failure_reports[0]["message"]
