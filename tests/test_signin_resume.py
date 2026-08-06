@@ -171,3 +171,126 @@ def test_a_stale_or_unrelated_scan_run_id_finds_nothing_to_skip() -> None:
 def test_a_missing_local_database_is_handled_without_crashing() -> None:
     already_attempted = already_attempted_part_keys(Path("/nonexistent/path.db"), scan_run_id=1)
     assert already_attempted == set()
+
+
+def test_two_sequential_sign_in_expirations_correctly_accumulate_to_the_full_total(monkeypatch, tmp_path) -> None:
+    """Reproduces the exact scenario reported: a sign-in expires, is fixed,
+    expires again, is fixed again, and the run finishes having only checked a
+    small number of parts in that final stretch. Traced end to end through the
+    real _run_job_body: 1000 planned, 400 checked before the first expiry, 574
+    more checked before the second (974 cumulative), then the remaining 26
+    checked successfully. The small final number is the size of that last
+    batch, not the whole result - 400 + 574 + 26 = 1000, and the completion
+    message should say so explicitly rather than leave that ambiguous.
+    """
+    import csv
+    import json
+    from unittest.mock import patch
+
+    import local_collector_agent as agent
+    from app.database import connect_database, create_scan_run, seed_partzilla
+
+    attempts = {"count": 0}
+    reported_progress: list[dict[str, object]] = []
+    final_message = {}
+
+    def fake_request_json(url, auth_header, *, method="GET", payload=None, allow_empty=False):
+        if url.endswith("/cancelled"):
+            return {"cancelled": False}
+        if "/progress/" in url and payload:
+            reported_progress.append(dict(payload))
+        if "/complete?" in url and payload:
+            final_message.update(payload)
+        return {}
+
+    def fake_run_competitor(
+        input_path, local_db, max_parts, competitor, runner_args, *,
+        expected_run_id, progress_callback, should_cancel,
+    ):
+        attempts["count"] += 1
+        attempt_number = attempts["count"]
+        with connect_database(local_db) as conn:
+            competitor_id = seed_partzilla(conn)
+            real_run_id = create_scan_run(conn, competitor_id=competitor_id, requested_part_count=max_parts)
+            assert real_run_id == expected_run_id
+            listings = conn.execute(
+                "SELECT l.listing_id FROM competitor_listings l "
+                "JOIN products p ON p.product_id=l.product_id ORDER BY p.oem_part_number"
+            ).fetchall()
+
+        checked_here = {1: 400, 2: 574}.get(attempt_number, len(listings))
+        checked_ids = [row["listing_id"] for row in listings[:checked_here]]
+        with connect_database(local_db) as conn:
+            for listing_id in checked_ids:
+                conn.execute(
+                    "INSERT INTO scan_events(scan_run_id, listing_id, checked_at, page_classification, "
+                    "session_status, navigation_succeeded, price_found, parse_warning_count) "
+                    "VALUES (?,?,?,?,?,?,?,0)",
+                    (real_run_id, listing_id, "2026-08-06T00:00:00Z", "normal_product", "authenticated", 1, 1),
+                )
+
+        completed_this_attempt = attempt_number >= 3
+        (tmp_path / f"progress-{expected_run_id}-{competitor}.json").write_text(
+            json.dumps(
+                {
+                    "status": "completed" if completed_this_attempt else "failed",
+                    "stop_reason": None if completed_this_attempt else "authentication_lost",
+                    "completed": checked_here,
+                    "total": max_parts,
+                }
+            ),
+            encoding="utf-8",
+        )
+        return tmp_path / f"summary-{expected_run_id}.csv"
+
+    input_csv = tmp_path / "src.csv"
+    columns = [
+        "Test_Case_ID", "Manufacturer", "OEM_Part_Number", "Search_Observed_Product_Name",
+        "Search_Observed_MSRP", "Expected_Partzilla_URL", "Test_Purpose", "Verified_Date", "Source_URL",
+    ]
+    with input_csv.open("w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(columns)
+        for index in range(1000):
+            writer.writerow([f"T{index}", "Kawasaki", f"PART-{index:04d}", "", "", "", "", "", ""])
+
+    with (
+        patch.object(agent, "_request_json", fake_request_json),
+        patch.object(agent, "_download", lambda url, path, auth: path.write_bytes(input_csv.read_bytes())),
+        patch.object(agent, "saved_session_is_usable", lambda key: (True, "saved")),
+        patch.object(agent, "verify_saved_session", lambda *a, **k: (True, "confirmed")),
+        patch.object(agent, "first_probe_part", lambda path, key: None),
+        patch.object(agent, "delete_auth_state", lambda key: None),
+        patch.object(agent, "_run_competitor", fake_run_competitor),
+        patch.object(agent, "_upload", lambda *a, **k: {"status": "imported"}),
+        patch.object(agent, "_open_login_refresh", lambda request: None),
+        patch.object(
+            agent,
+            "_wait_for_saved_sign_in",
+            lambda competitor, *, report, should_cancel, total, **k: (True, "saved"),
+        ),
+        patch.object(agent, "BRIDGE_DIR", tmp_path),
+    ):
+        agent._run_job_body(
+            {"job_id": "job-double-retry", "competitors": ["partzilla"], "input_url": "/x", "planned_count": 1000},
+            {},
+            "http://server",
+            None,
+            "agent-1",
+        )
+
+    assert attempts["count"] == 3, "expected exactly three attempts: original plus two retries"
+
+    resume_messages = [item for item in reported_progress if "Resuming" in str(item.get("message", ""))]
+    assert len(resume_messages) == 2
+    assert resume_messages[0]["completed"] == 400
+    assert resume_messages[1]["completed"] == 974, (
+        "the second resume must report the cumulative total (400 + 574), not just "
+        "the 574 checked in the most recent attempt alone"
+    )
+
+    assert final_message.get("status") == "completed"
+    assert "1000" in final_message.get("message", ""), (
+        "the completion message should state the real total explicitly, so a small "
+        "final batch (26 parts) is never mistaken for the whole result"
+    )

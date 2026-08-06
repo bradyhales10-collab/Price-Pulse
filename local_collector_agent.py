@@ -664,6 +664,19 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
     else:
         status = "completed"
         message = "All selected competitor price checks finished and results were imported."
+        # A competitor that needed a sign-in retry finishes on whatever was left
+        # of the original total, which can be a small number. Stating the real
+        # total explicitly here avoids that number being mistaken for the whole
+        # result, since a small number immediately followed by "Completed" reads
+        # as though very little was actually checked.
+        resumed = {key: offset for key, offset in progress_offsets.items() if offset}
+        if resumed:
+            details = ", ".join(
+                f"{get_competitor(key).display_name} needed a fresh sign-in partway through and "
+                f"finished with all {max_parts} parts checked ({offset} recovered automatically)"
+                for key, offset in resumed.items()
+            )
+            message = f"{message} {details}."
     _request_json(
         f"{server_url}/collector/agent/jobs/{job_id}/complete?{urllib.parse.urlencode({'agent_id': agent_id})}",
         auth_header,
