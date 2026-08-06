@@ -14,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from app.atomic_write import replace_with_retry
 from app.auth_session import MissingAuthStateError, auth_state_exists, require_competitor_auth_state
 from app.competitors.registry import get_competitor
 from app.config import DATA_DIR
@@ -902,7 +903,7 @@ def _write_json(path: Path, value: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(value, indent=2), encoding="utf-8")
-    temporary.replace(path)
+    replace_with_retry(temporary, path)
 
 
 def _aggregate_progress(progress_by_competitor: dict[str, dict[str, object]], metadata: dict[str, object]) -> dict[str, object]:

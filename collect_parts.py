@@ -13,6 +13,7 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
+from app.atomic_write import replace_with_retry
 from app.auth_session import (
     auth_state_path_for,
     mark_authenticated_context,
@@ -472,7 +473,7 @@ def _write_progress(args, result: CollectionRunResult, plan, *, status: str, sta
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    replace_with_retry(tmp, path)
 
 
 def _wait_for_partzilla_product_price(page, initial_settle_ms: int) -> str:
