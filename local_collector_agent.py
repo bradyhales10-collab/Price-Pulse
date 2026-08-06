@@ -490,10 +490,31 @@ def _run_job_body(job: dict[str, object], config: dict[str, object], server_url:
                     send_progress(progress)
                     return progress
                 raise
-            except CollectionCancelled:
+            except CollectionCancelled as cancelled_exc:
+                # Upload whatever was collected before the cancel. Previously
+                # this returned immediately, before ever reaching the upload
+                # below, so every price gathered during the run was discarded
+                # the moment someone pressed Cancel.
+                saved_message = "Cancelled."
+                partial = getattr(cancelled_exc, "summary", None)
+                if partial is not None and partial.exists():
+                    try:
+                        upload_with_retry(
+                            f"{server_url}/collector/results/upload?{urllib.parse.urlencode({'competitor': competitor, 'filename': partial.name, 'job_id': job_id})}",
+                            partial,
+                            auth_header,
+                        )
+                        saved_message = "Cancelled. Prices already checked before cancelling were saved."
+                        LOGGER.info("%s job %s: uploaded partial results after cancel", competitor, job_id)
+                    except Exception:
+                        LOGGER.exception("%s job %s: could not upload partial results after cancel", competitor, job_id)
+                        saved_message = (
+                            f"Cancelled. Prices checked before cancelling are saved on this computer at "
+                            f"{partial.resolve()} and can be imported with recover_lost_results.py."
+                        )
                 progress = {
                     "status": "cancelled",
-                    "message": "Cancelled.",
+                    "message": saved_message,
                     "competitor": competitor,
                     "competitor_key": competitor,
                     "rows": [],

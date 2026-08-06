@@ -204,3 +204,58 @@ def test_recovery_reports_nothing_to_do_when_there_is_nothing_recent(tmp_path) -
         exit_code = _run_recover_main()
 
     assert exit_code == 0
+
+
+def test_cancelling_a_run_still_saves_prices_already_collected(tmp_path, monkeypatch) -> None:
+    """Cancelling used to discard everything: the cancellation handler returned
+    before ever reaching the upload, so a run stopped after hundreds of real
+    prices saved none of them."""
+    import local_collector_agent as agent
+    from local_collector import CollectionCancelled
+
+    uploaded: list[str] = []
+    reported: list[dict[str, object]] = []
+    partial = tmp_path / "collection_summary.csv"
+    partial.write_text(SUMMARY_CSV, encoding="utf-8")
+
+    def fake_request_json(url, auth_header, *, method="GET", payload=None, allow_empty=False):
+        if url.endswith("/cancelled"):
+            return {"cancelled": False}
+        if "/progress/" in url and payload:
+            reported.append(dict(payload))
+        return {}
+
+    def cancelled_run(*args, **kwargs):
+        raise CollectionCancelled("chaparral was cancelled.", partial)
+
+    monkeypatch.setattr(agent, "_request_json", fake_request_json)
+    monkeypatch.setattr(agent, "_download", lambda *a, **k: None)
+    monkeypatch.setattr(agent, "saved_session_is_usable", lambda key: (True, "saved"))
+    monkeypatch.setattr(agent, "verify_saved_session", lambda *a, **k: (True, "confirmed"))
+    monkeypatch.setattr(agent, "first_probe_part", lambda path, key: None)
+    monkeypatch.setattr(agent, "prepare_local_database", lambda *a, **k: 1)
+    monkeypatch.setattr(agent, "_run_competitor", cancelled_run)
+    monkeypatch.setattr(agent, "upload_with_retry", lambda url, path, auth: uploaded.append(str(path)))
+    monkeypatch.setattr(agent, "BRIDGE_DIR", tmp_path)
+
+    agent._run_job_body(
+        {"job_id": "job-cancel", "competitors": ["chaparral"], "input_url": "/x", "planned_count": 100},
+        {},
+        "http://server",
+        None,
+        "agent-1",
+    )
+
+    assert uploaded == [str(partial)], "partial results must be uploaded, not discarded"
+    cancelled_reports = [item for item in reported if item.get("status") == "cancelled"]
+    assert cancelled_reports
+    assert "were saved" in cancelled_reports[0]["message"]
+
+
+def test_cancelling_before_anything_was_collected_uploads_nothing() -> None:
+    """With no results file there is nothing to save, and that must not error."""
+    from local_collector import CollectionCancelled
+
+    exc = CollectionCancelled("cancelled")
+
+    assert exc.summary is None

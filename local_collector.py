@@ -288,7 +288,16 @@ def prepare_local_database(
 
 
 class CollectionCancelled(Exception):
-    """Raised when a run is stopped by request rather than failing on its own."""
+    """Raised when a run is stopped by request rather than failing on its own.
+
+    Carries the partial results file when the collector managed to write one
+    before being stopped, so prices already collected are not thrown away just
+    because someone pressed Cancel.
+    """
+
+    def __init__(self, message: str, summary: Path | None = None) -> None:
+        super().__init__(message)
+        self.summary = summary
 
 
 def _run_competitor(
@@ -351,9 +360,16 @@ def _run_competitor(
         time.sleep(0.75)
         since_last_cancel_check += 0.75
     last_progress = _forward_progress(progress_file, progress_callback, last_progress)
-    if cancelled:
-        raise CollectionCancelled(f"{competitor} was cancelled.")
     summary = ROOT / "data" / "output" / "collection_runs" / str(expected_run_id) / "collection_summary.csv"
+    if cancelled:
+        # Cancelling used to discard everything collected up to that point: this
+        # raised before reaching the upload, so a run stopped after hundreds of
+        # real prices saved none of them. Terminating the subprocess does not
+        # always let it finish writing, so the summary is only passed on when it
+        # actually exists.
+        raise CollectionCancelled(
+            f"{competitor} was cancelled.", summary if summary.exists() else None
+        )
     if process.returncode:
         if _partial_collection_is_uploadable(progress_file, summary):
             print(
