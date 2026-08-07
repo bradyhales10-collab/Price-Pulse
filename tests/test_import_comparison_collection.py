@@ -25,7 +25,7 @@ from app.database import (
     upsert_competitor_listing,
     utc_now,
 )
-from app.exports.review_export import REVIEW_COLUMNS, export_review
+from app.exports.review_export import export_review, review_columns
 from app.imports import confirm_import, preview_import, save_upload
 from app.input_loader import load_parts_csv
 from app.manufacturer_registry import (
@@ -324,9 +324,14 @@ def test_comparison_formulas_filters_and_review_export() -> None:
 
     export_path = export_review(rows, TEST_OUTPUT_DIR / "exports")
     exported = read_rows(export_path, "Pricing Review")
-    assert exported[0] == REVIEW_COLUMNS
+    assert exported[0] == review_columns()
     assert "Chaparral_Price" in exported[0]
-    assert "Original_Price" in exported[0]
+    # Original_Price was removed: nothing ever populated it, so it only added
+    # a blank column to every export.
+    assert "Original_Price" not in exported[0]
+    # Every registered competitor gets a price column, so adding one cannot
+    # silently be left out of the export the way RevZilla was.
+    assert "RevZilla_Price" in exported[0]
     assert exported[0].index("Updated_Price") > exported[0].index("Suggested_Price")
     assert exported[0][-1] == "New_Margin_Pct"
     assert exported[1][exported[0].index("Updated_Price")] == ""
@@ -1618,3 +1623,68 @@ def test_review_says_nothing_extra_when_every_row_was_planned() -> None:
         text = path.read_text(encoding="utf-8")
 
     assert "Excluded before this run started" not in text
+
+
+def test_catalog_export_includes_every_competitor_and_respects_filters() -> None:
+    """The review export silently omitted RevZilla because its columns were a
+    fixed list. Both exports now build competitor columns from the registry, so
+    adding a competitor cannot leave it out. Filters are honoured because
+    exporting everything when the view is narrowed would be surprising."""
+    import re
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    from fastapi.testclient import TestClient
+
+    from app.exports.catalog_export import catalog_columns
+    from app.web.app import create_app
+
+    columns = catalog_columns()
+    for expected in ("Partzilla_Price", "MotoSport_Price", "Chaparral_Price", "RevZilla_Price"):
+        assert expected in columns, expected
+
+    db = _comparison_db("catalog_export_test.db")
+    client = TestClient(create_app(db), raise_server_exceptions=False)
+
+    page = client.get("/products").text
+    match = re.search(r'href="(/products/export[^"]*)"', page)
+    assert match, "the catalog page should offer an export link"
+
+    response = client.get(match.group(1).replace("&amp;", "&"))
+    assert response.status_code == 200
+    assert "spreadsheetml" in response.headers.get("content-type", "")
+
+    filtered = client.get("/products/export?manufacturer=Kawasaki")
+    assert filtered.status_code == 200
+
+
+def test_catalog_export_writes_real_values() -> None:
+    import tempfile
+    from pathlib import Path
+
+    import openpyxl
+
+    from app.exports.catalog_export import export_catalog
+    from app.web.queries import CatalogFilters, catalog_data
+
+    db = _comparison_db("catalog_export_values.db")
+    products = catalog_data(db, CatalogFilters(page=1, page_size=1000)).get("products", [])
+    assert products
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = export_catalog(products, Path(tmp))
+        workbook = openpyxl.load_workbook(path)
+        rows = list(workbook["Product Catalog"].iter_rows(values_only=True))
+
+    assert rows[0] == tuple(catalog_columns_for_test())
+    # The Kawasaki fixture has a Partzilla price of 10.00 and our price 12.34.
+    kawasaki = next(row for row in rows[1:] if row[1] == "K-PRICE")
+    assert kawasaki[4] == 10.0
+    assert kawasaki[10] == 12.34
+
+
+def catalog_columns_for_test():
+    from app.exports.catalog_export import catalog_columns
+
+    return catalog_columns()

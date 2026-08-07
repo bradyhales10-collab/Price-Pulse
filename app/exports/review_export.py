@@ -6,31 +6,45 @@ from typing import Any
 
 from app.xlsx_utils import write_workbook
 
-REVIEW_COLUMNS = [
-    "Internal_SKU",
-    "Manufacturer",
-    "OEM_Part_Number",
-    "Product_Name",
-    "Partzilla_Price",
-    "MotoSport_Price",
-    "Chaparral_Price",
-    "Lowest_Competitor",
-    "Lowest_Competitor_Price",
-    "Gap_Vs_Lowest",
-    "Original_Price",
-    "Our_Current_Price",
-    "Calc_Cost",
-    "Margin_Pct",
-    "Suggested_Price",
-    "Updated_Price",
-    "New_Margin_Pct",
-]
+
+def review_columns() -> list[str]:
+    """Export columns, with one price column per registered competitor.
+
+    Built from the competitor registry rather than hardcoded, so adding a
+    competitor puts it in the export automatically. The previous fixed list
+    silently omitted RevZilla, making an export look like RevZilla had found
+    nothing when it had simply never been included.
+
+    Original_Price is deliberately absent: it was always empty, since nothing
+    populates it, so it only added a blank column to every export.
+    """
+    from app.competitors.registry import list_competitors, short_display_name
+
+    competitor_columns = [f"{short_display_name(a)}_Price" for a in list_competitors()]
+    return [
+        "Internal_SKU",
+        "Manufacturer",
+        "OEM_Part_Number",
+        "Product_Name",
+        *competitor_columns,
+        "Lowest_Competitor",
+        "Lowest_Competitor_Price",
+        "Gap_Vs_Lowest",
+        "Our_Current_Price",
+        "Calc_Cost",
+        "Margin_Pct",
+        "Suggested_Price",
+        "Updated_Price",
+        "New_Margin_Pct",
+    ]
 
 
 def export_review(rows: list[dict[str, Any]], output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / f"Pricing_Update_Review_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}.xlsx"
-    review_rows = [REVIEW_COLUMNS]
+    from app.competitors.registry import list_competitors
+
+    review_rows = [review_columns()]
     for row in rows:
         review_rows.append(
             [
@@ -38,13 +52,10 @@ def export_review(rows: list[dict[str, Any]], output_dir: Path) -> Path:
                 row.get("manufacturer", ""),
                 row.get("oem_part_number", ""),
                 row.get("product_name", ""),
-                _num(row.get("partzilla_selling_price")),
-                _num(row.get("motosport_selling_price")),
-                _num(row.get("chaparral_selling_price")),
+                *[_num(row.get(f"{a.competitor_key}_selling_price")) for a in list_competitors()],
                 row.get("lowest_competitor_name", ""),
                 _num(row.get("lowest_competitor_price")),
                 _num(row.get("difference_vs_lowest_competitor")),
-                _num(row.get("original_price")),
                 _num(row.get("our_current_price")),
                 _num(row.get("current_cost")),
                 _pct(row.get("our_gross_margin_pct")),

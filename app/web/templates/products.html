@@ -22,7 +22,7 @@
 {% set query_base = 'search=' ~ filters.search|urlencode ~ '&manufacturer=' ~ filters.manufacturer|urlencode ~ '&price_type=' ~ filters.price_type|urlencode ~ '&availability=' ~ filters.availability|urlencode ~ '&superseded=' ~ filters.superseded|urlencode ~ '&confidence=' ~ filters.confidence|urlencode ~ '&needs_review=' ~ (1 if filters.needs_review else 0) ~ '&sort=' ~ filters.sort|urlencode ~ '&page_size=' ~ filters.page_size %}
 
 <section class="card">
-  <div class="section-title"><h2>{{ total }} Products</h2><span>Page {{ filters.page }} of {{ total_pages }}</span></div>
+  <div class="section-title"><h2>{{ total }} Products</h2><div class="quick-actions"><span>Page {{ filters.page }} of {{ total_pages }}</span>{% if products %}<a class="button" href="/products/export?search={{ filters.search|urlencode }}&manufacturer={{ filters.manufacturer|urlencode }}&price_type={{ filters.price_type|urlencode }}&availability={{ filters.availability|urlencode }}&superseded={{ filters.superseded|urlencode }}&confidence={{ filters.confidence|urlencode }}&needs_review={{ 1 if filters.needs_review else 0 }}&sort={{ filters.sort|urlencode }}">Export to Excel</a>{% endif %}</div></div>
   {{ pagination(query_base, filters.page, total_pages) }}
   {% if products %}
   <div class="table-wrap page-scroll">

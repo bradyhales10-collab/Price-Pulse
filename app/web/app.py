@@ -43,6 +43,7 @@ from app.collector_bridge import import_collection_summary, selected_parts_csv
 from app.comparison import ComparisonFilters
 from app.competitors.registry import list_competitors, select_competitors, short_display_name
 from app.config import OUTPUT_DIR
+from app.exports.catalog_export import export_catalog
 from app.exports.review_export import export_review
 from app.imports import (
     ALL_FIELDS,
@@ -118,6 +119,9 @@ templates.env.globals["competitor_columns"] = [
     {"key": adapter.competitor_key, "short_name": short_display_name(adapter), "display_name": adapter.display_name}
     for adapter in list_competitors()
 ]
+
+
+MAX_CATALOG_EXPORT_ROWS = 100000
 
 
 def create_app(database: Path) -> FastAPI:
@@ -200,6 +204,43 @@ def create_app(database: Path) -> FastAPI:
             "products.html",
             {"active": "products", "database": app.state.database, **data},
         )
+
+    @app.get("/products/export")
+    def products_export(
+        search: str = "",
+        manufacturer: str = "",
+        price_type: str = "",
+        availability: str = "",
+        superseded: str = "",
+        confidence: str = "",
+        needs_review: int = 0,
+        sort: str = "last_checked",
+    ):
+        """Export the catalog, matching whatever filters are currently applied.
+
+        Exporting everything regardless of the filters would be surprising:
+        someone who has narrowed the catalog to one manufacturer expects the
+        export to contain that, not all of it. page and page_size are
+        deliberately not accepted, since an export should cover every matching
+        row rather than just the page being viewed.
+        """
+        data = catalog_data(
+            app.state.database,
+            CatalogFilters(
+                search=search,
+                manufacturer=manufacturer,
+                price_type=price_type,
+                availability=availability,
+                superseded=superseded,
+                confidence=confidence,
+                needs_review=bool(needs_review),
+                sort=sort,
+                page=1,
+                page_size=MAX_CATALOG_EXPORT_ROWS,
+            ),
+        )
+        path = export_catalog(data.get("products", []), OUTPUT_DIR / "exports")
+        return FileResponse(path, filename=path.name)
 
     @app.get("/products/{product_id}", response_class=HTMLResponse)
     def product(request: Request, product_id: int, back: str = ""):
