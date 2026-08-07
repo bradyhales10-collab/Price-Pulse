@@ -82,8 +82,32 @@ def main() -> int:
                 f"  label={str(candidate.get('label') or candidate.get('context') or '')[:60]}"
             )
     else:
-        print("No individual price candidates were recorded. Full detail:")
-        print(json.dumps(data, indent=2)[:4000])
+        # The candidates live in a sibling file written by the same collector,
+        # not inside observation.json.
+        evidence_path = observation_path.parent / "price_evidence.json"
+        if evidence_path.exists():
+            print(f"Price detail from: {evidence_path.name}")
+            evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+            found = evidence.get("candidates") or evidence.get("price_candidates") or []
+            if found:
+                print(f"\nPrices found on the page ({len(found)}):")
+                for candidate in found:
+                    if not isinstance(candidate, dict):
+                        print(f"  {candidate}")
+                        continue
+                    print(
+                        f"  value={candidate.get('normalized_value') or candidate.get('raw_text')}"
+                        f"  role={candidate.get('candidate_role')}"
+                        f"  source={candidate.get('source_type')}"
+                    )
+                    context = candidate.get("context_text") or candidate.get("raw_text") or ""
+                    if context:
+                        print(f"        context: {str(context)[:100]}")
+            for line in evidence.get("explanation") or []:
+                print(f"  - {line}")
+        else:
+            print("No price candidate detail was recorded. Full observation:")
+            print(json.dumps(data, indent=2)[:3000])
 
     explanation = evidence.get("explanation") or data.get("explanation")
     if explanation:

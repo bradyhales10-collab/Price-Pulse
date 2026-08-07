@@ -45,6 +45,29 @@ REJECT_CONTEXT_MARKERS = (
     "cart total",
     "shipping",
     "financing",
+    # Instalment and financing offers quote a monthly payment, which is a real
+    # dollar amount on the page but is not what the item costs. Partzilla shows
+    # "Starting at $28.70/mo or as low as 0% APR" beside a $300.43 item: that
+    # $28.70 was being read as a second selling price, conflicting with the real
+    # one, and the parser then recorded no price at all rather than choose
+    # between them. "financing" alone never matched, because that word does not
+    # appear on the page.
+    "/mo",
+    " mo.",
+    "per month",
+    "a month",
+    "monthly",
+    "apr",
+    "as low as",
+    "installment",
+    "instalment",
+    "affirm",
+    "klarna",
+    "afterpay",
+    "sezzle",
+    "paypal credit",
+    "pay over time",
+    "pay in 4",
 )
 SAFE_ATTR_PREFIXES = ("data-testid", "data-price", "data-product", "data-role")
 SAFE_ATTR_NAMES = {"aria-label", "role", "itemprop", "id"}
