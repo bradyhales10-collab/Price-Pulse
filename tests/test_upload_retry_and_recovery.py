@@ -259,3 +259,80 @@ def test_cancelling_before_anything_was_collected_uploads_nothing() -> None:
     exc = CollectionCancelled("cancelled")
 
     assert exc.summary is None
+
+
+def test_rerunning_some_competitors_leaves_the_others_prices_alone(tmp_path) -> None:
+    """Re-running only the competitors that failed must not disturb the ones
+    that already completed. Without this guarantee, recovering a failed
+    competitor would mean redoing every competitor, since a partial re-run
+    could silently discard a full sweep that had already succeeded."""
+    from app.collector_bridge import import_collection_summary
+    from app.database import (
+        connect_database,
+        initialize_database,
+        normalize_part_number,
+        seed_chaparral,
+        seed_motosport,
+        seed_partzilla,
+        seed_revzilla,
+        utc_now,
+    )
+
+    database = tmp_path / "prices.db"
+    initialize_database(database)
+    now = utc_now()
+    starting_prices = {"partzilla": 1000, "motosport": 2000, "chaparral": 3000, "revzilla": 4000}
+
+    with connect_database(database) as conn:
+        competitor_ids = {
+            "partzilla": seed_partzilla(conn),
+            "motosport": seed_motosport(conn),
+            "chaparral": seed_chaparral(conn),
+            "revzilla": seed_revzilla(conn),
+        }
+        conn.execute(
+            "INSERT INTO products(product_id, manufacturer, oem_part_number, normalized_part_number, "
+            "product_name, is_active, created_at, updated_at) VALUES (1,'Yamaha','1C3-1234',?, 'Part',1,?,?)",
+            (normalize_part_number("1C3-1234"), now, now),
+        )
+        conn.execute(
+            "INSERT INTO internal_product_state(product_id, internal_sku, our_current_price_cents, "
+            "is_active, updated_at) VALUES (1,'SKU1',5000,1,?)",
+            (now,),
+        )
+        for listing_id, (key, competitor_id) in enumerate(competitor_ids.items(), start=1):
+            conn.execute(
+                "INSERT INTO competitor_listings(listing_id, product_id, competitor_id, "
+                "competitor_part_number, canonical_url, is_active, first_seen_at, last_seen_at, "
+                "created_at, updated_at) VALUES (?,1,?,'1C3-1234','https://x',1,?,?,?,?)",
+                (listing_id, competitor_id, now, now, now, now),
+            )
+            conn.execute(
+                "INSERT INTO current_listing_state(listing_id, selling_price_cents, price_display_type, "
+                "first_observed_at, last_successful_check_at, last_changed_at, updated_at) "
+                "VALUES (?,?, 'regular', ?, ?, ?, ?)",
+                (listing_id, starting_prices[key], now, now, now, now),
+            )
+
+    motosport_only = (
+        "competitor,manufacturer,oem_part_number,observed_part_number,result_type,selling_price,"
+        "reference_price,savings_percent,price_display_type,availability_raw,availability_status,"
+        "page_classification,session_status,parse_confidence,warnings,observation_json_path\n"
+        "motosport,Yamaha,1C3-1234,1C3-1234,price_change,77.77,,,regular,In Stock,in_stock,"
+        "normal_product,public,high,,\n"
+    )
+    import_collection_summary(database, summary_csv=motosport_only.encode(), fallback_competitor="motosport")
+
+    with connect_database(database) as conn:
+        final = {
+            row["competitor_code"]: row["selling_price_cents"]
+            for row in conn.execute(
+                "SELECT c.competitor_code, s.selling_price_cents FROM current_listing_state s "
+                "JOIN competitor_listings l ON l.listing_id = s.listing_id "
+                "JOIN competitors c ON c.competitor_id = l.competitor_id"
+            )
+        }
+
+    assert final["motosport"] == 7777, "the competitor that was re-run should be updated"
+    for untouched in ("partzilla", "chaparral", "revzilla"):
+        assert final[untouched] == starting_prices[untouched], f"{untouched} was disturbed by a re-run"
