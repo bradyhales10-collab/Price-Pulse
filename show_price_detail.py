@@ -24,7 +24,13 @@ def main() -> int:
         return 1
     competitor, part_number = sys.argv[1].strip().lower(), sys.argv[2].strip()
 
-    base = ROOT / "data" / "output" / f"{competitor}_collection_diagnostics"
+    # Partzilla is the only competitor that signs in, and its collector writes
+    # to authenticated_diagnostics rather than <competitor>_collection_diagnostics.
+    candidates = [
+        ROOT / "data" / "output" / f"{competitor}_collection_diagnostics",
+        ROOT / "data" / "output" / "authenticated_diagnostics",
+    ]
+    base = next((path for path in candidates if path.exists()), candidates[0])
     if not base.exists():
         print(f"No diagnostics found at {base}")
         print("Available diagnostics folders:")
