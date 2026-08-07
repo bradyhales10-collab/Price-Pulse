@@ -31,6 +31,7 @@ from app.browser_profile import (
 from app.collection import (
     CollectionRow,
     CollectionRunResult,
+    consecutive_error_limit,
     effective_delay_seconds,
     fingerprint_file,
     jittered_delay,
@@ -110,6 +111,12 @@ from probe_cart_price import (
 
 HEAVY_RESOURCE_TYPES = {"image", "font", "media"}
 COMPETITOR_RENDER_SETTLE_MS = 1000
+# Reading a page's text failed with 'Timeout 5000ms exceeded' on a slow page,
+# which counted as an operational error and helped end a 1000-part run after
+# 11 parts. Five seconds is tight for a page that has already loaded but is
+# still settling; this only bounds how long to wait for text that is
+# expected to be there.
+BODY_TEXT_TIMEOUT_MS = 15000
 PARTZILLA_RENDER_SETTLE_MS = 1000
 PARTZILLA_PRICE_POLL_MS = 250
 PARTZILLA_PRICE_POLL_ATTEMPTS = 16
@@ -297,6 +304,7 @@ def run_collection(args, plan) -> int:
             page.set_default_navigation_timeout(settings.timeout)
             assert_production_collector_exists(competitor_key)
             run_delay_seconds = effective_delay_seconds(args.delay_seconds, len(plan.planned_parts))
+            error_limit = consecutive_error_limit(len(plan.planned_parts))
             if run_delay_seconds != args.delay_seconds:
                 print(
                     f"Using a {run_delay_seconds}s gap between parts instead of "
@@ -345,9 +353,9 @@ def run_collection(args, plan) -> int:
                         break
                     if row.result_type in {"navigation_error", "error"}:
                         consecutive_errors += 1
-                        if consecutive_errors >= 2:
+                        if consecutive_errors >= error_limit:
                             result.run_status = "failed"
-                            result.stop_reason = "two_consecutive_operational_errors"
+                            result.stop_reason = f"{error_limit}_consecutive_operational_errors"
                             break
                     else:
                         consecutive_errors = 0
@@ -568,7 +576,7 @@ def collect_one_part(database_path: Path, page, planned, scan_run_id: int, setti
         final_url = page.url
         title = page.title()
         html = page.content()
-        body_text = page.locator("body").inner_text(timeout=5000) if page.locator("body").count() else ""
+        body_text = page.locator("body").inner_text(timeout=BODY_TEXT_TIMEOUT_MS) if page.locator("body").count() else ""
         text = product_region_text or body_text
     except (PlaywrightTimeoutError, PlaywrightError, Exception) as exc:
         exception_message = str(exc)
@@ -726,7 +734,7 @@ def collect_one_motosport_part(database_path: Path, page, planned, scan_run_id: 
         page.wait_for_timeout(min(settings.render_settle_ms, COMPETITOR_RENDER_SETTLE_MS))
         final_url = page.url
         html = page.content()
-        text = page.locator("body").inner_text(timeout=5000) if page.locator("body").count() else ""
+        text = page.locator("body").inner_text(timeout=BODY_TEXT_TIMEOUT_MS) if page.locator("body").count() else ""
     except (PlaywrightTimeoutError, PlaywrightError, Exception) as exc:
         exception_message = exception_message or str(exc)
 
@@ -882,7 +890,7 @@ def collect_one_chaparral_part(database_path: Path, page, planned, scan_run_id: 
             page.wait_for_timeout(min(settings.render_settle_ms, COMPETITOR_RENDER_SETTLE_MS))
             final_url = page.url
             html = page.content()
-            text = page.locator("body").inner_text(timeout=5000) if page.locator("body").count() else ""
+            text = page.locator("body").inner_text(timeout=BODY_TEXT_TIMEOUT_MS) if page.locator("body").count() else ""
             cache_observation = adapter.parse_product_page(html, record, visible_text=text, final_url=final_url, http_status=status)
             if _chaparral_observation_matches(cache_observation, planned.oem_part_number):
                 cache_used = True
@@ -1050,7 +1058,7 @@ def _run_chaparral_search_lookup(page, part_number: str, settings: ProbeSettings
     _wait_for_chaparral_lookup_result(page, part_number, settings.timeout)
     page.wait_for_timeout(min(settings.render_settle_ms, CHAPARRAL_SEARCH_SETTLE_MS))
     html = page.content()
-    text = page.locator("body").inner_text(timeout=5000) if page.locator("body").count() else ""
+    text = page.locator("body").inner_text(timeout=BODY_TEXT_TIMEOUT_MS) if page.locator("body").count() else ""
     return status, page.url, html, text
 
 
@@ -1417,7 +1425,7 @@ def _open_search_based_product_page(page, adapter, record, planned, settings, de
     page.wait_for_timeout(min(settings.render_settle_ms, COMPETITOR_RENDER_SETTLE_MS))
     final_url = page.url
     html = page.content()
-    text = page.locator("body").inner_text(timeout=5000) if page.locator("body").count() else ""
+    text = page.locator("body").inner_text(timeout=BODY_TEXT_TIMEOUT_MS) if page.locator("body").count() else ""
 
     if status in {401, 403, 429}:
         return status, final_url, html, text, None
@@ -1437,7 +1445,7 @@ def _open_search_based_product_page(page, adapter, record, planned, settings, de
     page.wait_for_timeout(min(settings.render_settle_ms, COMPETITOR_RENDER_SETTLE_MS))
     final_url = page.url
     html = page.content()
-    text = page.locator("body").inner_text(timeout=5000) if page.locator("body").count() else ""
+    text = page.locator("body").inner_text(timeout=BODY_TEXT_TIMEOUT_MS) if page.locator("body").count() else ""
     return status, final_url, html, text, product_url
 
 
@@ -1482,7 +1490,7 @@ def collect_one_search_based_part(
             page.wait_for_timeout(min(settings.render_settle_ms, COMPETITOR_RENDER_SETTLE_MS))
             final_url = page.url
             html = page.content()
-            text = page.locator("body").inner_text(timeout=5000) if page.locator("body").count() else ""
+            text = page.locator("body").inner_text(timeout=BODY_TEXT_TIMEOUT_MS) if page.locator("body").count() else ""
             cached_observation = adapter.parse_product_page(
                 html, record, visible_text=text, final_url=final_url, http_status=status
             )

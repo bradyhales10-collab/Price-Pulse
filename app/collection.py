@@ -30,6 +30,28 @@ LARGE_RUN_MIN_DELAY_SECONDS = 3
 DELAY_JITTER_FRACTION = 0.25
 
 
+def consecutive_error_limit(part_count: int) -> int:
+    """How many operational errors in a row should end a run.
+
+    A run stops after this many consecutive navigation errors, on the reasoning
+    that a site refusing us repeatedly is not worth hammering. The limit was a
+    flat 2, which is sensible for a 25-part probe and far too strict for a real
+    run: a 1000-part MotoSport run stopped after 11 parts because one page took
+    longer than five seconds to read and the next came back blocked. Ten
+    successful lookups were discarded along with the 989 not yet attempted.
+
+    Two unlucky pages in a row is ordinary noise at volume, while ten in a row
+    is a site that has genuinely stopped answering. A real block or challenge
+    still stops immediately through stop_status_for, which is unaffected by
+    this: this only governs transient navigation failures.
+    """
+    if part_count >= LARGE_RUN_PART_COUNT:
+        return 10
+    if part_count > MEDIUM_RUN_PART_COUNT:
+        return 5
+    return 3
+
+
 @dataclass(frozen=True)
 class PlannedPart:
     run_order: int

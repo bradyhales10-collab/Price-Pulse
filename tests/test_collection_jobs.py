@@ -377,3 +377,61 @@ def test_run_summary_handles_no_results_without_crashing(tmp_path, monkeypatch) 
     monkeypatch.setattr(explain, "CRASH_DIR", tmp_path / "none")
 
     assert explain.main() == 1
+
+
+def test_consecutive_error_limit_scales_so_two_bad_pages_cannot_end_a_large_run() -> None:
+    """A 1000-part MotoSport run stopped after 11 parts: one page took longer
+    than five seconds to read and the next came back blocked, which hit a flat
+    limit of two consecutive errors. Ten successful lookups were discarded
+    along with the 989 not yet attempted. Two unlucky pages in a row is
+    ordinary noise at volume; ten in a row is a site that has stopped
+    answering."""
+    from app.collection import consecutive_error_limit
+
+    assert consecutive_error_limit(25) == 3
+    assert consecutive_error_limit(250) == 3
+    assert consecutive_error_limit(500) == 5
+    assert consecutive_error_limit(1000) == 10
+    assert consecutive_error_limit(5000) == 10
+
+    # Never below the old behaviour: a small run still stops promptly.
+    assert consecutive_error_limit(1) >= 2
+
+
+def test_a_genuine_block_still_stops_a_run_immediately() -> None:
+    """The scaled limit governs transient navigation failures only. A site
+    actively refusing us must still stop the run at once rather than being
+    retried nine more times."""
+    from app.collection import CollectionRow, stop_status_for
+
+    def row(result_type: str, http_status: int = 403) -> CollectionRow:
+        return CollectionRow(
+            run_order=1, scan_run_id=1, scan_event_id=None, manufacturer="Yamaha",
+            oem_part_number="X", normalized_manufacturer="Yamaha", competitor="motosport",
+            manufacturer_supported=True, lookup_status="", status_reason="",
+            observed_part_number="X", product_name="", checked_at="", http_status=http_status,
+            page_classification=result_type, session_status="public", selling_price=None,
+            reference_price=None, savings_percent=None, price_display_type="unknown",
+            previous_selling_price=None, result_type=result_type, price_changed=False,
+            availability_raw="", previous_availability_status=None, availability_status="unknown",
+            supersession_detected=False, superseded_by_raw=None, price_source_category="",
+            price_corroboration_count=0, price_parse_confidence="low", parse_confidence="low",
+            warning_count=0, warnings="", observation_json_path="",
+        )
+
+    assert stop_status_for(row("blocked")) is not None
+    assert stop_status_for(row("challenge")) is not None
+    # A transient navigation error is not itself a stop; it only counts toward
+    # the consecutive limit.
+    assert stop_status_for(row("navigation_error", http_status=200)) is None
+
+
+def test_reading_page_text_allows_more_than_five_seconds() -> None:
+    """"Locator.inner_text: Timeout 5000ms exceeded" counted as an operational
+    error and contributed to ending that run."""
+    from pathlib import Path
+
+    source = Path("collect_parts.py").read_text(encoding="utf-8")
+
+    assert "BODY_TEXT_TIMEOUT_MS = 15000" in source
+    assert "inner_text(timeout=5000)" not in source
