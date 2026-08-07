@@ -212,8 +212,16 @@ def already_attempted_part_keys(local_db: Path, scan_run_id: int) -> set[tuple[s
     _write_progress), so after an interruption on part 300 of 1000 it names
     only parts 251-300. Using that to decide what to skip on a retry would
     re-check the first 250 parts for nothing. The local database's
-    scan_events table has every attempt from this run, regardless of outcome,
-    so it is the reliable source for what can be skipped.
+    scan_events table has every attempt from this run, so it is the reliable
+    source for what can be skipped.
+
+    Attempts that failed because the sign-in expired are deliberately excluded.
+    Those parts were reached but could not be priced, and the whole point of
+    signing in again is to price them: treating them as done meant the part
+    where the session died, and any after it, were skipped permanently and
+    came back with no price no matter how many times the run resumed. One
+    Polaris part read a price of 257.07 correctly and still ended up blank for
+    exactly this reason.
     """
     if not local_db.exists():
         return set()
@@ -226,6 +234,7 @@ def already_attempted_part_keys(local_db: Path, scan_run_id: int) -> set[tuple[s
                 JOIN competitor_listings l ON l.listing_id = se.listing_id
                 JOIN products p ON p.product_id = l.product_id
                 WHERE se.scan_run_id = ?
+                  AND se.session_status NOT IN ('expired_or_invalid', 'authentication_required')
                 """,
                 (scan_run_id,),
             ).fetchall()

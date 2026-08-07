@@ -401,3 +401,58 @@ def test_more_than_three_sign_in_expirations_still_completes(monkeypatch, tmp_pa
     # One original attempt plus five retries: the run must not have given up
     # after only three.
     assert attempts["count"] == expirations + 1
+
+
+def test_a_part_that_failed_on_authentication_is_retried_not_skipped(tmp_path) -> None:
+    """A part reached while the sign-in was dying was recorded as attempted and
+    then skipped forever on every resume, so it came back with no price no
+    matter how many times the run continued.
+
+    Traced from a real part: the collector read 257.07 from the page correctly,
+    but the row was recorded as authentication_lost with no price, and the
+    retry then skipped it as already done. The whole purpose of signing in
+    again is to price exactly those parts.
+    """
+    from app.database import connect_database, create_scan_run, seed_partzilla, utc_now
+
+    input_csv = tmp_path / "parts.csv"
+    _write_input_csv(input_csv, 0)
+    with input_csv.open("w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(COLUMNS)
+        for part in ("GOOD-1", "AUTHLOST-1", "GOOD-2"):
+            writer.writerow(["T", "Polaris", part, "", "", "", "", "", ""])
+
+    database = tmp_path / "collector.db"
+    prepare_local_database(input_csv, database, ["partzilla"], run_id_floor=500)
+    with connect_database(database) as conn:
+        competitor_id = seed_partzilla(conn)
+        run_id = create_scan_run(conn, competitor_id=competitor_id, requested_part_count=3)
+        listings = conn.execute(
+            "SELECT l.listing_id, p.oem_part_number FROM competitor_listings l "
+            "JOIN products p ON p.product_id=l.product_id ORDER BY p.oem_part_number"
+        ).fetchall()
+        for listing in listings:
+            session_status = (
+                "expired_or_invalid" if listing["oem_part_number"] == "AUTHLOST-1" else "authenticated"
+            )
+            conn.execute(
+                "INSERT INTO scan_events(scan_run_id, listing_id, checked_at, page_classification, "
+                "session_status, navigation_succeeded, price_found, parse_warning_count) "
+                "VALUES (?,?,?,?,?,?,?,0)",
+                (run_id, listing["listing_id"], utc_now(), "normal_product", session_status, 1, 1),
+            )
+
+    already_attempted = already_attempted_part_keys(database, run_id)
+    attempted_parts = sorted(key[1] for key in already_attempted)
+
+    assert attempted_parts == ["GOOD-1", "GOOD-2"]
+
+    retry_db = tmp_path / "retry.db"
+    prepare_local_database(
+        input_csv, retry_db, ["partzilla"], run_id_floor=900, skip_keys=already_attempted
+    )
+    with connect_database(retry_db) as conn:
+        remaining = [row["oem_part_number"] for row in conn.execute("SELECT oem_part_number FROM products")]
+
+    assert remaining == ["AUTHLOST-1"], "only the part that lost its session should be rechecked"
