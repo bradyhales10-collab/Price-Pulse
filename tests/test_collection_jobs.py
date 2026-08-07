@@ -390,9 +390,15 @@ def test_consecutive_error_limit_scales_so_two_bad_pages_cannot_end_a_large_run(
 
     assert consecutive_error_limit(25) == 3
     assert consecutive_error_limit(250) == 3
-    assert consecutive_error_limit(500) == 5
-    assert consecutive_error_limit(1000) == 10
-    assert consecutive_error_limit(5000) == 10
+    assert consecutive_error_limit(500) == 4
+    assert consecutive_error_limit(1000) == 6
+    assert consecutive_error_limit(5000) == 6
+
+    # Kept modest on purpose: each error can cost several seconds of waiting,
+    # so a generous limit turns a bad patch into a long stall rather than a
+    # quick stop. An earlier value of 10, paired with a 15 second read timeout,
+    # made a large run feel unusable.
+    assert consecutive_error_limit(1000) * 8 <= 60
 
     # Never below the old behaviour: a small run still stops promptly.
     assert consecutive_error_limit(1) >= 2
@@ -426,12 +432,28 @@ def test_a_genuine_block_still_stops_a_run_immediately() -> None:
     assert stop_status_for(row("navigation_error", http_status=200)) is None
 
 
-def test_reading_page_text_allows_more_than_five_seconds() -> None:
-    """"Locator.inner_text: Timeout 5000ms exceeded" counted as an operational
-    error and contributed to ending that run."""
+def test_page_text_timeout_is_generous_enough_but_not_a_stall() -> None:
+    """5 seconds was too tight and counted a settling page as an operational
+    error. 15 seconds was too patient: every slow page stalled three times as
+    long, and with the run no longer stopping after two errors those stalls
+    repeated instead of ending it."""
     from pathlib import Path
 
     source = Path("collect_parts.py").read_text(encoding="utf-8")
 
-    assert "BODY_TEXT_TIMEOUT_MS = 15000" in source
+    assert "BODY_TEXT_TIMEOUT_MS = 8000" in source
     assert "inner_text(timeout=5000)" not in source
+
+
+def test_the_file_lock_retry_stays_cheap() -> None:
+    """This runs on every progress write during a run and every job status
+    write the dashboard makes, so a generous retry would add up across
+    thousands of writes and make the application feel sluggish."""
+    import inspect
+
+    from app.atomic_write import replace_with_retry
+
+    parameters = inspect.signature(replace_with_retry).parameters
+    worst_case = parameters["attempts"].default * parameters["delay_seconds"].default
+
+    assert worst_case <= 0.2, f"worst case {worst_case}s per write is too slow"

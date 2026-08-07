@@ -112,11 +112,13 @@ from probe_cart_price import (
 HEAVY_RESOURCE_TYPES = {"image", "font", "media"}
 COMPETITOR_RENDER_SETTLE_MS = 1000
 # Reading a page's text failed with 'Timeout 5000ms exceeded' on a slow page,
-# which counted as an operational error and helped end a 1000-part run after
-# 11 parts. Five seconds is tight for a page that has already loaded but is
-# still settling; this only bounds how long to wait for text that is
-# expected to be there.
-BODY_TEXT_TIMEOUT_MS = 15000
+# which counted as an operational error. Five seconds is tight for a page that
+# has loaded but is still settling. This was briefly raised to 15 seconds,
+# which was too far: combined with a run no longer stopping after two errors,
+# every slow page stalled three times as long and those stalls repeated
+# instead of ending the run, making a large run feel unusable. Eight seconds
+# covers a settling page without making a bad patch grind.
+BODY_TEXT_TIMEOUT_MS = 8000
 PARTZILLA_RENDER_SETTLE_MS = 1000
 PARTZILLA_PRICE_POLL_MS = 250
 PARTZILLA_PRICE_POLL_ATTEMPTS = 16

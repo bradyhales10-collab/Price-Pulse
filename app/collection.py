@@ -40,15 +40,17 @@ def consecutive_error_limit(part_count: int) -> int:
     longer than five seconds to read and the next came back blocked. Ten
     successful lookups were discarded along with the 989 not yet attempted.
 
-    Two unlucky pages in a row is ordinary noise at volume, while ten in a row
-    is a site that has genuinely stopped answering. A real block or challenge
+    Two unlucky pages in a row is ordinary noise at volume, while six in a row
+    is a site that has genuinely stopped answering. The limit is kept modest
+    because each error can cost several seconds of waiting, so a generous limit
+    turns a bad patch into a long stall rather than a quick stop. A real block or challenge
     still stops immediately through stop_status_for, which is unaffected by
     this: this only governs transient navigation failures.
     """
     if part_count >= LARGE_RUN_PART_COUNT:
-        return 10
+        return 6
     if part_count > MEDIUM_RUN_PART_COUNT:
-        return 5
+        return 4
     return 3
 
 
