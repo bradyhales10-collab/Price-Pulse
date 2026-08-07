@@ -261,15 +261,48 @@ def build_price_evidence(
         warnings.append("structured_offer_matches_gated_msrp")
         explanation.append("Structured offer matched the visible MSRP while the payable price remained sign-in gated")
 
-    selling_values = {
-        candidate.normalized_value
+    selling_candidates = [
+        candidate
         for candidate in candidates
         if candidate.candidate_role == PriceCandidateRole.SELLING_PRICE and candidate.normalized_value is not None
-    }
+    ]
+    selling_values = {candidate.normalized_value for candidate in selling_candidates}
     if len(selling_values) > 1 and not discount_selling:
-        warnings.append("conflicting_selling_price_signals")
-        selected_selling = None
-        explanation.append("Conflicting product-associated selling-price values were preserved without selecting one")
+        # A page can show one price while leaving a different one in its
+        # structured markup: on Partzilla a signed-in visitor sees $300.43 in
+        # the page while the embedded product data still says $304.99. Both are
+        # genuine selling prices, so neither could be ranked and the price was
+        # discarded, which is why parts with an obvious price on screen came
+        # back blank.
+        #
+        # The displayed price is the one the customer actually pays, and it
+        # reflects the signed-in session; the structured value is whatever the
+        # markup was built with. So a visible price wins over structured data
+        # rather than the pair cancelling out. This only resolves that specific
+        # disagreement: two conflicting visible prices, or two conflicting
+        # structured ones, are still left unresolved, since there is no
+        # principled way to choose between them.
+        visible_values = {
+            candidate.normalized_value
+            for candidate in selling_candidates
+            if candidate.source_type == PriceCandidateSourceType.VISIBLE_DOM
+        }
+        if len(visible_values) == 1:
+            visible_selling = next(
+                candidate
+                for candidate in selling_candidates
+                if candidate.source_type == PriceCandidateSourceType.VISIBLE_DOM
+            )
+            selected_selling = visible_selling
+            warnings.append("visible_price_preferred_over_structured_data")
+            explanation.append(
+                "The visible price and the structured product data disagreed; the visible price was "
+                "used because it is what the page actually charges this session"
+            )
+        else:
+            warnings.append("conflicting_selling_price_signals")
+            selected_selling = None
+            explanation.append("Conflicting product-associated selling-price values were preserved without selecting one")
     elif len(selling_values) > 1 and discount_selling:
         warnings.append("secondary_price_specification_differs")
 
