@@ -357,7 +357,14 @@ def run_collection(args, plan) -> int:
                         consecutive_errors += 1
                         if consecutive_errors >= error_limit:
                             result.run_status = "failed"
-                            result.stop_reason = f"{error_limit}_consecutive_operational_errors"
+                            # Spelled out because the previous wording,
+                            # "two consecutive operational errors", stated a
+                            # fixed number that no longer matched the actual
+                            # limit and did not say how far the run had got.
+                            result.stop_reason = (
+                                f"stopped after {consecutive_errors} page errors in a row "
+                                f"at part {len(result.rows)} of {len(plan.planned_parts)}"
+                            )
                             break
                     else:
                         consecutive_errors = 0
@@ -389,17 +396,6 @@ def run_collection(args, plan) -> int:
                     result.run_status = "failed"
                     result.stop_reason = f"unexpected_error_in_collection_loop: {type(exc).__name__}"
                     break
-                    result.run_status = stop_status
-                    result.stop_reason = row.result_type
-                    break
-                if row.result_type in {"navigation_error", "error"}:
-                    consecutive_errors += 1
-                    if consecutive_errors >= 2:
-                        result.run_status = "failed"
-                        result.stop_reason = "two_consecutive_operational_errors"
-                        break
-                else:
-                    consecutive_errors = 0
             if get_competitor(competitor_key).requires_login and result.stop_reason != "authentication_lost":
                 # Keep renewed cookies and local storage from successful runs.
                 # Sites often rotate session cookies while pages are checked;

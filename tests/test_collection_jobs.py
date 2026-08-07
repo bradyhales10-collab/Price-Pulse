@@ -457,3 +457,58 @@ def test_the_file_lock_retry_stays_cheap() -> None:
     worst_case = parameters["attempts"].default * parameters["delay_seconds"].default
 
     assert worst_case <= 0.2, f"worst case {worst_case}s per write is too slow"
+
+
+def test_only_one_consecutive_error_rule_exists() -> None:
+    """A second copy of this rule sat unreachable after a break, left over from
+    restructuring the loop. It still hardcoded the old limit of 2, so anyone
+    reading the code would find two different answers to what the limit is."""
+    from pathlib import Path
+
+    source = Path("collect_parts.py").read_text(encoding="utf-8")
+
+    assert source.count("consecutive_errors >= ") == 1
+    assert "two_consecutive_operational_errors" not in source
+
+
+def test_collect_parts_has_no_unreachable_code_after_a_break() -> None:
+    """Catches the same class of leftover: statements placed after a break or
+    return inside a loop, which can never run and silently disagree with the
+    code that does."""
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(Path("collect_parts.py").read_text(encoding="utf-8"))
+    unreachable: list[int] = []
+
+    def scan(body: list[ast.stmt]) -> None:
+        for index, node in enumerate(body):
+            if isinstance(node, ast.Break | ast.Continue | ast.Return | ast.Raise):
+                if index + 1 < len(body):
+                    unreachable.append(body[index + 1].lineno)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.For | ast.While):
+            scan(node.body)
+        elif isinstance(node, ast.If):
+            scan(node.body)
+            scan(node.orelse)
+        elif isinstance(node, ast.Try):
+            scan(node.body)
+            scan(node.finalbody)
+            for handler in node.handlers:
+                scan(handler.body)
+
+    assert not unreachable, f"unreachable code at line(s): {unreachable}"
+
+
+def test_the_stop_reason_states_the_real_count_and_position() -> None:
+    """The old text said "two consecutive operational errors" regardless of the
+    actual limit, and a report could read "two consecutive operational errors;
+    1 navigation error", which does not add up from the reader's point of view."""
+    from pathlib import Path
+
+    source = Path("collect_parts.py").read_text(encoding="utf-8")
+
+    assert "page errors in a row" in source
+    assert "of {len(plan.planned_parts)}" in source
