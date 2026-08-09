@@ -445,18 +445,64 @@ def test_page_text_timeout_is_generous_enough_but_not_a_stall() -> None:
     assert "inner_text(timeout=5000)" not in source
 
 
-def test_the_file_lock_retry_stays_cheap() -> None:
-    """This runs on every progress write during a run and every job status
-    write the dashboard makes, so a generous retry would add up across
-    thousands of writes and make the application feel sluggish."""
-    import inspect
+def test_the_file_lock_retry_is_free_when_uncontended_but_patient_when_locked() -> None:
+    """These two requirements pull in opposite directions and a flat wait
+    cannot serve both. A flat 100ms was patient but added up across thousands
+    of writes; cutting it to a flat 20ms restored responsiveness and then
+    crashed a run at part 884 with PermissionError, because 0.12 seconds of
+    total patience was not enough for a real lock. Doubling from 10ms costs
+    nothing when there is no contention and still waits out a stubborn lock."""
+    import tempfile
+    import time
+    from pathlib import Path as _Path
+    from unittest.mock import patch
 
     from app.atomic_write import replace_with_retry
 
-    parameters = inspect.signature(replace_with_retry).parameters
-    worst_case = parameters["attempts"].default * parameters["delay_seconds"].default
+    with tempfile.TemporaryDirectory() as tmp:
+        root = _Path(tmp)
 
-    assert worst_case <= 0.2, f"worst case {worst_case}s per write is too slow"
+        # The common case must be effectively free.
+        source, destination = root / "a.tmp", root / "a.json"
+        source.write_text("new", encoding="utf-8")
+        destination.write_text("old", encoding="utf-8")
+        started = time.perf_counter()
+        replace_with_retry(source, destination)
+        assert time.perf_counter() - started < 0.01
+        assert destination.read_text(encoding="utf-8") == "new"
+
+        # A lock lasting longer than the previous 0.12s budget must survive.
+        real_replace = _Path.replace
+        calls = {"count": 0}
+
+        def locked_briefly(self, target):
+            calls["count"] += 1
+            if calls["count"] <= 5:
+                raise PermissionError("[WinError 5] Access is denied")
+            return real_replace(self, target)
+
+        source2, destination2 = root / "b.tmp", root / "b.json"
+        source2.write_text("recovered", encoding="utf-8")
+        destination2.write_text("old", encoding="utf-8")
+        with patch.object(_Path, "replace", locked_briefly):
+            replace_with_retry(source2, destination2)
+        assert destination2.read_text(encoding="utf-8") == "recovered"
+
+        # A lock that never clears must still give up rather than hang a run.
+        def always_locked(self, target):
+            raise PermissionError("stuck")
+
+        source3, destination3 = root / "c.tmp", root / "c.json"
+        source3.write_text("x", encoding="utf-8")
+        with patch.object(_Path, "replace", always_locked):
+            started = time.perf_counter()
+            try:
+                replace_with_retry(source3, destination3)
+            except PermissionError:
+                pass
+            else:
+                raise AssertionError("a permanent lock should still raise")
+            assert time.perf_counter() - started < 5.0
 
 
 def test_only_one_consecutive_error_rule_exists() -> None:
