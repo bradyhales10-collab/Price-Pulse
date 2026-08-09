@@ -49,7 +49,7 @@ def test_database_initializes_and_is_rerunnable() -> None:
     from app.competitors.registry import list_competitors
 
     assert counts["competitors"] == len(list_competitors())
-    assert migrations == 10
+    assert migrations == 11
     assert override_table is not None
 
 

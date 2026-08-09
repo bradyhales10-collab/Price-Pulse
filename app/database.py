@@ -116,6 +116,20 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
             "INSERT INTO schema_migrations(version, description, applied_at) VALUES (?, ?, ?)",
             (10, "add shared competitor product URL resolution cache", utc_now()),
         )
+    if 11 not in applied_versions:
+        conn.executescript(
+            """
+            CREATE INDEX IF NOT EXISTS idx_events_listing ON scan_events(listing_id);
+            CREATE INDEX IF NOT EXISTS idx_events_listing_id_desc ON scan_events(listing_id, scan_event_id DESC);
+            CREATE INDEX IF NOT EXISTS idx_listing_product ON competitor_listings(product_id);
+            CREATE INDEX IF NOT EXISTS idx_listing_competitor ON competitor_listings(competitor_id);
+            """
+        )
+        conn.execute("ANALYZE")
+        conn.execute(
+            "INSERT INTO schema_migrations(version, description, applied_at) VALUES (?, ?, ?)",
+            (11, "index scan_events and competitor_listings for dashboard queries", utc_now()),
+        )
     _ensure_column(conn, "competitor_probe_results", "price_visibility", "TEXT")
     _ensure_column(conn, "competitor_probe_results", "price_display_type", "TEXT")
     _ensure_column(conn, "competitor_probe_results", "result_type", "TEXT")
@@ -884,6 +898,15 @@ CREATE TABLE IF NOT EXISTS listing_history (
 );
 CREATE INDEX IF NOT EXISTS idx_products_part ON products(manufacturer, normalized_part_number);
 CREATE INDEX IF NOT EXISTS idx_events_run ON scan_events(scan_run_id);
+-- Every dashboard query joins scan_events by listing_id and
+-- competitor_listings by product_id. Without these, each page load scanned
+-- the whole history table, which grows by roughly one row per part per
+-- competitor on every run. At 80,000 scan events a catalog page took 14.7
+-- seconds; with them it takes 0.02.
+CREATE INDEX IF NOT EXISTS idx_events_listing ON scan_events(listing_id);
+CREATE INDEX IF NOT EXISTS idx_events_listing_id_desc ON scan_events(listing_id, scan_event_id DESC);
+CREATE INDEX IF NOT EXISTS idx_listing_product ON competitor_listings(product_id);
+CREATE INDEX IF NOT EXISTS idx_listing_competitor ON competitor_listings(competitor_id);
 CREATE INDEX IF NOT EXISTS idx_history_listing_time ON listing_history(listing_id, effective_at);
 """
 
