@@ -512,3 +512,68 @@ def test_the_stop_reason_states_the_real_count_and_position() -> None:
 
     assert "page errors in a row" in source
     assert "of {len(plan.planned_parts)}" in source
+
+
+def test_job_scans_stay_fast_as_job_folders_accumulate(tmp_path, monkeypatch) -> None:
+    """Job folders are never removed. Every scan re-read and re-parsed every job
+    ever created, and the collector polls for work every few seconds while the
+    dashboard scans on every page load. After weeks of use that cost grew until
+    page requests visibly queued behind hundreds of 204 responses."""
+    import json
+    import time
+
+    import app.collection_jobs as jobs
+
+    monkeypatch.setattr(jobs, "JOB_DIR", tmp_path)
+    for index in range(400):
+        folder = tmp_path / f"job-{index:04d}"
+        folder.mkdir()
+        (folder / "job.json").write_text(
+            json.dumps({"job_id": f"job-{index:04d}", "status": "completed", "competitors": []}),
+            encoding="utf-8",
+        )
+
+    assert len(list(tmp_path.glob("*/job.json"))) == 400
+    assert len(jobs._recent_job_files()) == jobs.RECENT_JOB_SCAN_LIMIT
+
+    started = time.perf_counter()
+    for _ in range(20):
+        jobs.current_active_job()
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 1.0, f"20 scans over 400 jobs took {elapsed:.2f}s"
+
+
+def test_a_newly_queued_job_is_still_found_despite_the_scan_limit(tmp_path, monkeypatch) -> None:
+    """The limit must never hide real work. A queued job is by definition the
+    newest, so bounding the scan to the newest files cannot miss it."""
+    import json
+
+    import app.collection_jobs as jobs
+
+    monkeypatch.setattr(jobs, "JOB_DIR", tmp_path)
+    for index in range(200):
+        folder = tmp_path / f"old-{index:04d}"
+        folder.mkdir()
+        (folder / "job.json").write_text(
+            json.dumps({"job_id": f"old-{index:04d}", "status": "completed", "competitors": []}),
+            encoding="utf-8",
+        )
+    live = tmp_path / "job-live"
+    live.mkdir()
+    (live / "job.json").write_text(
+        json.dumps(
+            {
+                "job_id": "job-live",
+                "status": "queued_local",
+                "competitors": ["motosport"],
+                "planned_count": 10,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    claimed = jobs.claim_next_local_job("agent-1")
+
+    assert claimed is not None
+    assert claimed["job_id"] == "job-live"

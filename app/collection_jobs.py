@@ -203,7 +203,7 @@ def validate_collection_request(
 def active_job_exists() -> bool:
     if not JOB_DIR.exists():
         return False
-    for path in JOB_DIR.glob("*/job.json"):
+    for path in _recent_job_files():
         try:
             metadata = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
@@ -397,12 +397,30 @@ def queue_local_collection_job(
     return job_id
 
 
+# Only recent jobs can still be queued or running; anything older has long
+# since finished. Job folders are never removed, so after weeks of use every
+# scan was reading and parsing every job ever created. The collector polls for
+# work every few seconds, and the dashboard scans on every page load, so that
+# cost grew until page requests visibly queued behind it.
+RECENT_JOB_SCAN_LIMIT = 40
+
+
+def _recent_job_files() -> list[Path]:
+    """Job files worth scanning, newest first."""
+    if not JOB_DIR.exists():
+        return []
+    files = list(JOB_DIR.glob("*/job.json"))
+    if len(files) <= RECENT_JOB_SCAN_LIMIT:
+        return files
+    return sorted(files, key=lambda path: path.stat().st_mtime, reverse=True)[:RECENT_JOB_SCAN_LIMIT]
+
+
 def claim_next_local_job(agent_id: str) -> dict[str, object] | None:
     register_local_agent(agent_id)
     with _LOCAL_JOB_LOCK:
         if not JOB_DIR.exists():
             return None
-        for job_json in sorted(JOB_DIR.glob("*/job.json"), key=lambda path: path.stat().st_mtime):
+        for job_json in sorted(_recent_job_files(), key=lambda path: path.stat().st_mtime):
             metadata = _read_json(job_json)
             if metadata.get("status") != "queued_local":
                 continue
@@ -590,7 +608,7 @@ def cancel_all_active_jobs(reason: str = "Part Pulse was restarted.") -> int:
         return 0
     cleared = 0
     with _LOCAL_JOB_LOCK:
-        for job_json in JOB_DIR.glob("*/job.json"):
+        for job_json in _recent_job_files():
             metadata = _read_json(job_json)
             if str(metadata.get("status") or "") not in ACTIVE_JOB_STATUSES:
                 continue
@@ -607,7 +625,7 @@ def current_active_job() -> dict[str, object] | None:
     if not JOB_DIR.exists():
         return None
     matching: list[tuple[float, str]] = []
-    for job_json in JOB_DIR.glob("*/job.json"):
+    for job_json in _recent_job_files():
         metadata = _read_json(job_json)
         metadata = _finalize_cancellation_if_due(job_json, metadata)
         if str(metadata.get("status") or "") not in ACTIVE_JOB_STATUSES:
@@ -622,7 +640,7 @@ def latest_job_for_import(import_batch_id: int) -> dict[str, object] | None:
     if not JOB_DIR.exists():
         return None
     matching: list[tuple[float, str]] = []
-    for job_json in JOB_DIR.glob("*/job.json"):
+    for job_json in _recent_job_files():
         metadata = _read_json(job_json)
         if metadata.get("import_batch_id") != import_batch_id:
             continue
