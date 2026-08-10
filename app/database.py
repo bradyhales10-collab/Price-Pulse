@@ -397,6 +397,12 @@ def money_to_cents(value: Decimal | str | None) -> int | None:
     if value is None or value == "":
         return None
     decimal = value if isinstance(value, Decimal) else Decimal(str(value))
+    # A price of zero or less is not a price. Rejected here as well as at parse
+    # time because this is the single point every stored price passes through,
+    # including imported results and any future source, and a zero reaching the
+    # database becomes the lowest competitor price and drives a pricing decision.
+    if decimal <= 0:
+        return None
     return int((decimal * Decimal("100")).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 

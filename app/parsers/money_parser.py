@@ -24,7 +24,23 @@ def parse_money(raw: str | None, warning_code: str = "money_parse_failed") -> Mo
         return MoneyParseResult(raw=cleaned, value=None, warnings=[warning_code])
 
     amount = match.group("amount").replace(",", "")
+    # A leading minus sits outside the matched amount, so check the original
+    # text: "-$5.00" would otherwise parse as positive 5.
+    negative = cleaned.lstrip().startswith("-") or "-$" in cleaned
     try:
-        return MoneyParseResult(raw=cleaned, value=Decimal(amount))
+        value = Decimal(amount)
+        if negative:
+            value = -value
     except InvalidOperation:
         return MoneyParseResult(raw=cleaned, value=None, warnings=[warning_code])
+
+    # A competitor price of zero, or below it, is never a real price. It comes
+    # from a placeholder, a page that had not finished rendering, or a control
+    # whose value defaults to 0. Two parts recorded Chaparral at $0.00 and it
+    # then became the lowest competitor price, which would drive a pricing
+    # decision to an absurd conclusion. Treated as no price at all, so the
+    # missing-price handling applies instead of a wrong number being trusted.
+    if value <= 0:
+        return MoneyParseResult(raw=cleaned, value=None, warnings=["non_positive_price_rejected"])
+
+    return MoneyParseResult(raw=cleaned, value=value)
