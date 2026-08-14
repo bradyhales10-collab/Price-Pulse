@@ -38,6 +38,15 @@ SENSITIVITY_LOW = "LOW"
 HIGH_THRESHOLD = 50
 MEDIUM_THRESHOLD = 25
 
+# Category is inferred from a product name and often cannot be determined at
+# all, so it adjusts the score rather than deciding it. At the original +20/-15
+# it could move a part between HIGH and LOW on its own while sales were
+# identical, which put more weight on a guess than on measured demand. Sales
+# and volume are facts; the category is an inference, and the scoring now
+# reflects that difference.
+PRICE_IMAGE_BONUS = 10
+LOW_SENSITIVITY_PENALTY = 8
+
 # Categories customers routinely compare on price before buying.
 PRICE_IMAGE_CATEGORIES = frozenset(
     {CATEGORY_MAINTENANCE, CATEGORY_FLUIDS, CATEGORY_BRAKES, CATEGORY_DRIVETRAIN, CATEGORY_ELECTRICAL}
@@ -124,9 +133,12 @@ def score_sensitivity(
         if reason:
             factors.append(reason)
 
+    # What the measured evidence alone says, with no category inference in it.
+    sales_evidence_score = score
+
     if category in PRICE_IMAGE_CATEGORIES:
-        score += 20
-        factors.append(f"+20 {category} is routinely price shopped")
+        score += PRICE_IMAGE_BONUS
+        factors.append(f"+{PRICE_IMAGE_BONUS} {category} is routinely price shopped")
     elif category in LOW_SENSITIVITY_CATEGORIES:
         # Volume overrides the category: a fastener selling in the thousands is
         # shopped whatever it is. Price matters too, since an expensive seal is
@@ -138,17 +150,23 @@ def score_sensitivity(
         elif not low_ticket:
             factors.append(f"no reduction for {category}: at ${current_price:,.2f} it is not a throwaway item")
         else:
-            score -= 15
-            factors.append(f"-15 {category} is rarely price shopped")
+            score -= LOW_SENSITIVITY_PENALTY
+            factors.append(f"-{LOW_SENSITIVITY_PENALTY} {category} is rarely price shopped")
 
     confidence = "HIGH"
     if not category_is_confident:
-        # An unreliable category must not produce an aggressive recommendation,
-        # so anything it would have pushed to an extreme is pulled back toward
-        # Balanced and the reduced confidence is recorded.
+        # An unreliable category must not push a part to an extreme. But it
+        # must not drag one down either: sales and volume are measured facts,
+        # and a part selling thousands a year is heavily shopped whatever the
+        # name says. So the restraint applies only when the category itself was
+        # doing the work. If the sales evidence alone reaches the threshold,
+        # that stands, because no guess was involved in it.
         confidence = "LOW"
-        factors.append("category was not confident, so sensitivity is held toward Balanced")
-        score = max(medium_threshold, min(score, high_threshold - 1))
+        if sales_evidence_score >= high_threshold:
+            factors.append("category unclear, but sales alone justify this level")
+        else:
+            factors.append("category was not confident, so sensitivity is held toward Balanced")
+            score = max(medium_threshold, min(score, high_threshold - 1))
 
     if score >= high_threshold:
         sensitivity = SENSITIVITY_HIGH

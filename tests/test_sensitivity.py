@@ -55,7 +55,7 @@ def test_the_same_fastener_scores_differently_on_volume_alone() -> None:
     assert busy.score > quiet.score
     assert quiet.sensitivity == SENSITIVITY_LOW
     assert any("no reduction" in factor for factor in busy.factors)
-    assert any("-15" in factor for factor in quiet.factors)
+    assert any("rarely price shopped" in factor for factor in quiet.factors)
 
 
 def test_an_expensive_seal_does_not_get_the_throwaway_reduction() -> None:
@@ -68,7 +68,7 @@ def test_an_expensive_seal_does_not_get_the_throwaway_reduction() -> None:
         current_price=Decimal("145.00"),
     )
 
-    assert not any("-15" in factor for factor in result.factors)
+    assert not any("rarely price shopped" in factor for factor in result.factors)
 
 
 def test_a_costly_part_is_shopped_even_when_few_are_sold() -> None:
@@ -82,19 +82,54 @@ def test_a_costly_part_is_shopped_even_when_few_are_sold() -> None:
     assert any("high ticket" in factor for factor in result.factors)
 
 
-def test_an_unconfident_category_cannot_produce_an_extreme_result() -> None:
-    """The specification is explicit: a weak category must not drive an
-    aggressive price change. Such parts are held toward Balanced."""
+def test_an_unconfident_category_does_not_push_a_modest_part_to_an_extreme() -> None:
+    """A weak category must not drive an aggressive price change on a part
+    whose sales do not justify it."""
     result = score_sensitivity(
         category=CATEGORY_UNKNOWN,
-        qty_sold_12m=5000,
-        annual_sales=Decimal("500000"),
-        current_price=Decimal("400"),
+        qty_sold_12m=60,
+        annual_sales=Decimal("3000"),
+        current_price=Decimal("50"),
         category_is_confident=False,
     )
 
     assert result.sensitivity == SENSITIVITY_MEDIUM
     assert result.confidence == "LOW"
+    assert any("held toward Balanced" in factor for factor in result.factors)
+
+
+def test_measured_sales_still_count_when_the_category_is_unknown() -> None:
+    """Categories are missing on plenty of real parts, and a failed guess must
+    not drag down a part that objectively sells in volume. Sales are measured
+    fact; the category is an inference, so the inference gives way."""
+    result = score_sensitivity(
+        category=CATEGORY_UNKNOWN,
+        qty_sold_12m=8073,
+        annual_sales=Decimal("1533789"),
+        current_price=Decimal("189.99"),
+        category_is_confident=False,
+    )
+
+    assert result.sensitivity == SENSITIVITY_HIGH
+    assert any("sales alone justify" in factor for factor in result.factors)
+
+
+def test_category_adjusts_the_score_rather_than_deciding_it() -> None:
+    """With identical sales, the category must not be able to move a part
+    between HIGH and LOW on its own. It was originally able to, which put more
+    weight on a guess than on measured demand."""
+    from app.categorization import CATEGORY_MAINTENANCE as PRICE_IMAGE
+
+    shared = {
+        "qty_sold_12m": 300,
+        "annual_sales": Decimal("15000"),
+        "current_price": Decimal("50"),
+    }
+    price_image = score_sensitivity(category=PRICE_IMAGE, **shared)
+    hardware = score_sensitivity(category=CATEGORY_HARDWARE, **shared)
+
+    assert price_image.sensitivity == hardware.sensitivity
+    assert price_image.score > hardware.score
 
 
 def test_a_part_with_no_history_defaults_to_balanced() -> None:
