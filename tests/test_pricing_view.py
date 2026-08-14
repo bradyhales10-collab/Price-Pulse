@@ -144,3 +144,76 @@ def test_the_margin_floor_comes_from_the_existing_rule() -> None:
     database = _comparison_db("pricing_view_margin.db")
 
     assert minimum_margin_pct(database) == Decimal("20")
+
+
+def test_the_review_export_carries_the_new_engines_recommendation() -> None:
+    """The export drives the actual pricing review, so a recommendation that
+    only appears on a product page cannot be acted on across a thousand parts.
+    The existing Suggested_Price is unchanged and the new columns sit beside
+    it, so both can be compared in one place."""
+    import tempfile
+    from decimal import Decimal as D
+
+    import openpyxl
+
+    from app.comparison import ComparisonFilters, comparison_rows
+    from app.exports.review_export import export_review
+
+    database = _comparison_db("export_recommendation.db")
+    rows = comparison_rows(database, ComparisonFilters())
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = export_review(rows, Path(tmp), minimum_margin=D("20"))
+        sheet = openpyxl.load_workbook(path)["Pricing Review"]
+        exported = list(sheet.iter_rows(values_only=True))
+
+    header = exported[0]
+    for column in (
+        "Type_Of_Part",
+        "Category_Confidence",
+        "Qty_Sold_Annualized",
+        "Sensitivity",
+        "Sensitivity_Score",
+        "New_Action",
+        "New_Suggested_Price",
+        "Competitor_Confidence",
+        "Annual_Exposure",
+        "Why",
+    ):
+        assert column in header, column
+
+    # The old suggestion must still be there: both are shown, not replaced.
+    assert "Suggested_Price" in header
+
+    # And the new columns must actually be populated, not merely present.
+    action_index = header.index("New_Action")
+    why_index = header.index("Why")
+    assert any(row[action_index] for row in exported[1:])
+    assert any(row[why_index] for row in exported[1:])
+
+
+def test_a_part_that_cannot_be_assessed_does_not_lose_the_export() -> None:
+    """One unusual part must not cost someone the whole spreadsheet."""
+    import tempfile
+    from decimal import Decimal as D
+
+    from app.exports.review_export import export_review
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = export_review(
+            [{"internal_sku": "X", "manufacturer": "Polaris", "oem_part_number": "P1", "our_current_price": ""}],
+            Path(tmp),
+            minimum_margin=D("20"),
+        )
+        # Checked inside the context: the directory is removed on exit, so
+        # testing afterwards would always fail regardless of the export.
+        assert path.exists()
+
+        import openpyxl
+
+        sheet = openpyxl.load_workbook(path)["Pricing Review"]
+        exported = list(sheet.iter_rows(values_only=True))
+
+    # The row is still present, just without a recommendation.
+    assert len(exported) == 2
+    assert exported[1][2] == "P1"

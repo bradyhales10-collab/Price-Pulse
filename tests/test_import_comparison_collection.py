@@ -337,7 +337,12 @@ def test_comparison_formulas_filters_and_review_export() -> None:
     # silently be left out of the export the way RevZilla was.
     assert "RevZilla_Price" in exported[0]
     assert exported[0].index("Updated_Price") > exported[0].index("Suggested_Price")
-    assert exported[0][-1] == "New_Margin_Pct"
+    # The existing review columns are unchanged and still in order; the new
+    # engine's columns are appended after them rather than replacing anything.
+    assert "New_Margin_Pct" in exported[0]
+    assert exported[0][-1] == "Why"
+    for column in ("Type_Of_Part", "Sensitivity", "New_Action", "New_Suggested_Price", "Annual_Exposure"):
+        assert column in exported[0], column
     assert exported[1][exported[0].index("Updated_Price")] == ""
     with zipfile.ZipFile(export_path) as archive:
         sheet_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")

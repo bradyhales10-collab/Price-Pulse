@@ -76,6 +76,7 @@ from app.pricing_rules import (
     update_manufacturer_rule_override,
     update_pricing_rule,
 )
+from app.pricing_view import minimum_margin_pct
 from app.reviews import (
     ALL_BUCKETS,
     ALL_STATUSES,
@@ -410,7 +411,7 @@ def create_app(database: Path) -> FastAPI:
         if scope == "selected" and form.get("all_matching") != "1" and selected.strip():
             ids = {int(value) for value in selected.split(",") if value.strip().isdigit()}
             rows = [row for row in rows if row["product_id"] in ids]
-        path = export_review(rows, OUTPUT_DIR / "exports")
+        path = export_review(rows, OUTPUT_DIR / "exports", minimum_margin=minimum_margin_pct(app.state.database))
         return FileResponse(path, filename=path.name)
 
     @app.post("/comparison/{product_id}/review")
@@ -610,7 +611,7 @@ def create_app(database: Path) -> FastAPI:
     @app.get("/reviews/export")
     def reviews_export(status: str = ALL_STATUSES, bucket: str = ALL_BUCKETS):
         rows = review_rows(app.state.database, status=status, bucket=bucket)
-        path = export_review(rows, OUTPUT_DIR / "exports")
+        path = export_review(rows, OUTPUT_DIR / "exports", minimum_margin=minimum_margin_pct(app.state.database))
         return FileResponse(path, filename=path.name)
 
     @app.get("/rules", response_class=HTMLResponse)

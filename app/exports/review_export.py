@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -36,16 +37,39 @@ def review_columns() -> list[str]:
         "Suggested_Price",
         "Updated_Price",
         "New_Margin_Pct",
+        # The new engine, shown alongside rather than replacing the existing
+        # suggestion, so the two can be compared on real parts in a
+        # spreadsheet rather than one product page at a time.
+        "Type_Of_Part",
+        "Category_Confidence",
+        "Qty_Sold_Annualized",
+        "Sensitivity",
+        "Sensitivity_Score",
+        "New_Action",
+        "New_Suggested_Price",
+        "New_Margin_At_Suggested",
+        "Competitor_Confidence",
+        "Annual_Exposure",
+        "Why",
     ]
 
 
-def export_review(rows: list[dict[str, Any]], output_dir: Path) -> Path:
+def export_review(
+    rows: list[dict[str, Any]], output_dir: Path, *, minimum_margin: Decimal = Decimal("20")
+) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / f"Pricing_Update_Review_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}.xlsx"
     from app.competitors.registry import list_competitors
+    from app.pricing_view import recommendation_for_row
 
     review_rows = [review_columns()]
     for row in rows:
+        # A failure here must not lose the whole export, so a part that cannot
+        # be assessed simply has empty columns.
+        try:
+            recommendation = recommendation_for_row(row, minimum_margin=minimum_margin) or {}
+        except Exception:
+            recommendation = {}
         review_rows.append(
             [
                 row.get("internal_sku", ""),
@@ -62,6 +86,17 @@ def export_review(rows: list[dict[str, Any]], output_dir: Path) -> Path:
                 _num((row.get("rule_suggestion") or {}).get("suggested_price") if isinstance(row.get("rule_suggestion"), dict) else ""),
                 _num(row.get("suggested_new_price")),
                 _pct(row.get("updated_margin_pct")),
+                recommendation.get("category", ""),
+                recommendation.get("category_confidence", ""),
+                recommendation.get("annualized_qty", ""),
+                recommendation.get("sensitivity", ""),
+                recommendation.get("sensitivity_score", ""),
+                recommendation.get("action_label", ""),
+                _num(recommendation.get("recommended_price")),
+                _num(recommendation.get("projected_margin_pct")),
+                recommendation.get("competitor_confidence", ""),
+                _num(recommendation.get("annual_exposure")),
+                recommendation.get("reason", ""),
             ]
         )
     write_workbook(
