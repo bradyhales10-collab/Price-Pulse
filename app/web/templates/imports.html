@@ -75,15 +75,33 @@
     {% if preview.duplicate_rows %}<span>Duplicate rows ignored <b>{{ preview.duplicate_rows }}</b></span>{% endif %}
   </div>
   {% if preview.invalid_rows == 0 %}
-  <form id="import-only-form" action="/imports/{{ preview.import_batch_id }}/confirm" method="post">
-    <input type="hidden" name="sales_period" value="{{ sales_period or '12_months' }}">
-  </form>
+  <div class="card" style="margin-bottom:1rem">
+    <strong>Sales period</strong>
+    <p class="muted">
+      How long does the sales quantity column cover? This decides how much demand a number
+      represents, and demand is the largest single input to a pricing recommendation. 400 units
+      over three months is four times the demand of 400 over a year. Your uploaded figures are
+      kept exactly as they are; only the scoring is adjusted.
+    </p>
+    <select name="sales_period" form="import-only-form" id="sales-period-choice">
+      {% for value, label in sales_periods %}
+      <option value="{{ value }}" {{ 'selected' if value == suggested_sales_period else '' }}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    {% if detected_sales_period %}
+    <p class="muted">Taken from the column heading. Change it if that is not right.</p>
+    {% else %}
+    <p class="muted">The column heading does not say which period it covers, so this is set to a full year. Change it if that is wrong.</p>
+    {% endif %}
+  </div>
+  <form id="import-only-form" action="/imports/{{ preview.import_batch_id }}/confirm" method="post"></form>
   <p class="muted">
     Saving without checking prices updates your part details, including prices, costs and
     sales quantities, and keeps the competitor prices already collected. Useful when the
     part file has changed but the competitor prices are still current.
   </p>
   <form id="price-check-form" action="/imports/{{ preview.import_batch_id }}/start-price-check" method="post" class="primary-action run-controls">
+    <input type="hidden" name="sales_period" id="price-check-sales-period" value="{{ suggested_sales_period or '12_months' }}">
     <div>
       <strong>Choose competitors</strong>
       <p class="muted">Only supported OEM and competitor combinations will be checked.</p>
@@ -148,4 +166,15 @@
 {% else %}
 {% if message %}<section class="card">{{ message }}</section>{% endif %}
 {% endif %}
+<script>
+  (function () {
+    // The choice sits outside the price check form, so mirror it in on change.
+    var choice = document.getElementById("sales-period-choice");
+    var mirror = document.getElementById("price-check-sales-period");
+    if (choice && mirror) {
+      choice.addEventListener("change", function () { mirror.value = choice.value; });
+      mirror.value = choice.value;
+    }
+  })();
+</script>
 {% endblock %}

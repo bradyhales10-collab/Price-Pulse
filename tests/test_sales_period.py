@@ -10,6 +10,8 @@ from decimal import Decimal
 
 from app.sales_period import (
     DEFAULT_SALES_PERIOD,
+    PERIOD_LABELS,
+    SALES_PERIODS,
     annualize_quantity,
     annualize_sales,
     detect_period_from_header,
@@ -306,3 +308,66 @@ def test_the_preview_screen_offers_saving_without_a_price_check(tmp_path) -> Non
 
     assert "Save Parts Without Checking Prices" in page
     assert "keeps the competitor prices already collected" in page
+
+
+def test_the_period_selector_appears_when_a_file_skips_the_mapping_screen(tmp_path) -> None:
+    """A file whose columns all map automatically goes straight to preview, so
+    the selector on the mapping page is never seen. The real Polaris upload
+    does exactly that, which is why the choice was never offered."""
+    import re
+
+    from fastapi.testclient import TestClient
+
+    from app.database import initialize_database
+    from app.web.app import create_app
+    from app.xlsx_utils import write_workbook
+
+    database = tmp_path / "p.db"
+    initialize_database(database)
+    client = TestClient(create_app(database), raise_server_exceptions=False)
+    workbook = tmp_path / "polaris.xlsx"
+    write_workbook(workbook, {"Sheet1": [HEADERS, ROW]})
+
+    response = client.post(
+        "/imports/upload",
+        content=workbook.read_bytes(),
+        headers={"x-filename": "polaris.xlsx"},
+        follow_redirects=False,
+    )
+    # This file maps cleanly, so it must land on the imports page, not mapping.
+    assert "/map" not in response.headers["location"]
+
+    page = client.get(response.headers["location"], follow_redirects=True).text
+    selector = re.search(r'<select name="sales_period".*?</select>', page, re.S)
+
+    assert selector, "the period selector must appear where the file actually lands"
+    options = re.findall(r'<option value="(\w+)"', selector.group(0))
+    assert len(options) >= 10, f"only {len(options)} periods offered"
+    assert "3_months" in options
+    assert "18_months" in options
+    assert 'value="12_months" selected' in selector.group(0)
+
+
+def test_a_wide_range_of_periods_is_offered() -> None:
+    """Sales exports come in many shapes, so the list covers monthly through
+    three years rather than a token few."""
+    assert len(SALES_PERIODS) >= 10
+    for period in ("1_month", "3_months", "6_months", "12_months", "24_months", "36_months"):
+        assert period in SALES_PERIODS
+        assert period in PERIOD_LABELS
+
+
+def test_a_longer_heading_is_not_misread_as_a_shorter_one() -> None:
+    """"12 month" contains "2 month", and "18 month" contains "8 month"."""
+    assert detect_period_from_header("12 Month Qty") == "12_months"
+    assert detect_period_from_header("2 Month Sales") == "2_months"
+    assert detect_period_from_header("18 Month Units") == "18_months"
+    assert detect_period_from_header("3 Year Total") == "36_months"
+
+
+def test_every_offered_period_scales_correctly(tmp_path) -> None:
+    """Each choice must actually change the scored demand, or the selector is
+    decoration."""
+    for period, months in SALES_PERIODS.items():
+        result = annualize_quantity(1200, period)
+        assert result.annualized_qty == round(1200 * 12 / months), period

@@ -130,6 +130,27 @@ templates.env.globals["competitor_columns"] = [
 MAX_CATALOG_EXPORT_ROWS = 100000
 
 
+def _period_for_batch(database, import_batch_id) -> str | None:
+    """Suggest a period for a batch that skipped the mapping screen.
+
+    A file whose columns all map automatically goes straight to preview, so the
+    selector on the mapping page is never seen. This reads the same signal from
+    the heading so the choice is still offered where someone lands.
+    """
+    if not import_batch_id:
+        return None
+    try:
+        from app.imports import _batch, auto_map_headers, default_sheet
+
+        batch = _batch(database, import_batch_id)
+        path = IMPORT_DIR / batch["stored_filename"]
+        worksheet = batch["worksheet_name"] or default_sheet(workbook_sheets(path))
+        headers = read_headers(path, worksheet)
+        return _detected_sales_period(headers, auto_map_headers(headers))
+    except Exception:
+        return None
+
+
 def _detected_sales_period(headers: list[str], mapping: dict[str, str]) -> str | None:
     """Read the period from whichever column was mapped to the sales quantity.
 
@@ -827,6 +848,11 @@ def create_app(database: Path) -> FastAPI:
                 "page_query": _comparison_page_query(filters, page_size),
                 "quick_filter_queries": _comparison_quick_filter_queries(filters, page_size),
                 "selected_import": import_batch_label(app.state.database, import_batch_id),
+                "sales_periods": [(code, PERIOD_LABELS[code]) for code in SALES_PERIODS],
+                "detected_sales_period": _period_for_batch(app.state.database, import_batch_id),
+                "suggested_sales_period": (
+                    _period_for_batch(app.state.database, import_batch_id) or DEFAULT_SALES_PERIOD
+                ),
             },
         )
 
@@ -1364,6 +1390,9 @@ def _imports_response(
             "page_query": _comparison_page_query(filters, page_size),
             "quick_filter_queries": _comparison_quick_filter_queries(filters, page_size),
             "selected_import": import_batch_label(database, import_batch_id),
+            "sales_periods": [(code, PERIOD_LABELS[code]) for code in SALES_PERIODS],
+            "detected_sales_period": _period_for_batch(database, import_batch_id),
+            "suggested_sales_period": _period_for_batch(database, import_batch_id) or DEFAULT_SALES_PERIOD,
         },
         status_code=status_code,
     )

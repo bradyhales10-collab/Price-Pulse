@@ -21,34 +21,52 @@ from decimal import ROUND_HALF_UP, Decimal
 # covers. The keys are what gets stored with an import.
 SALES_PERIODS: dict[str, int] = {
     "1_month": 1,
+    "2_months": 2,
     "3_months": 3,
+    "4_months": 4,
     "6_months": 6,
+    "9_months": 9,
     "12_months": 12,
+    "18_months": 18,
     "24_months": 24,
+    "36_months": 36,
 }
 DEFAULT_SALES_PERIOD = "12_months"
 
 PERIOD_LABELS: dict[str, str] = {
     "1_month": "1 month",
-    "3_months": "3 months",
-    "6_months": "6 months",
-    "12_months": "12 months (annual)",
-    "24_months": "24 months",
+    "2_months": "2 months",
+    "3_months": "3 months (a quarter)",
+    "4_months": "4 months",
+    "6_months": "6 months (half a year)",
+    "9_months": "9 months",
+    "12_months": "12 months (a full year)",
+    "18_months": "18 months",
+    "24_months": "24 months (two years)",
+    "36_months": "36 months (three years)",
 }
 
 # Column headings that state their own period, so an obvious case does not have
 # to be set by hand. Checked longest-first so "12 month" beats "1 month".
-HEADER_PERIOD_HINTS: tuple[tuple[str, str], ...] = (
+# Longest and most specific first, so "12 month" is not read as "2 month".
+HEADER_PERIOD_HINTS: tuple[tuple[str, str | None], ...] = (
+    ("36 month", "36_months"),
+    ("3 year", "36_months"),
     ("24 month", "24_months"),
     ("2 year", "24_months"),
+    ("18 month", "18_months"),
     ("12 month", "12_months"),
     ("12m", "12_months"),
+    ("1 year", "12_months"),
     ("annual", "12_months"),
     ("ytd", None),  # deliberately ambiguous: depends when the file was made
+    ("9 month", "9_months"),
     ("6 month", "6_months"),
     ("6m", "6_months"),
+    ("4 month", "4_months"),
     ("3 month", "3_months"),
     ("quarter", "3_months"),
+    ("2 month", "2_months"),
     ("1 month", "1_month"),
     ("monthly", "1_month"),
 )
