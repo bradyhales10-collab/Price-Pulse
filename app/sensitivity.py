@@ -156,9 +156,6 @@ def score_sensitivity(
         if reason:
             factors.append(reason)
 
-    # What the measured evidence alone says, with no category inference in it.
-    sales_evidence_score = score
-
     # Category adjusts, never decides, and only when the classification was
     # confident. Below that it is a guess, and a guess must not move the score
     # at all rather than moving it a little. This is what stops a bolt selling
