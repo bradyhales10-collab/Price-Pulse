@@ -113,6 +113,7 @@ def recommendation_for_row(row: dict[str, Any], *, minimum_margin: Decimal = Dec
         quotes=quotes,
         manufacturer=str(row.get("manufacturer") or ""),
         minimum_margin_pct=minimum_margin,
+        qty_sold_12m=qty,
     )
 
     changes_price = result.recommended_price is not None and result.recommended_price != current_price
@@ -142,4 +143,16 @@ def recommendation_for_row(row: dict[str, Any], *, minimum_margin: Decimal = Dec
         "median_valid": f"{result.market.median:.2f}" if result.market.median is not None else "",
         "rejected_quotes": [f"{quote.name}: {reason}" for quote, reason in result.market.rejected],
         "rule_version": result.rule_version,
+        "annual_exposure": _exposure(current_price, result.market.lowest, qty),
     }
+
+
+def _exposure(current_price: Decimal, lowest: Decimal | None, qty: int | None) -> str:
+    """What the current gap costs across a year of sales.
+
+    A penny per unit is nothing; a penny across 10,000 units is $100 and every
+    one of those customers saw the difference.
+    """
+    if lowest is None or qty is None:
+        return ""
+    return f"{abs(current_price - lowest) * Decimal(qty):.2f}"

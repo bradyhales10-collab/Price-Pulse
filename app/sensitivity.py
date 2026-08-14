@@ -35,8 +35,32 @@ SENSITIVITY_HIGH = "HIGH"
 SENSITIVITY_MEDIUM = "MEDIUM"
 SENSITIVITY_LOW = "LOW"
 
-HIGH_THRESHOLD = 50
-MEDIUM_THRESHOLD = 25
+HIGH_THRESHOLD = 70
+MEDIUM_THRESHOLD = 40
+
+# Sales evidence carries 80 of the 90 points available, so what a part actually
+# sells decides its treatment. Category can move it by at most 10, and only
+# when the classification was confident. An auto-generated category being wrong
+# should not be able to misprice a part that objectively sells.
+QUANTITY_TIERS: tuple[tuple[int, int], ...] = (
+    (2000, 40), (1000, 35), (500, 30), (250, 25), (100, 20), (50, 10),
+)
+SALES_TIERS: tuple[tuple[int, int], ...] = (
+    (100000, 30), (50000, 25), (20000, 20), (10000, 15), (5000, 10),
+)
+HIGH_TICKET_TIERS: tuple[tuple[str, int], ...] = (("500", 10), ("200", 7), ("100", 4))
+
+# Sales figures that settle the matter on their own, whatever the category says.
+# A bolt selling 4,500 a year is an important part; an oil filter selling 8 is
+# not, however confidently either was classified.
+SALES_FLOOR_MEDIUM_QTY = 1000
+SALES_FLOOR_MEDIUM_SALES = Decimal("50000")
+SALES_FLOOR_HIGH_QTY = 2000
+SALES_FLOOR_HIGH_SALES = Decimal("100000")
+
+# Below this the classification is a guess, so it must not affect the score at
+# all rather than affecting it a little.
+CATEGORY_CONFIDENCE_REQUIRED = 0.80
 
 # Category is inferred from a product name and often cannot be determined at
 # all, so it adjusts the score rather than deciding it. At the original +20/-15
@@ -45,7 +69,7 @@ MEDIUM_THRESHOLD = 25
 # and volume are facts; the category is an inference, and the scoring now
 # reflects that difference.
 PRICE_IMAGE_BONUS = 10
-LOW_SENSITIVITY_PENALTY = 8
+LOW_SENSITIVITY_PENALTY = 10
 
 # Categories customers routinely compare on price before buying.
 PRICE_IMAGE_CATEGORIES = frozenset(
@@ -80,7 +104,7 @@ class SensitivityResult:
 def _quantity_points(qty: int | None) -> tuple[int, str | None]:
     if qty is None:
         return 0, None
-    for threshold, points in ((1000, 30), (500, 25), (250, 20), (100, 15), (50, 10)):
+    for threshold, points in QUANTITY_TIERS:
         if qty >= threshold:
             return points, f"+{points} sold {qty:,} in 12 months"
     return 5, f"+5 sold {qty:,} in 12 months"
@@ -89,7 +113,7 @@ def _quantity_points(qty: int | None) -> tuple[int, str | None]:
 def _sales_points(sales: Decimal | None) -> tuple[int, str | None]:
     if sales is None:
         return 0, None
-    for threshold, points in ((100000, 25), (50000, 20), (20000, 15), (7500, 10)):
+    for threshold, points in SALES_TIERS:
         if sales >= Decimal(threshold):
             return points, f"+{points} annual sales ${sales:,.0f}"
     return 5, f"+5 annual sales ${sales:,.0f}"
@@ -99,10 +123,9 @@ def _high_ticket_points(price: Decimal | None) -> tuple[int, str | None]:
     """A costly part gets compared even when few are sold."""
     if price is None:
         return 0, None
-    if price >= Decimal("500"):
-        return 15, f"+15 high ticket at ${price:,.2f}"
-    if price >= Decimal("200"):
-        return 10, f"+10 high ticket at ${price:,.2f}"
+    for threshold, points in HIGH_TICKET_TIERS:
+        if price >= Decimal(threshold):
+            return points, f"+{points} high ticket at ${price:,.2f}"
     return 0, None
 
 
@@ -136,13 +159,17 @@ def score_sensitivity(
     # What the measured evidence alone says, with no category inference in it.
     sales_evidence_score = score
 
-    if category in PRICE_IMAGE_CATEGORIES:
+    # Category adjusts, never decides, and only when the classification was
+    # confident. Below that it is a guess, and a guess must not move the score
+    # at all rather than moving it a little. This is what stops a bolt selling
+    # 4,500 a year being treated as unimportant because it is a bolt, and an
+    # oil filter selling 8 being treated as critical because it is a filter.
+    if not category_is_confident:
+        factors.append("category not confident enough to use, so sales decide this")
+    elif category in PRICE_IMAGE_CATEGORIES:
         score += PRICE_IMAGE_BONUS
         factors.append(f"+{PRICE_IMAGE_BONUS} {category} is routinely price shopped")
     elif category in LOW_SENSITIVITY_CATEGORIES:
-        # Volume overrides the category: a fastener selling in the thousands is
-        # shopped whatever it is. Price matters too, since an expensive seal is
-        # not the throwaway item this reduction assumes.
         high_volume = qty_sold_12m is not None and qty_sold_12m >= HIGH_VOLUME_OVERRIDE_QTY
         low_ticket = current_price is None or current_price < LOW_TICKET_CEILING
         if high_volume:
@@ -153,20 +180,27 @@ def score_sensitivity(
             score -= LOW_SENSITIVITY_PENALTY
             factors.append(f"-{LOW_SENSITIVITY_PENALTY} {category} is rarely price shopped")
 
-    confidence = "HIGH"
-    if not category_is_confident:
-        # An unreliable category must not push a part to an extreme. But it
-        # must not drag one down either: sales and volume are measured facts,
-        # and a part selling thousands a year is heavily shopped whatever the
-        # name says. So the restraint applies only when the category itself was
-        # doing the work. If the sales evidence alone reaches the threshold,
-        # that stands, because no guess was involved in it.
-        confidence = "LOW"
-        if sales_evidence_score >= high_threshold:
-            factors.append("category unclear, but sales alone justify this level")
-        else:
-            factors.append("category was not confident, so sensitivity is held toward Balanced")
-            score = max(medium_threshold, min(score, high_threshold - 1))
+    confidence = "HIGH" if category_is_confident else "LOW"
+
+    # Sales figures that settle the matter regardless of anything else. These
+    # are floors, not adjustments: a part selling this much is economically
+    # important whatever it is called, and no classification error should be
+    # able to hide that.
+    floor: str | None = None
+    if (qty_sold_12m is not None and qty_sold_12m >= SALES_FLOOR_HIGH_QTY) or (
+        annual_sales is not None and annual_sales >= SALES_FLOOR_HIGH_SALES
+    ):
+        floor = SENSITIVITY_HIGH
+        if score < high_threshold:
+            score = high_threshold
+            factors.append("sales alone make this important enough to treat as Price Image")
+    elif (qty_sold_12m is not None and qty_sold_12m >= SALES_FLOOR_MEDIUM_QTY) or (
+        annual_sales is not None and annual_sales >= SALES_FLOOR_MEDIUM_SALES
+    ):
+        floor = SENSITIVITY_MEDIUM
+        if score < medium_threshold:
+            score = medium_threshold
+            factors.append("sales alone make this at least Balanced")
 
     if score >= high_threshold:
         sensitivity = SENSITIVITY_HIGH
@@ -174,6 +208,11 @@ def score_sensitivity(
         sensitivity = SENSITIVITY_MEDIUM
     else:
         sensitivity = SENSITIVITY_LOW
+
+    if floor == SENSITIVITY_HIGH:
+        sensitivity = SENSITIVITY_HIGH
+    elif floor == SENSITIVITY_MEDIUM and sensitivity == SENSITIVITY_LOW:
+        sensitivity = SENSITIVITY_MEDIUM
 
     if not factors:
         factors.append("no sales history or price available, defaulted to Balanced")

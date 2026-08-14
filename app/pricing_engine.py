@@ -34,8 +34,21 @@ ACTION_HOLD = "HOLD"
 ACTION_DECREASE_REVIEW = "DECREASE_REVIEW"
 ACTION_NEEDS_RESEARCH = "NEEDS_RESEARCH"
 ACTION_MAP_EXCLUDED = "MAP_EXCLUDED"
+ACTION_HIGH_SALES_REVIEW = "HIGH_SALES_PRICE_REVIEW"
 
-PRICING_RULE_VERSION = "OEM-HYBRID-1.0"
+PRICING_RULE_VERSION = "OEM-HYBRID-1.1"
+
+# Margin bands. Above the floor a reduction can be recommended automatically;
+# in the band below it a person decides; below that nothing automatic happens
+# at all, because the price would not be worth having.
+MARGIN_REVIEW_FLOOR = Decimal("18")
+
+# A gap inside the dollar tolerance is normally not worth acting on, but the
+# same gap on a part selling in volume adds up across every unit. Exposure is
+# what makes a penny matter, so a high-volume part gets looked at rather than
+# silently held.
+HIGH_VOLUME_REVIEW_QTY = 2000
+HIGH_VOLUME_EXPOSURE = Decimal("5000")
 
 # Manufacturers whose pricing is managed under MAP or full retail and must not
 # be repriced automatically. Competitor prices are still collected for
@@ -202,6 +215,7 @@ def recommend(
     manufacturer: str = "",
     minimum_margin_pct: Decimal = Decimal("20"),
     manufacturer_modes: dict[str, str] | None = None,
+    qty_sold_12m: int | None = None,
 ) -> Recommendation:
     modes = DEFAULT_MANUFACTURER_MODES if manufacturer_modes is None else manufacturer_modes
     if modes.get(manufacturer.strip().upper()) == "MAP_EXCLUDED":
@@ -278,6 +292,22 @@ def recommend(
 
     # Priced at or above the market.
     if gap <= tolerance:
+        exposure = gap * Decimal(qty_sold_12m) if qty_sold_12m else Decimal("0")
+        if qty_sold_12m and (qty_sold_12m >= HIGH_VOLUME_REVIEW_QTY or exposure >= HIGH_VOLUME_EXPOSURE):
+            # $1.18 on one part is nothing; on 7,000 parts it is real money and
+            # every one of those customers saw the difference.
+            return Recommendation(
+                action=ACTION_HIGH_SALES_REVIEW,
+                recommended_price=current_price,
+                reason=(
+                    f"Worth reviewing. We are ${gap} above the lowest competitor, which is normally "
+                    f"too small to act on, but this sold {qty_sold_12m:,} units, so that gap is about "
+                    f"${exposure:,.0f} a year and every one of those customers saw the difference."
+                ),
+                market=market,
+                projected_margin_pct=_margin_pct(current_price, cost),
+                factors=factors + [f"annual exposure ${exposure:,.0f}"],
+            )
         return Recommendation(
             action=ACTION_HOLD,
             recommended_price=current_price,
@@ -285,6 +315,22 @@ def recommend(
                 f"Hold at ${current_price}. We are ${gap} above the lowest competitor, which is within "
                 f"the ${tolerance} that matters at this price. The percentage looks larger than the "
                 f"difference a customer would actually notice."
+            ),
+            market=market,
+            projected_margin_pct=_margin_pct(current_price, cost),
+            factors=factors,
+        )
+
+    gap_pct = (gap / lowest * Decimal("100")) if lowest > 0 else Decimal("0")
+    if sensitivity == SENSITIVITY_HIGH and gap_pct <= Decimal("2"):
+        # Tiny percentage differences are not worth chasing even on a
+        # price-image part: the customer does not notice and the margin does.
+        return Recommendation(
+            action=ACTION_HOLD,
+            recommended_price=current_price,
+            reason=(
+                f"Hold at ${current_price}. We are only {gap_pct:.1f}% above the lowest competitor, "
+                f"which is too small a difference to be worth changing."
             ),
             market=market,
             projected_margin_pct=_margin_pct(current_price, cost),
@@ -311,7 +357,23 @@ def recommend(
         )
 
     if cost is not None:
+        target_margin = _margin_pct(target, cost)
         floor_price = _price_for_margin(cost, minimum_margin_pct)
+        if target_margin is not None and target_margin < MARGIN_REVIEW_FLOOR:
+            # Below this the price is not worth having, so nothing automatic
+            # happens and someone decides whether the sale is worth the margin.
+            return Recommendation(
+                action=ACTION_HOLD,
+                recommended_price=current_price,
+                reason=(
+                    f"Hold at ${current_price}. Matching the market would need ${target}, leaving only "
+                    f"{target_margin}% margin, below the {MARGIN_REVIEW_FLOOR}% point where an automatic "
+                    f"reduction is worth making. This needs approval rather than a price change."
+                ),
+                market=market,
+                projected_margin_pct=_margin_pct(current_price, cost),
+                factors=factors,
+            )
         if target < floor_price:
             return Recommendation(
                 action=ACTION_DECREASE_REVIEW,

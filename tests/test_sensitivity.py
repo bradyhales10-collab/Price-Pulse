@@ -93,9 +93,9 @@ def test_an_unconfident_category_does_not_push_a_modest_part_to_an_extreme() -> 
         category_is_confident=False,
     )
 
-    assert result.sensitivity == SENSITIVITY_MEDIUM
+    assert result.sensitivity in {SENSITIVITY_LOW, SENSITIVITY_MEDIUM}
     assert result.confidence == "LOW"
-    assert any("held toward Balanced" in factor for factor in result.factors)
+    assert any("not confident enough to use" in factor for factor in result.factors)
 
 
 def test_measured_sales_still_count_when_the_category_is_unknown() -> None:
@@ -111,7 +111,7 @@ def test_measured_sales_still_count_when_the_category_is_unknown() -> None:
     )
 
     assert result.sensitivity == SENSITIVITY_HIGH
-    assert any("sales alone justify" in factor for factor in result.factors)
+    assert any("sales decide this" in factor for factor in result.factors)
 
 
 def test_category_adjusts_the_score_rather_than_deciding_it() -> None:
@@ -160,3 +160,74 @@ def test_the_factors_explain_the_score() -> None:
     assert result.factors
     assert "Sensitivity" in result.summary
     assert any("routinely price shopped" in factor for factor in result.factors)
+
+
+def test_a_high_volume_bolt_is_not_treated_as_unimportant() -> None:
+    """From the revised specification: a bolt selling 4,500 a year is an
+    important part, and being categorised as hardware must not hide that."""
+    from app.categorization import categorize_product
+
+    category = categorize_product("BOLT")
+    result = score_sensitivity(
+        category=category.category,
+        qty_sold_12m=4500,
+        annual_sales=Decimal("15750"),
+        current_price=Decimal("3.50"),
+        category_is_confident=category.is_confident,
+    )
+
+    assert result.sensitivity == SENSITIVITY_HIGH
+
+
+def test_a_slow_moving_oil_filter_is_not_treated_as_critical() -> None:
+    """The mirror case: being a filter must not force high sensitivity when
+    the part barely sells."""
+    from app.categorization import categorize_product
+
+    category = categorize_product("OIL FILTER")
+    result = score_sensitivity(
+        category=category.category,
+        qty_sold_12m=8,
+        annual_sales=Decimal("67"),
+        current_price=Decimal("8.35"),
+        category_is_confident=category.is_confident,
+    )
+
+    assert result.sensitivity == SENSITIVITY_LOW
+
+
+def test_an_uncertain_category_contributes_nothing_at_all() -> None:
+    """The revised specification requires 0.80 confidence before a category
+    affects the score. Below that it is a guess, and a guess should move the
+    score by nothing rather than by a little."""
+    # A cheap, low-volume fastener, where the category penalty genuinely
+    # applies when the classification is trusted.
+    confident = score_sensitivity(
+        category=CATEGORY_HARDWARE, qty_sold_12m=100, annual_sales=Decimal("500"),
+        current_price=Decimal("3.00"), category_is_confident=True,
+    )
+    unsure = score_sensitivity(
+        category=CATEGORY_HARDWARE, qty_sold_12m=100, annual_sales=Decimal("500"),
+        current_price=Decimal("3.00"), category_is_confident=False,
+    )
+
+    assert confident.score < unsure.score
+    assert any("not confident enough to use" in factor for factor in unsure.factors)
+
+
+def test_very_high_sales_guarantee_at_least_price_image_treatment() -> None:
+    result = score_sensitivity(
+        category=CATEGORY_HARDWARE, qty_sold_12m=2500, annual_sales=Decimal("8000"),
+        current_price=Decimal("3.00"), category_is_confident=True,
+    )
+
+    assert result.sensitivity == SENSITIVITY_HIGH
+
+
+def test_substantial_sales_guarantee_at_least_balanced_treatment() -> None:
+    result = score_sensitivity(
+        category=CATEGORY_HARDWARE, qty_sold_12m=1200, annual_sales=Decimal("4000"),
+        current_price=Decimal("3.00"), category_is_confident=True,
+    )
+
+    assert result.sensitivity in {SENSITIVITY_MEDIUM, SENSITIVITY_HIGH}

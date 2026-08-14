@@ -105,12 +105,14 @@ def test_being_slightly_under_market_is_left_alone() -> None:
 
 def test_the_margin_floor_stops_an_automatic_cut() -> None:
     """Matching the market would earn too little, so this becomes a decision
-    rather than an automatic reduction."""
+    rather than an automatic reduction. With a cost of 60 the target leaves
+    around 25%, inside the review band rather than below the 18% point where
+    nothing automatic happens at all."""
     result = recommend(
         current_price=Decimal("100.00"),
-        cost=Decimal("70.00"),
+        cost=Decimal("60.00"),
         sensitivity=SENSITIVITY_HIGH,
-        minimum_margin_pct=Decimal("20"),
+        minimum_margin_pct=Decimal("30"),
         quotes=[
             CompetitorQuote("Partzilla", Decimal("78.00")),
             CompetitorQuote("MotoSport", Decimal("79.00")),
@@ -119,25 +121,35 @@ def test_the_margin_floor_stops_an_automatic_cut() -> None:
     )
 
     assert result.action == ACTION_DECREASE_REVIEW
-    assert result.projected_margin_pct >= Decimal("20")
+    assert result.projected_margin_pct >= Decimal("30")
 
 
-def test_the_margin_floor_setting_is_honoured_rather_than_hardcoded() -> None:
-    lenient = recommend(
+def test_a_price_leaving_too_little_margin_is_not_reduced_automatically() -> None:
+    """Three bands, not one floor. Matching the market here would leave 12%,
+    below the 18% point where a reduction stops being worth making, so nothing
+    automatic happens and a person decides whether the sale is worth it."""
+    result = recommend(
         current_price=Decimal("100.00"), cost=Decimal("70.00"), sensitivity=SENSITIVITY_HIGH,
-        minimum_margin_pct=Decimal("5"),
-        quotes=[CompetitorQuote("A", Decimal("78.00")), CompetitorQuote("B", Decimal("79.00")),
-                CompetitorQuote("C", Decimal("77.50"))],
-    )
-    strict = recommend(
-        current_price=Decimal("100.00"), cost=Decimal("70.00"), sensitivity=SENSITIVITY_HIGH,
-        minimum_margin_pct=Decimal("40"),
         quotes=[CompetitorQuote("A", Decimal("78.00")), CompetitorQuote("B", Decimal("79.00")),
                 CompetitorQuote("C", Decimal("77.50"))],
     )
 
-    assert lenient.action == ACTION_DECREASE
-    assert strict.action == ACTION_DECREASE_REVIEW
+    assert result.action == ACTION_HOLD
+    assert "needs approval" in result.reason
+
+
+def test_a_price_in_the_review_band_asks_for_a_decision() -> None:
+    """Between the floor and the review point, a reduction is possible but
+    should not happen on its own."""
+    result = recommend(
+        current_price=Decimal("100.00"), cost=Decimal("60.00"), sensitivity=SENSITIVITY_HIGH,
+        minimum_margin_pct=Decimal("30"),
+        quotes=[CompetitorQuote("A", Decimal("78.00")), CompetitorQuote("B", Decimal("79.00")),
+                CompetitorQuote("C", Decimal("77.50"))],
+    )
+
+    assert result.action == ACTION_DECREASE_REVIEW
+    assert result.projected_margin_pct >= Decimal("30")
 
 
 def test_a_zero_competitor_price_is_never_treated_as_the_market() -> None:
@@ -256,4 +268,39 @@ def test_every_recommendation_explains_itself() -> None:
 
     assert len(result.reason) > 40
     assert "$" in result.reason
-    assert result.rule_version == "OEM-HYBRID-1.0"
+    assert result.rule_version.startswith("OEM-HYBRID-")
+
+
+def test_the_same_small_gap_is_reviewed_when_volume_makes_it_add_up() -> None:
+    """From the revised specification: $8.35 against $7.17 is $1.18, inside the
+    tolerance for a cheap part. On 15 units that is nothing. On 7,000 it is
+    thousands of dollars and every one of those customers saw the difference."""
+    quotes = [CompetitorQuote("Partzilla", Decimal("7.17")), CompetitorQuote("MotoSport", Decimal("7.60"))]
+
+    quiet = recommend(
+        current_price=Decimal("8.35"), cost=Decimal("4.00"), sensitivity=SENSITIVITY_MEDIUM,
+        quotes=quotes, qty_sold_12m=15,
+    )
+    busy = recommend(
+        current_price=Decimal("8.35"), cost=Decimal("4.00"), sensitivity=SENSITIVITY_MEDIUM,
+        quotes=quotes, qty_sold_12m=7000,
+    )
+
+    assert quiet.action == ACTION_HOLD
+    assert busy.action == "HIGH_SALES_PRICE_REVIEW"
+    assert "7,000 units" in busy.reason
+
+
+def test_a_tiny_percentage_gap_is_not_chased_even_on_a_price_image_part() -> None:
+    """The revised specification requires a percentage gap above 2% as well as
+    a meaningful dollar gap before reducing a high-sensitivity part."""
+    result = recommend(
+        current_price=Decimal("101.50"), cost=Decimal("40.00"), sensitivity=SENSITIVITY_HIGH,
+        quotes=[
+            CompetitorQuote("Partzilla", Decimal("100.00")),
+            CompetitorQuote("MotoSport", Decimal("103.00")),
+            CompetitorQuote("Chaparral", Decimal("102.00")),
+        ],
+    )
+
+    assert result.action == ACTION_HOLD
