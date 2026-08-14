@@ -239,8 +239,31 @@ def product_detail(database: Path, product_id: int) -> dict[str, Any] | None:
             if lowest_row is not None
             else None
         )
+        # The new engine's view of this part, shown next to the existing
+        # suggestion rather than replacing it, so the two can be compared on
+        # real parts. Built from the comparison row so every screen sees the
+        # same recommendation.
+        from app.comparison import ComparisonFilters, comparison_rows
+        from app.pricing_view import minimum_margin_pct, recommendation_for_row
+
+        pricing_recommendation = None
+        try:
+            comparison_row = next(
+                (item for item in comparison_rows(database, ComparisonFilters()) if item.get("product_id") == product_id),
+                None,
+            )
+            if comparison_row is not None:
+                pricing_recommendation = recommendation_for_row(
+                    comparison_row, minimum_margin=minimum_margin_pct(database)
+                )
+        except Exception:
+            # A recommendation is useful extra context, not the reason this
+            # page exists, so a failure here must not take the page down.
+            pricing_recommendation = None
+
         return {
             "product": _catalog_row(row),
+            "pricing_recommendation": pricing_recommendation,
             "listing": dict(row),
             "listings": listing_rows,
             "lowest_competitor": lowest_competitor,

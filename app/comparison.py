@@ -115,6 +115,7 @@ def comparison_rows(database: Path, filters: ComparisonFilters = ComparisonFilte
                    {product_name_sql},
                    ips.internal_sku, ips.our_current_price_cents, ips.current_cost_cents,
                    ips.product_category, ips.units_sold_12m, ips.inventory_qty, ips.scan_priority,
+                   ips.sales_period,
                    {columns_sql},
                    prd.review_status, prd.original_price_cents, prd.suggested_new_price_cents, prd.applied_rule_codes_json,
                    prd.notes, prd.reviewer, prd.reviewed_at

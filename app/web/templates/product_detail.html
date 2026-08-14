@@ -8,7 +8,42 @@
 </header>
 
 <section class="grid three">
-  <article class="card"><h2>Our Pricing</h2><div class="big-price">{{ money(product.our_current_price, True) }}</div><p>Calc Cost: {{ money(product.current_cost) }}</p><p>Margin: {% if product.our_margin %}<span class="money strong">{{ product.our_margin|price }}</span>{% else %}<span class="muted">None</span>{% endif %} {% if product.our_margin_pct %}({{ product.our_margin_pct }}%){% endif %}</p></article>
+  {% if pricing_recommendation %}
+<article class="card">
+  <div class="section-title">
+    <h2>Suggested Pricing</h2>
+    <span>{{ badge(pricing_recommendation.action_label, pricing_recommendation.action_tone) }}</span>
+  </div>
+  {% if pricing_recommendation.changes_price %}
+  <div class="big-price">{{ pricing_recommendation.recommended_price|price }}</div>
+  <p class="muted">from {{ money(product.our_current_price) }}{% if pricing_recommendation.projected_margin_pct %}, leaving a {{ pricing_recommendation.projected_margin_pct }}% margin{% endif %}</p>
+  {% else %}
+  <p><strong>No change suggested.</strong></p>
+  {% endif %}
+  <p>{{ pricing_recommendation.reason }}</p>
+  <table>
+    <tr><th>Type of part</th><td>{{ pricing_recommendation.category }} <span class="muted">({{ pricing_recommendation.category_confidence }} confidence: {{ pricing_recommendation.category_reason }})</span></td></tr>
+    <tr><th>How price sensitive</th><td>{{ pricing_recommendation.sensitivity }} <span class="muted">(score {{ pricing_recommendation.sensitivity_score }})</span></td></tr>
+    <tr><th>Why that score</th><td class="muted">{{ pricing_recommendation.sensitivity_factors|join('; ') }}</td></tr>
+    <tr><th>Competitor prices used</th><td>
+      {% if pricing_recommendation.valid_competitor_count %}
+        {{ pricing_recommendation.valid_competitor_count }} trusted, lowest {{ pricing_recommendation.lowest_valid|price }}, median {{ pricing_recommendation.median_valid|price }}
+        <span class="muted">({{ pricing_recommendation.competitor_confidence }} confidence)</span>
+      {% else %}
+        <span class="muted">None could be trusted</span>
+      {% endif %}
+    </td></tr>
+    {% if pricing_recommendation.rejected_quotes %}
+    <tr><th>Prices not used</th><td class="muted">{{ pricing_recommendation.rejected_quotes|join('; ') }}</td></tr>
+    {% endif %}
+    {% if pricing_recommendation.sales_period_note %}
+    <tr><th>Sales figure</th><td class="muted">{{ pricing_recommendation.sales_period_note }}</td></tr>
+    {% endif %}
+  </table>
+  <p class="muted">This is a suggestion only. Nothing is changed until you choose to change it.</p>
+</article>
+{% endif %}
+<article class="card"><h2>Our Pricing</h2><div class="big-price">{{ money(product.our_current_price, True) }}</div><p>Calc Cost: {{ money(product.current_cost) }}</p><p>Margin: {% if product.our_margin %}<span class="money strong">{{ product.our_margin|price }}</span>{% else %}<span class="muted">None</span>{% endif %} {% if product.our_margin_pct %}({{ product.our_margin_pct }}%){% endif %}</p></article>
   <article class="card"><h2>Lowest Competitor Price</h2>{% if lowest_competitor %}<div class="big-price">{{ money(lowest_competitor.selling_price, True) }}</div><p>Cheapest of the competitors checked: <strong>{{ lowest_competitor.competitor_name }}</strong></p><p>Reference: {% if lowest_competitor.reference_price %}<span class="strike">{{ lowest_competitor.reference_price|price }}</span>{% else %}<span class="muted">None</span>{% endif %}</p><p>{{ badge(lowest_competitor.price_display_type, 'blue') }} Confidence {{ badge(lowest_competitor.selling_price_confidence, 'success') }}</p>{% else %}<div class="big-price">--</div><p class="muted">No competitor price has been found for this part yet.</p>{% endif %}</article>
   <article class="card"><h2>Availability</h2><p>{{ product.availability_raw or 'No availability text' }}</p>{{ badge(product.availability_status, 'success' if product.availability_status == 'in_stock' else 'blue') }}<p>Last checked {{ product.last_successful_check_at|datetime or 'Never' }}</p></article>
 </section>
