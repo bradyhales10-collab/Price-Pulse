@@ -90,6 +90,12 @@ from app.reviews import (
     suggested_price_for_product,
     undo_saved_review_decision,
 )
+from app.sales_period import (
+    DEFAULT_SALES_PERIOD,
+    PERIOD_LABELS,
+    SALES_PERIODS,
+    detect_period_from_header,
+)
 from app.web.formatters import format_timestamp, humanize_status
 from app.web.queries import (
     DEFAULT_PAGE_SIZE,
@@ -122,6 +128,19 @@ templates.env.globals["competitor_columns"] = [
 
 
 MAX_CATALOG_EXPORT_ROWS = 100000
+
+
+def _detected_sales_period(headers: list[str], mapping: dict[str, str]) -> str | None:
+    """Read the period from whichever column was mapped to the sales quantity.
+
+    Only worth suggesting when the heading actually says: "Qty Sold", which is
+    what the real uploads use, states nothing, and guessing wrong would distort
+    every score built on it.
+    """
+    for header in headers:
+        if mapping.get(header) == "units_sold_12m":
+            return detect_period_from_header(header)
+    return None
 
 
 def create_app(database: Path) -> FastAPI:
@@ -863,7 +882,19 @@ def create_app(database: Path) -> FastAPI:
         return templates.TemplateResponse(
             request,
             "import_map.html",
-            {"active": "imports", "database": app.state.database, "batch": batch, "sheets": sheets, "selected_sheet": selected_sheet, "headers": headers, "mapping": mapping, "import_fields": ALL_FIELDS},
+            {
+                "active": "imports",
+                "database": app.state.database,
+                "batch": batch,
+                "sheets": sheets,
+                "selected_sheet": selected_sheet,
+                "headers": headers,
+                "mapping": mapping,
+                "import_fields": ALL_FIELDS,
+                "sales_periods": [(code, PERIOD_LABELS[code]) for code in SALES_PERIODS],
+                "detected_sales_period": _detected_sales_period(headers, mapping),
+                "suggested_sales_period": _detected_sales_period(headers, mapping) or DEFAULT_SALES_PERIOD,
+            },
         )
 
     @app.post("/imports/{import_batch_id}/preview", response_class=HTMLResponse)
@@ -871,11 +902,20 @@ def create_app(database: Path) -> FastAPI:
         form = await _urlencoded_form(request)
         worksheet = form.get("worksheet", "")
         mapping = {key.replace("map_", ""): value for key, value in form.items() if key.startswith("map_") and value}
-        preview = preview_import(app.state.database, import_batch_id, worksheet=worksheet, mapping=mapping)
+        sales_period = form.get("sales_period", "") or DEFAULT_SALES_PERIOD
+        preview = preview_import(
+            app.state.database, import_batch_id, worksheet=worksheet, mapping=mapping, sales_period=sales_period
+        )
         return templates.TemplateResponse(
             request,
             "import_preview.html",
-            {"active": "imports", "database": app.state.database, "preview": preview},
+            {
+                "active": "imports",
+                "database": app.state.database,
+                "preview": preview,
+                "sales_period": sales_period,
+                "sales_period_label": PERIOD_LABELS.get(sales_period, sales_period),
+            },
         )
 
     @app.get("/imports/{import_batch_id}/preview", response_class=HTMLResponse)
@@ -892,7 +932,13 @@ def create_app(database: Path) -> FastAPI:
         form = await _urlencoded_form(request)
         worksheet = form.get("worksheet", "")
         mapping = {key.replace("map_", ""): value for key, value in form.items() if key.startswith("map_") and value}
-        preview = confirm_import(app.state.database, import_batch_id, worksheet=worksheet, mapping=mapping)
+        preview = confirm_import(
+            app.state.database,
+            import_batch_id,
+            worksheet=worksheet,
+            mapping=mapping,
+            sales_period=form.get("sales_period", "") or DEFAULT_SALES_PERIOD,
+        )
         return templates.TemplateResponse(
             request,
             "import_preview.html",
@@ -906,7 +952,9 @@ def create_app(database: Path) -> FastAPI:
         form = {key: values[-1] if values else "" for key, values in parsed.items()}
         selected_competitors = parsed.get("competitor", [])
         delay_seconds = _int_form_value(form.get("delay_seconds"), 1)
-        preview = confirm_import(app.state.database, import_batch_id)
+        preview = confirm_import(
+            app.state.database, import_batch_id, sales_period=form.get("sales_period", "") or DEFAULT_SALES_PERIOD
+        )
         if preview.invalid_rows:
             return _imports_response(request, app.state.database, preview=preview, errors=["Fix invalid rows before starting price checks."], status_code=400)
         if not selected_competitors:

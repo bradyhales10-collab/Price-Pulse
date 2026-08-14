@@ -157,6 +157,10 @@ def test_inventory_export_template_maps_to_production_price_check_fields() -> No
         "Prod No": "internal_sku",
         "Stock Name": "product_name",
         "MF ID": "oem_part_number",
+        # "Qty Sold" is what the real inventory export uses. It was missing from
+        # the aliases, so the sales quantity was never imported and every part
+        # scored as though it had no sales history, which drives sensitivity.
+        "Qty Sold": "units_sold_12m",
         "Total Qty\nAvail": "inventory_qty",
         "Calc Cost": "current_cost",
         "Price": "our_current_price",

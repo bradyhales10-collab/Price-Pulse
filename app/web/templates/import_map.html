@@ -11,6 +11,26 @@
       <tr><td>{{ header }}</td><td><select name="map_{{ header }}"><option value="">Do not import</option>{% for field in import_fields %}<option value="{{ field }}" {{ 'selected' if mapping.get(header) == field else '' }}>{{ field|humanize }}</option>{% endfor %}</select></td></tr>
       {% endfor %}
     </tbody></table></div>
+    <fieldset class="card" style="margin-top:1rem">
+      <legend>Sales period</legend>
+      <p class="muted">
+        How long does the sales quantity column cover? This decides how much demand a
+        number represents: 400 units over three months is four times the demand of 400
+        over a year, and pricing treats those differently. Only the scoring is adjusted;
+        your uploaded figures are kept exactly as they are.
+      </p>
+      <label for="sales_period">The quantity column covers</label>
+      <select id="sales_period" name="sales_period">
+        {% for value, label in sales_periods %}
+        <option value="{{ value }}" {{ 'selected' if value == suggested_sales_period else '' }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      {% if detected_sales_period %}
+      <p class="muted">Chosen from the column heading. Change it if that is not right.</p>
+      {% else %}
+      <p class="muted">The column heading does not say, so this is set to annual. Change it if that is wrong.</p>
+      {% endif %}
+    </fieldset>
     <button type="submit">Validate Import</button>
   </form>
 </section>

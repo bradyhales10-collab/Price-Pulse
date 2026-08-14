@@ -13,7 +13,7 @@
   <div class="section-title"><h2>Preview Rows</h2><a href="/imports/{{ preview.import_batch_id }}/validation-errors.csv">Download Validation Errors</a></div>
   <div class="table-wrap"><table><thead><tr><th>Row</th><th>Status</th><th>Action</th><th>Internal SKU</th><th>Manufacturer</th><th>OEM Part</th><th>Price</th><th>Messages</th></tr></thead><tbody>{% for row in preview.rows %}<tr><td>{{ row.source_row_number }}</td><td>{{ badge(row.status, 'success' if row.status == 'valid' else 'warning') }}</td><td>{{ row.action }}</td><td>{{ row.values.get('internal_sku','') }}</td><td>{{ row.values.get('manufacturer','') }}</td><td>{{ row.values.get('oem_part_number','') }}</td><td>{{ row.values.get('our_current_price','') }}</td><td>{{ '; '.join(row.messages) }}</td></tr>{% endfor %}</tbody></table></div>
   {% if not imported and preview.invalid_rows == 0 %}
-  <form action="/imports/{{ preview.import_batch_id }}/start-price-check" method="post"><label>Delay seconds</label><input name="delay_seconds" type="number" min="1" value="1"><button type="submit">Start Checking Prices</button></form>
+  <form action="/imports/{{ preview.import_batch_id }}/start-price-check" method="post"><input type="hidden" name="sales_period" value="{{ sales_period or '12_months' }}">{% if sales_period_label %}<p class="muted">Sales quantities are being read as covering {{ sales_period_label }}.</p>{% endif %}<label>Delay seconds</label><input name="delay_seconds" type="number" min="1" value="1"><button type="submit">Start Checking Prices</button></form>
   {% endif %}
 </section>
 {% endblock %}

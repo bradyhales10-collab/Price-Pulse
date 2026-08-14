@@ -21,6 +21,7 @@ from app.database import (
 )
 from app.manufacturer_registry import normalize_manufacturer, partzilla_slug_for
 from app.models import PartRecord
+from app.sales_period import DEFAULT_SALES_PERIOD
 from app.xlsx_utils import read_rows as read_xlsx_rows
 from app.xlsx_utils import sheet_names as xlsx_sheet_names
 from app.xlsx_utils import write_workbook
@@ -43,7 +44,14 @@ HEADER_ALIASES = {
     # supported fallback for older files that do not include Calc Cost.
     "current_cost": ("current cost", "calc cost", "calculated cost", "cost", "current_cost"),
     "product_category": ("product category", "category", "product_category"),
-    "units_sold_12m": ("units sold 12m", "units sold", "12 month sales", "units_sold_12m"),
+    "units_sold_12m": (
+        # "qty sold" is what the real uploads use, and it was missing, so the
+        # sales quantity was silently never imported and every part scored as
+        # though it had no sales history at all.
+        "units sold 12m", "units sold", "12 month sales", "units_sold_12m",
+        "qty sold", "quantity sold", "qty sold 12m", "sales qty", "sales quantity",
+        "units", "qty", "annual units", "annual qty",
+    ),
     "inventory_qty": ("inventory qty", "inventory", "qty on hand", "total qty avail", "total quantity available", "qty available", "available quantity", "inventory_qty"),
     "scan_priority": ("scan priority", "priority", "scan_priority"),
     "is_active": ("is active", "active", "is_active"),
@@ -146,7 +154,14 @@ def auto_map_headers(headers: list[str]) -> dict[str, str]:
     return mapping
 
 
-def preview_import(database: Path, import_batch_id: int, *, worksheet: str | None = None, mapping: dict[str, str] | None = None) -> ImportPreview:
+def preview_import(
+    database: Path,
+    import_batch_id: int,
+    *,
+    worksheet: str | None = None,
+    mapping: dict[str, str] | None = None,
+    sales_period: str | None = None,
+) -> ImportPreview:
     batch = _batch(database, import_batch_id)
     path = IMPORT_DIR / batch["stored_filename"]
     worksheet = worksheet or batch["worksheet_name"] or default_sheet(workbook_sheets(path))
@@ -216,7 +231,15 @@ def preview_import(database: Path, import_batch_id: int, *, worksheet: str | Non
     )
 
 
-def confirm_import(database: Path, import_batch_id: int, *, worksheet: str | None = None, mapping: dict[str, str] | None = None) -> ImportPreview:
+def confirm_import(
+    database: Path,
+    import_batch_id: int,
+    *,
+    worksheet: str | None = None,
+    mapping: dict[str, str] | None = None,
+    sales_period: str | None = None,
+) -> ImportPreview:
+    resolved_period = sales_period or DEFAULT_SALES_PERIOD
     preview = preview_import(database, import_batch_id, worksheet=worksheet, mapping=mapping)
     batch = _batch(database, import_batch_id)
     source_name = str(batch["original_filename"])
@@ -254,8 +277,8 @@ def confirm_import(database: Path, import_batch_id: int, *, worksheet: str | Non
                 """
                 INSERT INTO internal_product_state(product_id, internal_sku, our_current_price_cents, current_cost_cents,
                     product_category, units_sold_12m, inventory_qty, scan_priority, is_active, source_import_batch_id,
-                    source_type, source_name, last_source_sync_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    source_type, source_name, last_source_sync_at, updated_at, sales_period)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(product_id) DO UPDATE SET
                     internal_sku=excluded.internal_sku,
                     our_current_price_cents=excluded.our_current_price_cents,
@@ -264,6 +287,7 @@ def confirm_import(database: Path, import_batch_id: int, *, worksheet: str | Non
                     units_sold_12m=COALESCE(excluded.units_sold_12m, internal_product_state.units_sold_12m),
                     inventory_qty=COALESCE(excluded.inventory_qty, internal_product_state.inventory_qty),
                     scan_priority=COALESCE(NULLIF(excluded.scan_priority, ''), internal_product_state.scan_priority),
+                    sales_period=COALESCE(NULLIF(excluded.sales_period, ''), internal_product_state.sales_period),
                     is_active=excluded.is_active,
                     source_import_batch_id=excluded.source_import_batch_id,
                     source_type=excluded.source_type,
@@ -286,6 +310,7 @@ def confirm_import(database: Path, import_batch_id: int, *, worksheet: str | Non
                     source_name,
                     utc_now(),
                     utc_now(),
+                    resolved_period,
                 ),
             )
             conn.execute(

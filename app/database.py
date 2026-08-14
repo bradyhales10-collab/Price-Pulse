@@ -130,6 +130,11 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
             "INSERT INTO schema_migrations(version, description, applied_at) VALUES (?, ?, ?)",
             (11, "index scan_events and competitor_listings for dashboard queries", utc_now()),
         )
+    # The period a sales quantity covers. Without it, "Qty Sold" is assumed
+    # to be annual, and six months of sales scored against annual thresholds
+    # understates demand by half.
+    _ensure_column(conn, "import_batches", "sales_period", "TEXT")
+    _ensure_column(conn, "internal_product_state", "sales_period", "TEXT")
     _ensure_column(conn, "competitor_probe_results", "price_visibility", "TEXT")
     _ensure_column(conn, "competitor_probe_results", "price_display_type", "TEXT")
     _ensure_column(conn, "competitor_probe_results", "result_type", "TEXT")
