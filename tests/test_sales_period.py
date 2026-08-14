@@ -201,3 +201,108 @@ def test_the_mapping_screen_offers_the_choice_and_explains_it(tmp_path) -> None:
     assert "four times the demand" in page
     # "Qty Sold" states no period, so it must say it is assuming annual.
     assert "does not say" in page
+
+
+def test_saving_parts_without_a_price_check_keeps_competitor_prices(tmp_path) -> None:
+    """Re-importing to correct part details must not throw away competitor
+    prices that took hours to collect, and must not need them re-collected.
+    Until now the only way forward from the preview screen was Start Price
+    Check, so updating a sales quantity meant re-checking every competitor."""
+    from fastapi.testclient import TestClient
+
+    from app.database import connect_database, initialize_database, utc_now
+    from app.imports import auto_map_headers
+    from app.web.app import create_app
+    from app.xlsx_utils import write_workbook
+
+    database = tmp_path / "p.db"
+    initialize_database(database)
+    client = TestClient(create_app(database), raise_server_exceptions=False)
+
+    def upload(name: str, row: list[str]) -> int:
+        workbook = tmp_path / name
+        write_workbook(workbook, {"Sheet1": [HEADERS, row]})
+        client.post(
+            "/imports/upload",
+            content=workbook.read_bytes(),
+            headers={"x-filename": name},
+            follow_redirects=False,
+        )
+        with connect_database(database) as conn:
+            return conn.execute(
+                "SELECT import_batch_id FROM import_batches ORDER BY import_batch_id DESC LIMIT 1"
+            ).fetchone()[0]
+
+    form = {"worksheet": "Sheet1", "sales_period": "12_months"}
+    for header, field in auto_map_headers(HEADERS).items():
+        form[f"map_{header}"] = field
+
+    first = upload("a.xlsx", ["POLARIS", "SKU1", "DRIVE BELT", "3211186", "8073", "107.19", "163.99"])
+    client.post(f"/imports/{first}/preview", data=form)
+    client.post(f"/imports/{first}/confirm", data=form)
+
+    now = utc_now()
+    with connect_database(database) as conn:
+        for offset, listing in enumerate(conn.execute("SELECT listing_id FROM competitor_listings").fetchall()):
+            conn.execute(
+                "INSERT OR REPLACE INTO current_listing_state(listing_id, selling_price_cents, "
+                "price_display_type, first_observed_at, last_successful_check_at, last_changed_at, updated_at) "
+                "VALUES (?,?, 'regular', ?,?,?,?)",
+                (listing["listing_id"], 18999 + offset, now, now, now, now),
+            )
+        before = conn.execute(
+            "SELECT COUNT(*) FROM current_listing_state WHERE selling_price_cents IS NOT NULL"
+        ).fetchone()[0]
+    assert before > 0
+
+    second = upload("b.xlsx", ["POLARIS", "SKU1", "DRIVE BELT", "3211186", "400", "107.19", "171.99"])
+    updated = dict(form, sales_period="6_months")
+    client.post(f"/imports/{second}/preview", data=updated)
+    response = client.post(f"/imports/{second}/confirm", data=updated)
+
+    assert response.status_code == 200
+    with connect_database(database) as conn:
+        after = conn.execute(
+            "SELECT COUNT(*) FROM current_listing_state WHERE selling_price_cents IS NOT NULL"
+        ).fetchone()[0]
+        state = conn.execute(
+            "SELECT units_sold_12m, sales_period, our_current_price_cents FROM internal_product_state"
+        ).fetchone()
+        products = conn.execute("SELECT COUNT(*) FROM products").fetchone()[0]
+
+    assert after == before, "competitor prices must survive a re-import"
+    assert state["units_sold_12m"] == 400
+    assert state["sales_period"] == "6_months"
+    assert state["our_current_price_cents"] == 17199
+    assert products == 1, "re-importing must update the part rather than duplicate it"
+
+
+def test_the_preview_screen_offers_saving_without_a_price_check(tmp_path) -> None:
+    from fastapi.testclient import TestClient
+
+    from app.database import connect_database, initialize_database
+    from app.imports import auto_map_headers
+    from app.web.app import create_app
+    from app.xlsx_utils import write_workbook
+
+    database = tmp_path / "p.db"
+    initialize_database(database)
+    client = TestClient(create_app(database), raise_server_exceptions=False)
+    workbook = tmp_path / "parts.xlsx"
+    write_workbook(workbook, {"Sheet1": [HEADERS, ROW]})
+    client.post(
+        "/imports/upload", content=workbook.read_bytes(), headers={"x-filename": "parts.xlsx"}, follow_redirects=False
+    )
+    with connect_database(database) as conn:
+        batch_id = conn.execute(
+            "SELECT import_batch_id FROM import_batches ORDER BY import_batch_id DESC LIMIT 1"
+        ).fetchone()[0]
+    form = {"worksheet": "Sheet1", "sales_period": "12_months"}
+    for header, field in auto_map_headers(HEADERS).items():
+        form[f"map_{header}"] = field
+    client.post(f"/imports/{batch_id}/preview", data=form)
+
+    page = client.get(f"/imports?import_batch_id={batch_id}").text
+
+    assert "Save Parts Without Checking Prices" in page
+    assert "keeps the competitor prices already collected" in page

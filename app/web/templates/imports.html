@@ -64,6 +64,7 @@
     <div class="quick-actions">
       <a href="/imports#recent-files">Choose a Different File</a>
       <a href="/imports/{{ preview.import_batch_id }}/validation-errors.csv">Download Validation Details</a>
+      {% if preview.invalid_rows == 0 %}<button type="submit" form="import-only-form" class="secondary">Save Parts Without Checking Prices</button>{% endif %}
       {% if preview.invalid_rows == 0 %}<button type="submit" form="price-check-form" data-start-price-check {{ 'disabled' if not local_agent.connected else '' }}>Start Price Check</button>{% endif %}
     </div>
   </div>
@@ -74,6 +75,14 @@
     {% if preview.duplicate_rows %}<span>Duplicate rows ignored <b>{{ preview.duplicate_rows }}</b></span>{% endif %}
   </div>
   {% if preview.invalid_rows == 0 %}
+  <form id="import-only-form" action="/imports/{{ preview.import_batch_id }}/confirm" method="post">
+    <input type="hidden" name="sales_period" value="{{ sales_period or '12_months' }}">
+  </form>
+  <p class="muted">
+    Saving without checking prices updates your part details, including prices, costs and
+    sales quantities, and keeps the competitor prices already collected. Useful when the
+    part file has changed but the competitor prices are still current.
+  </p>
   <form id="price-check-form" action="/imports/{{ preview.import_batch_id }}/start-price-check" method="post" class="primary-action run-controls">
     <div>
       <strong>Choose competitors</strong>
