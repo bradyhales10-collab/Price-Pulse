@@ -80,11 +80,26 @@ UNDER_MARKET_TRIGGER = {
     SENSITIVITY_MEDIUM: Decimal("0.06"),
     SENSITIVITY_LOW: Decimal("0.08"),
 }
+# How close to the lowest competitor to price when we are currently under it.
+# The target rises as economic importance falls, because low sensitivity does
+# not mean surrendering every competitive advantage: a part that still sells in
+# reasonable numbers is worth keeping visibly cheaper, even if it is not a
+# price-image item. Only a part with genuinely minimal exposure goes all the way
+# to matching the market.
 UNDER_MARKET_TARGET = {
     SENSITIVITY_HIGH: Decimal("0.98"),
     SENSITIVITY_MEDIUM: Decimal("0.99"),
-    SENSITIVITY_LOW: Decimal("1.00"),
+    SENSITIVITY_LOW: Decimal("0.995"),
 }
+# A low-sensitivity part below these has little enough at stake that matching
+# the lowest competitor exactly is the sensible starting point.
+LOW_EXPOSURE_QTY = 50
+LOW_EXPOSURE_SALES = Decimal("5000")
+LOW_EXPOSURE_DOLLARS = Decimal("500")
+LOW_MINIMAL_TARGET = Decimal("1.00")
+
+RULE_LOW_EXPOSURE_995 = "LOW_EXPOSURE_995"
+RULE_LOW_MINIMAL_100 = "LOW_MINIMAL_100"
 
 # A lowest quote this far under the rest of the market is more likely to be a
 # different item, a multipack, or a bad reading than a real price.
@@ -124,6 +139,10 @@ class Recommendation:
     projected_margin_pct: Decimal | None = None
     rule_version: str = PRICING_RULE_VERSION
     factors: list[str] = field(default_factory=list)
+    # Which rung of the under-market ladder produced this, so a price can be
+    # audited without re-deriving it. Blank when a different rule applied.
+    target_percent_of_lowest: Decimal | None = None
+    rule_applied: str = ""
 
 
 def _money(value: Decimal) -> Decimal:
@@ -206,6 +225,26 @@ def _price_for_margin(cost: Decimal, minimum_margin_pct: Decimal) -> Decimal:
     return _money(cost / divisor)
 
 
+def _under_market_rationale(sensitivity: str, rule_applied: str) -> str:
+    """Why this particular target was chosen, in plain terms."""
+    if sensitivity == SENSITIVITY_HIGH:
+        return (
+            "This part is heavily shopped, so the price recovers margin while staying visibly "
+            "below the market."
+        )
+    if sensitivity == SENSITIVITY_MEDIUM:
+        return "This part is moderately shopped, so the price stays just under the market."
+    if rule_applied == RULE_LOW_EXPOSURE_995:
+        return (
+            "Customers rarely compare this part, but it sells enough that a small advantage is "
+            "worth keeping rather than matching the market exactly."
+        )
+    return (
+        "Customers rarely compare this part and it sells little, so there is nothing to gain from "
+        "pricing under the market."
+    )
+
+
 def recommend(
     *,
     current_price: Decimal,
@@ -216,6 +255,7 @@ def recommend(
     minimum_margin_pct: Decimal = Decimal("20"),
     manufacturer_modes: dict[str, str] | None = None,
     qty_sold_12m: int | None = None,
+    annual_sales: Decimal | None = None,
 ) -> Recommendation:
     modes = DEFAULT_MANUFACTURER_MODES if manufacturer_modes is None else manufacturer_modes
     if modes.get(manufacturer.strip().upper()) == "MAP_EXCLUDED":
@@ -275,19 +315,57 @@ def recommend(
                 projected_margin_pct=_margin_pct(current_price, cost),
                 factors=factors,
             )
-        target = _money(lowest * UNDER_MARKET_TARGET[sensitivity])
-        if sensitivity == SENSITIVITY_LOW and market.median is not None:
-            target = min(target, market.median)
+        # Split low sensitivity by what is actually at stake. A part still
+        # selling in reasonable numbers is worth keeping visibly cheaper; only
+        # one with minimal exposure should match the market exactly.
+        target_percent = UNDER_MARKET_TARGET[sensitivity]
+        rule_applied = ""
+        if sensitivity == SENSITIVITY_LOW:
+            exposure = abs(current_price - lowest) * Decimal(qty_sold_12m or 0)
+            meaningful = (
+                (qty_sold_12m is not None and qty_sold_12m >= LOW_EXPOSURE_QTY)
+                or (annual_sales is not None and annual_sales >= LOW_EXPOSURE_SALES)
+                or exposure >= LOW_EXPOSURE_DOLLARS
+            )
+            if meaningful:
+                rule_applied = RULE_LOW_EXPOSURE_995
+                factors.append("low sensitivity, but sales are worth keeping a small advantage for")
+            else:
+                # Matching the market is only the default when there is little
+                # to protect. With unreliable competitor data even that is too
+                # far, since the figure being matched may not be right.
+                if market.confidence == "LOW":
+                    target_percent = UNDER_MARKET_TARGET[SENSITIVITY_LOW]
+                    rule_applied = RULE_LOW_EXPOSURE_995
+                    factors.append("competitor data is weak, so holding just under the market rather than matching it")
+                else:
+                    target_percent = LOW_MINIMAL_TARGET
+                    rule_applied = RULE_LOW_MINIMAL_100
+                    factors.append("low sensitivity with minimal sales exposure")
+
+        # The percentage is applied to the price and only then rounded, so the
+        # result is not distorted by rounding the multiplier first.
+        target = _money(lowest * target_percent)
+        if sensitivity == SENSITIVITY_LOW and rule_applied == RULE_LOW_MINIMAL_100 and market.median is not None:
+            # Moving toward the median needs data worth trusting.
+            if market.confidence in {"MEDIUM", "HIGH"}:
+                target = min(max(target, lowest), market.median)
+
+        percent_label = f"{target_percent * 100:.1f}".rstrip("0").rstrip(".")
         return Recommendation(
             action=ACTION_INCREASE,
             recommended_price=target,
             reason=(
                 f"Increase from ${current_price} to ${target}. We are {shortfall * 100:.1f}% below the "
-                f"lowest competitor at ${lowest}, so this captures margin while staying at or just under market."
+                f"lowest validated competitor at ${lowest}. "
+                + _under_market_rationale(sensitivity, rule_applied)
+                + f" The target is about {percent_label}% of the lowest competitor."
             ),
             market=market,
             projected_margin_pct=_margin_pct(target, cost),
             factors=factors,
+            target_percent_of_lowest=target_percent * Decimal("100"),
+            rule_applied=rule_applied,
         )
 
     # Priced at or above the market.

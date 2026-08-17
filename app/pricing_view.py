@@ -114,6 +114,7 @@ def recommendation_for_row(row: dict[str, Any], *, minimum_margin: Decimal = Dec
         manufacturer=str(row.get("manufacturer") or ""),
         minimum_margin_pct=minimum_margin,
         qty_sold_12m=qty,
+        annual_sales=derive_annual_sales(None, qty, current_price),
     )
 
     changes_price = result.recommended_price is not None and result.recommended_price != current_price
@@ -143,7 +144,14 @@ def recommendation_for_row(row: dict[str, Any], *, minimum_margin: Decimal = Dec
         "median_valid": f"{result.market.median:.2f}" if result.market.median is not None else "",
         "rejected_quotes": [f"{quote.name}: {reason}" for quote, reason in result.market.rejected],
         "rule_version": result.rule_version,
-        "annual_exposure": _exposure(current_price, result.market.lowest, qty),
+        # Named at length on purpose. "Annual Exposure" reads as lost revenue,
+        # which it is not: it is what the current price difference amounts to
+        # across a year at historical volume.
+        "annual_competitive_price_exposure": _exposure(current_price, result.market.lowest, qty),
+        "target_percent_of_lowest": (
+            f"{result.target_percent_of_lowest:.1f}" if result.target_percent_of_lowest is not None else ""
+        ),
+        "rule_applied": result.rule_applied,
     }
 
 

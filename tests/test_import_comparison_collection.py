@@ -341,7 +341,7 @@ def test_comparison_formulas_filters_and_review_export() -> None:
     # engine's columns are appended after them rather than replacing anything.
     assert "New_Margin_Pct" in exported[0]
     assert exported[0][-1] == "Why"
-    for column in ("Type_Of_Part", "Sensitivity", "New_Action", "New_Suggested_Price", "Annual_Exposure"):
+    for column in ("Type_Of_Part", "Sensitivity", "New_Action", "New_Suggested_Price", "Annual_Competitive_Price_Exposure"):
         assert column in exported[0], column
     assert exported[1][exported[0].index("Updated_Price")] == ""
     with zipfile.ZipFile(export_path) as archive:

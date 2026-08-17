@@ -177,7 +177,9 @@ def test_the_review_export_carries_the_new_engines_recommendation() -> None:
         "New_Action",
         "New_Suggested_Price",
         "Competitor_Confidence",
-        "Annual_Exposure",
+        "Annual_Competitive_Price_Exposure",
+        "Target_Percent_Of_Lowest",
+        "Pricing_Rule_Applied",
         "Why",
     ):
         assert column in header, column

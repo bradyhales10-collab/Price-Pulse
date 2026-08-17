@@ -49,7 +49,9 @@ def review_columns() -> list[str]:
         "New_Suggested_Price",
         "New_Margin_At_Suggested",
         "Competitor_Confidence",
-        "Annual_Exposure",
+        "Annual_Competitive_Price_Exposure",
+        "Target_Percent_Of_Lowest",
+        "Pricing_Rule_Applied",
         "Why",
     ]
 
@@ -95,7 +97,9 @@ def export_review(
                 _num(recommendation.get("recommended_price")),
                 _num(recommendation.get("projected_margin_pct")),
                 recommendation.get("competitor_confidence", ""),
-                _num(recommendation.get("annual_exposure")),
+                _num(recommendation.get("annual_competitive_price_exposure")),
+                _num(recommendation.get("target_percent_of_lowest")),
+                recommendation.get("rule_applied", ""),
                 recommendation.get("reason", ""),
             ]
         )
