@@ -97,6 +97,7 @@ from export_price_changes import export_price_changes
 from probe_cart_price import (
     CartProbeInputRow,
     bounded_cart_action_inventory,
+    cart_badge_count,
     cart_line_evidence,
     clear_whole_cart,
     click_cart_action_with_result,
@@ -818,7 +819,15 @@ def collect_one_motosport_part(database_path: Path, page, planned, scan_run_id: 
         action = select_high_confidence_cart_action(inventory["candidates"])
         if action["status"] == "selected":
             form_validation = validate_cart_action_form(page, action["candidate"], row=cart_row, observation=observation)
-            if form_validation["valid"] and ensure_cart_empty(page):
+            # The cart's own count, from the header badge, which is present on a
+            # product page. ensure_cart_empty reads the page body for cart lines,
+            # which a product page never shows, so it always answered "empty" and
+            # the recovery below could never trigger. That is why a failed
+            # cleanup was never noticed: over a long run the items simply built
+            # up, while a short run rarely failed often enough to show it.
+            items_in_cart = cart_badge_count(page)
+            cart_is_clear = items_in_cart == 0 if items_in_cart >= 0 else ensure_cart_empty(page)
+            if form_validation["valid"] and cart_is_clear:
                 click_result = click_cart_action_with_result(
                     page,
                     action["candidate"],
@@ -863,8 +872,17 @@ def collect_one_motosport_part(database_path: Path, page, planned, scan_run_id: 
                 # on is far better than skipping: this part needs the cart to
                 # read a price at all, and refusing meant a single earlier
                 # cleanup failure silently cost every later part its price.
-                observation.warnings.append("cart_not_empty_before_add")
-                clear_result = clear_whole_cart(page)
+                observation.warnings.append(f"cart_not_empty_before_add: {items_in_cart} item(s)")
+                product_url = page.url
+                try:
+                    # Removal controls only exist on the cart page, so go there.
+                    page.goto(MOTOSPORT_CART_URL, wait_until="domcontentloaded", timeout=30000)
+                    page.wait_for_timeout(1500)
+                    clear_result = clear_whole_cart(page)
+                    page.goto(product_url, wait_until="domcontentloaded", timeout=30000)
+                    page.wait_for_timeout(1000)
+                except Exception as exc:
+                    clear_result = {"cleared": False, "removed": 0, "reason": f"could_not_open_cart: {exc}"}
                 if clear_result["cleared"]:
                     observation.warnings.append(f"cart_cleared_before_add: removed {clear_result['removed']}")
                 else:

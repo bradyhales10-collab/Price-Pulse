@@ -141,10 +141,14 @@ def test_a_dirty_cart_no_longer_causes_the_part_to_be_skipped() -> None:
 
     source = Path("collect_parts.py").read_text(encoding="utf-8")
 
-    marker = source.index('observation.warnings.append("cart_not_empty_before_add")')
-    following = source[marker : marker + 500]
+    marker = source.index('cart_not_empty_before_add: {items_in_cart}')
+    following = source[marker : marker + 700]
 
+    # It must go to the cart page, because that is the only place the removal
+    # controls exist, and then return to the product page to carry on.
+    assert "MOTOSPORT_CART_URL" in following
     assert "clear_whole_cart(page)" in following
+    assert "page.goto(product_url" in following
 
 
 def test_a_failed_line_removal_falls_back_to_clearing_the_cart() -> None:
@@ -386,3 +390,22 @@ def test_stepper_buttons_are_excluded_from_the_shape_fallback() -> None:
 
     assert "stepper" in FIND_REMOVE_BY_SHAPE
     assert "'-'" in FIND_REMOVE_BY_SHAPE
+
+
+def test_a_dirty_cart_is_detected_from_the_header_badge() -> None:
+    """The emptiness check ran on the product page, where cart lines are never
+    shown, so it always answered "empty" and recovery never triggered. A failed
+    cleanup therefore went unnoticed: items built up over a long run, while a
+    short run rarely failed often enough to reveal it.
+
+    The header badge carries the site's own count and is present on every page,
+    including a product page, so it can actually detect this.
+    """
+    from pathlib import Path
+
+    source = Path("collect_parts.py").read_text(encoding="utf-8")
+
+    assert "items_in_cart = cart_badge_count(page)" in source
+    # ensure_cart_empty is kept only as a fallback for a cart showing no badge.
+    marker = source.index("items_in_cart = cart_badge_count(page)")
+    assert "ensure_cart_empty(page)" in source[marker : marker + 300]
