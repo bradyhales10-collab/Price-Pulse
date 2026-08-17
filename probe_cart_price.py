@@ -1727,6 +1727,10 @@ def count_cart_lines(page) -> int:
     "Save For Later" controls, which MotoSport renders once per line, when no
     structural selector matches.
     """
+    # The badge is the site's own count and is authoritative. Row counting is
+    # only a fallback: a report showed it returning 76 for a cart the badge
+    # correctly reported as 19, because the selectors match nested elements as
+    # well as lines.
     badge = cart_badge_count(page)
     if badge >= 0:
         return badge
@@ -1821,6 +1825,45 @@ def _await_cart_change(page, *, lines_before: int, timeout_ms: int = 10000, inte
     return "unchanged"
 
 
+def _click_possibly_hidden(page, selector: str) -> bool:
+    """Click a control that may be deliberately hidden from sight.
+
+    MotoSport's real removal control carries the class sr-only: it exists for
+    screen readers and is visually hidden. Playwright refuses to click an
+    invisible element and waits until it times out, which is exactly what
+    happened: the right control was found and then reported as unclickable.
+
+    So an ordinary click is tried first, since that is the most faithful to what
+    a person does, then a forced click, then dispatching the event directly.
+    """
+    try:
+        page.locator(selector).first.click(timeout=4000)
+        return True
+    except Exception:
+        pass
+    try:
+        page.locator(selector).first.click(timeout=4000, force=True)
+        return True
+    except Exception:
+        pass
+    try:
+        return bool(
+            page.evaluate(
+                """
+                (sel) => {
+                  const el = document.querySelector(sel);
+                  if (!el) return false;
+                  el.click();
+                  return true;
+                }
+                """,
+                selector,
+            )
+        )
+    except Exception:
+        return False
+
+
 def clear_whole_cart(page, *, max_items: int = 25) -> dict[str, object]:
     """Remove every line from the cart.
 
@@ -1863,10 +1906,8 @@ def clear_whole_cart(page, *, max_items: int = 25) -> dict[str, object]:
             removed += 1
             continue
 
-        try:
-            page.locator(selector).first.click(timeout=5000)
-        except Exception as exc:
-            diagnostics.append(f"click failed on {selector}: {type(exc).__name__}")
+        if not _click_possibly_hidden(page, selector):
+            diagnostics.append(f"could not click {selector}, even hidden")
             return {"cleared": False, "removed": removed, "reason": "remove_click_failed", "detail": "; ".join(diagnostics)}
 
         # Wait for the cart to actually change rather than checking once after a

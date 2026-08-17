@@ -409,3 +409,75 @@ def test_a_dirty_cart_is_detected_from_the_header_badge() -> None:
     # ensure_cart_empty is kept only as a fallback for a cart showing no badge.
     marker = source.index("items_in_cart = cart_badge_count(page)")
     assert "ensure_cart_empty(page)" in source[marker : marker + 300]
+
+
+def test_a_screen_reader_only_control_can_still_be_clicked() -> None:
+    """MotoSport's real removal control carries the class sr-only, so it is
+    visually hidden. Playwright refuses to click an invisible element and waits
+    until it times out, which is what happened: the right control was found and
+    then reported unclickable with
+    "click failed on a.cart-remove-item: TimeoutError".
+    """
+    from probe_cart_price import _click_possibly_hidden
+
+    class _HiddenControlPage:
+        def __init__(self, works_with: str) -> None:
+            self.attempts = 0
+            self.works_with = works_with
+
+        def locator(self, selector: str):
+            page = self
+
+            class _Locator:
+                @property
+                def first(self):
+                    return self
+
+                def click(self, timeout: int | None = None, force: bool = False) -> None:
+                    page.attempts += 1
+                    if ("force" if force else "normal") != page.works_with:
+                        raise TimeoutError("element is not visible")
+
+            return _Locator()
+
+        def evaluate(self, script: str, arg=None):
+            page = self
+            page.attempts += 1
+            return page.works_with == "javascript"
+
+    forced = _HiddenControlPage("force")
+    assert _click_possibly_hidden(forced, "a.cart-remove-item") is True
+
+    scripted = _HiddenControlPage("javascript")
+    assert _click_possibly_hidden(scripted, "a.cart-remove-item") is True
+
+    impossible = _HiddenControlPage("never")
+    assert _click_possibly_hidden(impossible, "a.cart-remove-item") is False
+
+
+def test_an_ordinary_click_is_preferred_before_forcing() -> None:
+    """Forcing bypasses the checks that catch a control covered by something
+    else, so it should only be reached when a normal click has failed."""
+    from probe_cart_price import _click_possibly_hidden
+
+    class _VisiblePage:
+        def __init__(self) -> None:
+            self.forced = False
+
+        def locator(self, selector: str):
+            page = self
+
+            class _Locator:
+                @property
+                def first(self):
+                    return self
+
+                def click(self, timeout: int | None = None, force: bool = False) -> None:
+                    if force:
+                        page.forced = True
+
+            return _Locator()
+
+    page = _VisiblePage()
+    assert _click_possibly_hidden(page, "a.cart-remove-item") is True
+    assert page.forced is False
