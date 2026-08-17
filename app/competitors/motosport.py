@@ -52,6 +52,17 @@ class MotoSportAdapter:
     )
 
     @property
+    def uses_cart_for_price(self) -> bool:
+        """Reading a price here means adding the item to the site's cart.
+
+        Such a competitor needs a durable browser profile. The cart is state
+        that outlives a single part: in a throwaway context it fills up via
+        the site's own cookies during a run, and nothing afterwards can
+        inspect or empty it, because that session no longer exists.
+        """
+        return True
+
+    @property
     def requires_login(self) -> bool:
         return self.capabilities.requires_login
 

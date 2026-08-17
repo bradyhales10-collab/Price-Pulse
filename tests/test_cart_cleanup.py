@@ -257,3 +257,32 @@ def test_waiting_does_not_mask_a_click_that_genuinely_does_nothing() -> None:
     assert result["cleared"] is False
     assert result["reason"] == "remove_had_no_effect"
     assert page.clicks == 1
+
+
+def test_cart_based_competitors_use_a_durable_browser_profile() -> None:
+    """MotoSport reads a price by adding the item to its cart, but needs no
+    sign-in, so it was given a throwaway browser each run. The cart is real
+    state that outlives a single part: it filled up during a run through the
+    site's own cookies, and afterwards nothing could inspect or empty it,
+    because that session no longer existed. An emptying tool opened the durable
+    profile and correctly reported an empty cart while the collector's cart held
+    ten items."""
+    from app.competitors.registry import get_competitor
+
+    for key in ("motosport", "chaparral"):
+        adapter = get_competitor(key)
+        assert getattr(adapter, "uses_cart_for_price", False) is True, key
+
+    # A competitor that does not touch a cart should not be given a profile it
+    # does not need.
+    assert getattr(get_competitor("revzilla"), "uses_cart_for_price", False) is False
+
+
+def test_the_collector_opens_a_profile_for_cart_competitors() -> None:
+    from pathlib import Path
+
+    source = Path("collect_parts.py").read_text(encoding="utf-8")
+
+    assert 'getattr(get_competitor(competitor_key), "uses_cart_for_price", False)' in source
+    # And reuses the profile's existing page rather than opening a second tab.
+    assert "uses_profile = adapter_for_page.requires_login" in source

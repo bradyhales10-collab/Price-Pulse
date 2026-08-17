@@ -315,12 +315,27 @@ def run_collection(args, plan) -> int:
                             encoding="utf-8",
                         )
                         raise
+            elif getattr(get_competitor(competitor_key), "uses_cart_for_price", False):
+                # Reading this competitor's price means adding to its cart, so
+                # the cart is part of the state that has to be managed. A
+                # throwaway context hides that: items accumulate inside the run
+                # via the site's own cookies, and nothing outside it can inspect
+                # or empty the cart afterwards, because that session is gone.
+                # A durable profile makes the cart the same one every time, so it
+                # can be cleared before a run and examined after one.
+                context = launch_persistent_competitor_context(
+                    playwright,
+                    competitor_key,
+                    headless=settings.headless,
+                )
             else:
                 browser = playwright.chromium.launch(headless=settings.headless)
                 context = browser.new_context(viewport=DEFAULT_VIEWPORT)
             if args.collection_mode == "lightweight_browser":
                 context.route("**/*", lambda route: route.abort() if route.request.resource_type in HEAVY_RESOURCE_TYPES else route.continue_())
-            page = primary_page(context) if get_competitor(competitor_key).requires_login else context.new_page()
+            adapter_for_page = get_competitor(competitor_key)
+            uses_profile = adapter_for_page.requires_login or getattr(adapter_for_page, "uses_cart_for_price", False)
+            page = primary_page(context) if uses_profile else context.new_page()
             page.set_default_timeout(settings.timeout)
             page.set_default_navigation_timeout(settings.timeout)
             assert_production_collector_exists(competitor_key)

@@ -1705,7 +1705,7 @@ def count_cart_lines(page) -> int:
 # is called: a clickable thing inside a cart row, sitting beside the quantity
 # box, containing an icon and no text. That is what the trash can actually is on
 # MotoSport, and it survives class names changing.
-FIND_REMOVE_BY_SHAPE = """
+FIND_REMOVE_BY_SHAPE = r"""
 () => {
   const rows = document.querySelectorAll('[class*="cart" i] tr, [class*="cart-item" i], [class*="cartItem" i], [class*="line-item" i], tr');
   let best = null;

@@ -32,6 +32,10 @@ class _FakePage:
 
 
 class _FakeContext:
+    # A persistent context exposes the blank page Chromium opens with, which
+    # primary_page reuses rather than opening an extra tab.
+    pages: list = []
+
     def new_page(self):
         return _FakePage()
 
@@ -62,6 +66,11 @@ class _FakePlaywright:
         class _Chromium:
             def launch(self, **kwargs):
                 return _FakeBrowser()
+
+            def launch_persistent_context(self, **kwargs):
+                # Chaparral and MotoSport read prices through the cart, so they
+                # now open a durable profile rather than a throwaway browser.
+                return _FakeContext()
 
         return _Chromium()
 
