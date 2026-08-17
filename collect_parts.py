@@ -95,10 +95,10 @@ from app.url_builder import build_partzilla_product_url
 from export_current_prices import export_current_prices
 from export_price_changes import export_price_changes
 from probe_cart_price import (
-    clear_whole_cart,
     CartProbeInputRow,
     bounded_cart_action_inventory,
     cart_line_evidence,
+    clear_whole_cart,
     click_cart_action_with_result,
     collect_cart_line_records,
     ensure_cart_empty,
