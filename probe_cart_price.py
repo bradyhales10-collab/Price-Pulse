@@ -1645,55 +1645,125 @@ def extract_quantity(text: str) -> int | None:
     return 1 if text else None
 
 
-def clear_whole_cart(page, *, max_items: int = 12) -> dict[str, object]:
-    """Remove every line from the cart, one at a time.
+# MotoSport's cart removes a line with a trash-can icon, not a link reading
+# "Remove". Every removal path here keyed on that literal word, so on a real
+# cart it found nothing, reported no_remove_control_found, and deleted nothing.
+# These cover a labelled control however it is presented: an accessible name, a
+# title, a test hook, or a class naming the action.
+REMOVE_CONTROL_SELECTORS = (
+    "button[aria-label*='Remove' i]",
+    "a[aria-label*='Remove' i]",
+    "button[title*='Remove' i]",
+    "a[title*='Remove' i]",
+    "button[aria-label*='Delete' i]",
+    "button[title*='Delete' i]",
+    "[data-testid*='remove' i]",
+    "[data-test*='remove' i]",
+    "button[class*='remove' i]",
+    "a[class*='remove' i]",
+    "button[class*='trash' i]",
+    "[class*='cart-item'] button[class*='delete' i]",
+    "form[action*='remove'] button",
+    "form[action*='delete'] button",
+    "a:has-text('Remove')",
+    "button:has-text('Remove')",
+)
+
+# Counting lines rather than the word "Remove" is what makes removal verifiable
+# regardless of how the control is labelled.
+CART_LINE_SELECTORS = (
+    "[data-testid*='cart-item' i]",
+    "[class*='cart-item' i]",
+    "[class*='cartItem' i]",
+    "[class*='line-item' i]",
+    "tr[class*='item' i]",
+)
+
+
+def count_cart_lines(page) -> int:
+    """How many lines the cart appears to hold.
+
+    Used to confirm a removal actually happened. Falls back to counting
+    "Save For Later" controls, which MotoSport renders once per line, when no
+    structural selector matches.
+    """
+    for selector in CART_LINE_SELECTORS:
+        try:
+            count = page.locator(selector).count()
+        except Exception:
+            continue
+        if count:
+            return count
+    try:
+        text = page.locator("body").inner_text(timeout=2000) if page.locator("body").count() else ""
+        return len(re.findall(r"Save\s+For\s+Later", text, flags=re.IGNORECASE))
+    except Exception:
+        return 0
+
+
+def find_remove_controls(page) -> tuple[str, int]:
+    """The first selector that matches a removal control, and how many it found."""
+    for selector in REMOVE_CONTROL_SELECTORS:
+        try:
+            count = page.locator(selector).count()
+        except Exception:
+            continue
+        if count:
+            return selector, count
+    return "", 0
+
+
+def clear_whole_cart(page, *, max_items: int = 25) -> dict[str, object]:
+    """Remove every line from the cart.
 
     Reading a MotoSport price means adding the item to the cart, so the cart has
-    to be emptied afterwards or items accumulate. remove_cart_item deliberately
-    refuses to act unless exactly one Remove control is present, which is right
-    for removing a specific line but leaves no way to recover a cart that is
-    already dirty. Without that, one failed cleanup makes every later part
-    refuse to add anything, and none of them return a price.
-
-    Each removal is confirmed by the Remove count falling, so this stops rather
-    than looping if a click has no effect.
+    to be emptied afterwards or items accumulate. Each removal is confirmed by
+    the number of cart lines falling, rather than by the presence of any
+    particular word, so this works whether the control is a link or an icon and
+    stops rather than looping when a click has no effect.
     """
     removed = 0
+    diagnostics: list[str] = []
     for _attempt in range(max_items):
         try:
             text = page.locator("body").inner_text(timeout=2000) if page.locator("body").count() else ""
         except Exception:
-            return {"cleared": False, "removed": removed, "reason": "cart_not_readable"}
+            return {"cleared": False, "removed": removed, "reason": "cart_not_readable", "detail": "; ".join(diagnostics)}
         if _cart_empty_text(text):
-            return {"cleared": True, "removed": removed, "reason": "cart_empty"}
-        before = len(re.findall(r"\bRemove\b", text, flags=re.IGNORECASE))
-        if not before:
-            # Items are present but nothing offers to remove them, so guessing
-            # at controls here would be worse than reporting it.
-            return {"cleared": False, "removed": removed, "reason": "no_remove_control_found"}
-        clicked = False
-        for selector in ("a:has-text('Remove')", "button:has-text('Remove')"):
-            try:
-                locator = page.locator(selector)
-                if locator.count():
-                    locator.first.click(timeout=4000)
-                    page.wait_for_timeout(600)
-                    clicked = True
-                    break
-            except Exception:
-                continue
-        if not clicked:
-            return {"cleared": False, "removed": removed, "reason": "remove_click_failed"}
+            return {"cleared": True, "removed": removed, "reason": "cart_empty", "detail": "; ".join(diagnostics)}
+
+        lines_before = count_cart_lines(page)
+        selector, control_count = find_remove_controls(page)
+        if not control_count:
+            # Report what was actually there rather than guessing at controls,
+            # so the next attempt can be aimed at something real.
+            diagnostics.append(f"no removal control matched; {lines_before} line(s) visible")
+            return {
+                "cleared": False,
+                "removed": removed,
+                "reason": "no_remove_control_found",
+                "detail": "; ".join(diagnostics),
+            }
+
+        try:
+            page.locator(selector).first.click(timeout=5000)
+            page.wait_for_timeout(1200)
+        except Exception as exc:
+            diagnostics.append(f"click failed on {selector}: {type(exc).__name__}")
+            return {"cleared": False, "removed": removed, "reason": "remove_click_failed", "detail": "; ".join(diagnostics)}
+
         try:
             after_text = page.locator("body").inner_text(timeout=2000) if page.locator("body").count() else ""
-            after = len(re.findall(r"\bRemove\b", after_text, flags=re.IGNORECASE))
         except Exception:
-            after = before
-        if after >= before and not _cart_empty_text(after_text):
-            # The click did nothing, so repeating it will not help either.
-            return {"cleared": False, "removed": removed, "reason": "remove_had_no_effect"}
+            after_text = ""
+        if _cart_empty_text(after_text):
+            return {"cleared": True, "removed": removed + 1, "reason": "cart_empty", "detail": "; ".join(diagnostics)}
+        lines_after = count_cart_lines(page)
+        if lines_before and lines_after >= lines_before:
+            diagnostics.append(f"clicking {selector} left {lines_after} line(s), unchanged")
+            return {"cleared": False, "removed": removed, "reason": "remove_had_no_effect", "detail": "; ".join(diagnostics)}
         removed += 1
-    return {"cleared": False, "removed": removed, "reason": "too_many_items"}
+    return {"cleared": False, "removed": removed, "reason": "too_many_items", "detail": "; ".join(diagnostics)}
 
 
 def remove_cart_item(page, *, context: CartProbeRunContext | None = None, line_evidence: dict[str, object] | None = None) -> bool:
@@ -1730,9 +1800,19 @@ def safe_remove_fallback_selectors(page, *, line_evidence: dict[str, object]) ->
         return []
     if _squash_space(raw_line) not in _squash_space(text):
         return []
-    if len(re.findall(r"\bRemove\b", text, flags=re.IGNORECASE)) != 1:
+    # Only safe when there is exactly one removal control, so the one found can
+    # only belong to this line. Clicking the first of several could remove the
+    # wrong item, which is worse than not removing anything.
+    #
+    # Both checks are needed. The literal word count is what catches a cart
+    # showing two "Remove" links, and previously it was the only check, which is
+    # why a cart using icon controls matched nothing at all.
+    if len(re.findall(r"\bRemove\b", text, flags=re.IGNORECASE)) > 1:
         return []
-    return ["a:has-text('Remove')", "button:has-text('Remove')"]
+    selector, control_count = find_remove_controls(page)
+    if control_count != 1:
+        return []
+    return [selector]
 
 
 def _squash_space(text: str) -> str:

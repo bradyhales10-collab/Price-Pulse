@@ -12,7 +12,12 @@ from probe_cart_price import clear_whole_cart
 
 
 class _CartPage:
-    """A cart holding a number of lines, each with a Remove control."""
+    """A cart shaped like the real MotoSport one.
+
+    Removal is a trash-can icon with an accessible name, the only text link is
+    "Save For Later", and the word "Remove" appears nowhere on the page. That
+    last detail is what defeated the original implementation.
+    """
 
     def __init__(self, items: int, *, removals_work: bool = True) -> None:
         self.items = items
@@ -24,12 +29,18 @@ class _CartPage:
 
         class _Locator:
             def count(self) -> int:
-                return 1
+                if selector == "body":
+                    return 1
+                if page.items <= 0:
+                    return 0
+                if "aria-label*='Remove'" in selector or "cart-item" in selector:
+                    return page.items
+                return 0
 
             def inner_text(self, timeout: int | None = None) -> str:
                 if page.items <= 0:
                     return "Your cart is empty"
-                return " ".join(["Item Remove"] * page.items)
+                return " ".join(["Kawasaki OEM Parts Save For Later"] * page.items)
 
             @property
             def first(self):
@@ -85,7 +96,8 @@ def test_items_with_no_remove_control_are_reported_not_guessed_at() -> None:
 
             class _Locator:
                 def count(self) -> int:
-                    return 1
+                    # Only the page body matches; nothing looks like a control.
+                    return 1 if selector == "body" else 0
 
                 def inner_text(self, timeout: int | None = None) -> str:
                     return "Some Item In Cart"
@@ -142,3 +154,39 @@ def test_a_failed_line_removal_falls_back_to_clearing_the_cart() -> None:
 
     assert 'return "success_after_full_clear"' in source
     assert "cart_cleared_by_emptying_whole_cart" in source
+
+
+def test_a_cart_with_no_remove_text_is_still_emptied() -> None:
+    """The real failure. MotoSport's cart removes a line with a trash-can icon
+    and shows no "Remove" text anywhere, so an implementation keyed on that word
+    found nothing and deleted nothing while reporting success as
+    no_remove_control_found."""
+    page = _CartPage(4)
+
+    result = clear_whole_cart(page)
+
+    assert result["cleared"] is True
+    assert result["removed"] == 4
+    assert page.items == 0
+
+
+def test_a_failure_says_what_it_actually_saw() -> None:
+    """Without this the only signal was a bare reason code, which is why the
+    cause took a screenshot to identify."""
+    page = _CartPage(3, removals_work=False)
+
+    result = clear_whole_cart(page)
+
+    assert "line(s), unchanged" in result["detail"]
+
+
+def test_removing_one_line_refuses_when_several_controls_are_present() -> None:
+    """Clicking the first of several controls could remove the wrong item, which
+    is worse than removing nothing. Broadening control detection must not lose
+    that guard."""
+    from probe_cart_price import safe_remove_fallback_selectors
+
+    page = _CartPage(3)
+    evidence = {"confirmed": True, "raw_cart_line_text": "Kawasaki OEM Parts Save For Later"}
+
+    assert safe_remove_fallback_selectors(page, line_evidence=evidence) == []
