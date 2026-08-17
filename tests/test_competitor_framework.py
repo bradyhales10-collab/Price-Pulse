@@ -1029,13 +1029,46 @@ def test_cart_action_click_timeout_returns_diagnostic_result() -> None:
     )
     page = _SelectorPage(available={'form#addtocartform input#addtocartbutton[type="submit"]'})
     page.timeout_on_click = True
+    # No usable form, so the fallback cannot rescue this and the diagnostic
+    # should describe the click that failed.
+    page.form_submits = False
 
     result = probe_cart_price.click_cart_action_with_result(page, candidate, timeout_ms=123)
 
     assert result["clicked"] is False
     assert result["reason"] == "add_to_cart_click_timeout"
+    # The selector that timed out is still reported, which is what makes the
+    # failure diagnosable now that the loop carries on to the alternatives.
     assert result["selector"] == 'form#addtocartform input#addtocartbutton[type="submit"]'
     assert page.click_timeouts == [123]
+
+
+def test_a_click_timeout_falls_back_to_submitting_the_cart_form() -> None:
+    """A click can time out because something sits over the button while the
+    form itself is perfectly submittable. Chaparral already had this fallback;
+    MotoSport did not, which is why a click timeout there produced no price on
+    38 parts of a real 997-part run."""
+    row = probe_cart_price.CartProbeInputRow(
+        "Kawasaki", "41080-1514", "DISC,RR", "https://example.test/41080-1514", "282.32",
+        prior_probe_note="see_price_in_cart",
+    )
+    candidate = probe_cart_price.score_cart_action_candidate(
+        _control(
+            1088, "input", "Add to cart", id="addtocartbutton", input_value="Add to cart",
+            form_id="addtocartform", form_action="https://www.motosport.com/cart/add",
+            form_method="post", stable_selector="#addtocartbutton", input_type="submit",
+        ),
+        row=row,
+        product_region="KAWASAKI DISC,RR 41080-1514 See Price in Cart Quantity",
+    )
+    page = _SelectorPage(available={'form#addtocartform input#addtocartbutton[type="submit"]'})
+    page.timeout_on_click = True
+    page.form_submits = True
+
+    result = probe_cart_price.click_cart_action_with_result(page, candidate, timeout_ms=123)
+
+    assert result["clicked"] is True
+    assert result["reason"] == "submitted_motosport_form_fallback"
 
 
 def test_cart_action_suppresses_attentive_overlay_and_retries_click() -> None:
@@ -1911,6 +1944,12 @@ class _SelectorPage:
         return _FakeLocator(self, selector, selector in self.available or (selector == "body" and bool(self.body_text)))
 
     def evaluate(self, _script: str):
+        # The cart code calls evaluate for two different purposes: suppressing
+        # overlays, and submitting the form directly as a fallback. Returning a
+        # truthy value for both made a form submission look successful on a page
+        # that has no form, so they are told apart by the script itself.
+        if "requestSubmit" in _script:
+            return bool(getattr(self, "form_submits", False))
         self.removed_overlays.append("#attentive_overlay")
         return ["#attentive_overlay"]
 

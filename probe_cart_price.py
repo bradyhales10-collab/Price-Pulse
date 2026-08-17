@@ -881,6 +881,7 @@ def click_cart_action_with_result(page, candidate: dict[str, object] | None, *, 
             ]
         )
     last_error = ""
+    timed_out_selector = ""
     for selector in dict.fromkeys(selectors):
         try:
             locator = page.locator(selector)
@@ -898,13 +899,28 @@ def click_cart_action_with_result(page, candidate: dict[str, object] | None, *, 
                     error = str(retry_exc)
                     if candidate.get("id") == "add-to-cart" and _submit_chaparral_cart_form(page):
                         return {"clicked": True, "reason": "submitted_chaparral_form_after_click_timeout", "selector": "form#orderform", "error": error, "suppressed_overlays": sorted(set(suppressed_overlays))}
-            return {"clicked": False, "reason": "add_to_cart_click_timeout", "selector": selector, "error": error, "suppressed_overlays": sorted(set(suppressed_overlays))}
+            # Carry on to the next selector rather than giving up here. The list
+            # above exists precisely as a set of alternatives, and returning on
+            # the first timeout meant none of the others was ever tried: a
+            # 997-part MotoSport run failed to click the cart on 38 parts while
+            # a working selector may have been next in line.
+            last_error = error
+            # Remember which selector timed out: knowing that is what makes the
+            # failure diagnosable, and it would otherwise be lost now that the
+            # loop carries on to the alternatives.
+            timed_out_selector = timed_out_selector or selector
+            continue
         except Exception as exc:
             last_error = str(exc)
             continue
     if candidate.get("id") == "add-to-cart" and _submit_chaparral_cart_form(page):
         return {"clicked": True, "reason": "submitted_chaparral_form_fallback", "selector": "form#orderform", "error": last_error, "suppressed_overlays": sorted(set(suppressed_overlays))}
-    return {"clicked": False, "reason": "add_to_cart_button_not_found", "selector": "", "error": last_error, "suppressed_overlays": sorted(set(suppressed_overlays))}
+    if candidate.get("id") == "addtocartbutton" and _submit_motosport_cart_form(page):
+        return {"clicked": True, "reason": "submitted_motosport_form_fallback", "selector": "form#addtocartform", "error": last_error, "suppressed_overlays": sorted(set(suppressed_overlays))}
+    # Say which it was. Reporting a timeout as "button not found" sends anyone
+    # investigating after the wrong thing entirely.
+    reason = "add_to_cart_click_timeout" if timed_out_selector else "add_to_cart_button_not_found"
+    return {"clicked": False, "reason": reason, "selector": timed_out_selector, "error": last_error, "suppressed_overlays": sorted(set(suppressed_overlays))}
 
 
 def _click_cart_locator(locator, candidate: dict[str, object], *, timeout_ms: int) -> None:
@@ -915,6 +931,39 @@ def _click_cart_locator(locator, candidate: dict[str, object], *, timeout_ms: in
         except TypeError:
             pass
     locator.click(timeout=timeout_ms)
+
+
+def _submit_motosport_cart_form(page) -> bool:
+    """Submit MotoSport's cart form directly.
+
+    A click can time out because something sits over the button or it is still
+    animating, even though the form itself is perfectly submittable. Chaparral
+    already had this fallback; MotoSport did not, which is why a click timeout
+    there produced no price at all.
+    """
+    try:
+        return bool(
+            page.evaluate(
+                """
+                () => {
+                  const form = document.querySelector('form#addtocartform');
+                  const button = document.querySelector('form#addtocartform input#addtocartbutton[type="submit"]')
+                    || document.querySelector('form#addtocartform [type="submit"]');
+                  if (!form || !button || button.disabled || button.getAttribute('aria-disabled') === 'true') {
+                    return false;
+                  }
+                  if (typeof form.requestSubmit === 'function') {
+                    form.requestSubmit(button);
+                  } else {
+                    button.click();
+                  }
+                  return true;
+                }
+                """
+            )
+        )
+    except Exception:
+        return False
 
 
 def _submit_chaparral_cart_form(page) -> bool:
