@@ -1812,11 +1812,7 @@ def _await_cart_change(page, *, lines_before: int, timeout_ms: int = 10000, inte
     """
     waited = 0
     while waited < timeout_ms:
-        try:
-            text = page.locator("body").inner_text(timeout=2000) if page.locator("body").count() else ""
-        except Exception:
-            text = ""
-        if _cart_empty_text(text):
+        if cart_is_empty(page):
             return "empty"
         if lines_before and count_cart_lines(page) < lines_before:
             return "removed"
@@ -1864,7 +1860,26 @@ def _click_possibly_hidden(page, selector: str) -> bool:
         return False
 
 
-def clear_whole_cart(page, *, max_items: int = 25) -> dict[str, object]:
+def cart_is_empty(page) -> bool:
+    """Whether the cart really holds nothing.
+
+    The badge decides when it is available, because it is the site's own count.
+    Page text alone is not reliable: MotoSport's markup includes a hidden
+    mini-cart whose text contains "your cart is empty" regardless of what is
+    actually in the cart, so matching on that declared success with nine items
+    still in the cart.
+    """
+    badge = cart_badge_count(page)
+    if badge >= 0:
+        return badge == 0
+    try:
+        text = page.locator("body").inner_text(timeout=2000) if page.locator("body").count() else ""
+    except Exception:
+        return False
+    return _cart_empty_text(text)
+
+
+def clear_whole_cart(page, *, max_items: int = 60) -> dict[str, object]:
     """Remove every line from the cart.
 
     Reading a MotoSport price means adding the item to the cart, so the cart has
@@ -1877,10 +1892,11 @@ def clear_whole_cart(page, *, max_items: int = 25) -> dict[str, object]:
     diagnostics: list[str] = []
     for _attempt in range(max_items):
         try:
-            text = page.locator("body").inner_text(timeout=2000) if page.locator("body").count() else ""
+            if not page.locator("body").count():
+                return {"cleared": False, "removed": removed, "reason": "cart_not_readable", "detail": "; ".join(diagnostics)}
         except Exception:
             return {"cleared": False, "removed": removed, "reason": "cart_not_readable", "detail": "; ".join(diagnostics)}
-        if _cart_empty_text(text):
+        if cart_is_empty(page):
             return {"cleared": True, "removed": removed, "reason": "cart_empty", "detail": "; ".join(diagnostics)}
 
         lines_before = count_cart_lines(page)

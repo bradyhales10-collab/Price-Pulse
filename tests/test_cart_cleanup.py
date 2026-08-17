@@ -481,3 +481,91 @@ def test_an_ordinary_click_is_preferred_before_forcing() -> None:
     page = _VisiblePage()
     assert _click_possibly_hidden(page, "a.cart-remove-item") is True
     assert page.forced is False
+
+
+def test_a_hidden_mini_cart_saying_empty_does_not_stop_clearing() -> None:
+    """The reported failure: clearing removed 10 items, declared the cart empty,
+    and stopped with 9 still in it.
+
+    MotoSport's markup includes a hidden mini-cart panel whose text contains
+    "your cart is empty" regardless of what the cart actually holds. Matching on
+    page text therefore reported success while items remained. The badge carries
+    the site's own count and is what decides now.
+    """
+    from probe_cart_price import _cart_empty_text, clear_whole_cart
+
+    misleading = "Your Cart | ELEMENT-AIR FILTER | Remove | your cart is empty | CHECKOUT"
+    # The text really does claim empty, which is why it fooled the old check.
+    assert _cart_empty_text(misleading) is True
+
+    class _MiniCartTrap:
+        def __init__(self, items: int) -> None:
+            self.items = items
+            self.clicks = 0
+
+        def locator(self, selector: str):
+            page = self
+
+            class _Locator:
+                def count(self) -> int:
+                    if selector == "body":
+                        return 1
+                    if page.items <= 0:
+                        return 0
+                    return page.items if ("cart-remove-item" in selector or "cart-item" in selector) else 0
+
+                @property
+                def first(self):
+                    return self
+
+                def click(self, timeout: int | None = None, force: bool = False) -> None:
+                    page.clicks += 1
+                    page.items -= 1
+
+                def inner_text(self, timeout: int | None = None) -> str:
+                    return misleading
+
+            return _Locator()
+
+        def evaluate(self, script: str, arg=None):
+            if "querySelector" in script and arg:
+                self.clicks += 1
+                self.items -= 1
+                return True
+            return self.items
+
+        def wait_for_timeout(self, milliseconds: int) -> None:
+            return None
+
+    page = _MiniCartTrap(19)
+    result = clear_whole_cart(page)
+
+    assert result["cleared"] is True
+    assert result["removed"] == 19
+    assert page.items == 0
+
+
+def test_emptiness_is_decided_by_the_badge_when_it_is_available() -> None:
+    from probe_cart_price import cart_is_empty
+
+    class _Page:
+        def __init__(self, badge: int) -> None:
+            self.badge = badge
+
+        def evaluate(self, script: str, arg=None):
+            return self.badge
+
+        def locator(self, selector: str):
+            class _Locator:
+                def count(self) -> int:
+                    return 1
+
+                def inner_text(self, timeout: int | None = None) -> str:
+                    # Claims empty regardless, as the real page does.
+                    return "your cart is empty"
+
+            return _Locator()
+
+    assert cart_is_empty(_Page(0)) is True
+    assert cart_is_empty(_Page(9)) is False
+    assert cart_is_empty(_Page(19)) is False
