@@ -223,3 +223,46 @@ def test_a_normal_run_with_no_failures_writes_no_loop_crash_file(tmp_path) -> No
     with connect_database(database) as conn:
         row = conn.execute("SELECT run_status FROM scan_runs ORDER BY scan_run_id DESC LIMIT 1").fetchone()
     assert row["run_status"] == "completed"
+
+
+def test_a_closed_browser_stops_the_run_immediately() -> None:
+    """A real 997-part RevZilla run stopped at part 316 having recorded
+    "Page.goto: Target page, context or browser has been closed" four times.
+    Once the browser is gone nothing can succeed, so counting those as page
+    errors wasted four parts producing identical failures and then reported it
+    as though the pages were at fault."""
+    from collect_parts import browser_is_gone
+
+    for message in (
+        "Page.goto: Target page, context or browser has been closed",
+        "Page.content: Target page, context or browser has been closed",
+        "Target closed",
+        "Connection closed while reading from the driver",
+    ):
+        assert browser_is_gone(message), message
+
+
+def test_an_ordinary_page_failure_is_not_mistaken_for_a_closed_browser() -> None:
+    """Stopping the whole run on a recoverable error would be worse than the
+    problem being fixed, so this has to be specific."""
+    from collect_parts import browser_is_gone
+
+    for message in (
+        "Timeout 8000ms exceeded",
+        "net::ERR_NAME_NOT_RESOLVED",
+        "Locator.inner_text: Timeout 5000ms exceeded",
+        "",
+        None,
+    ):
+        assert not browser_is_gone(message), message
+
+
+def test_the_stop_reason_says_the_browser_closed() -> None:
+    """Someone reading the result should not have to infer this from a count of
+    page errors."""
+    from pathlib import Path
+
+    source = Path("collect_parts.py").read_text(encoding="utf-8")
+
+    assert "the browser closed unexpectedly at part" in source
+    assert "browser_is_gone(row.status_reason)" in source

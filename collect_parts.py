@@ -119,6 +119,24 @@ COMPETITOR_RENDER_SETTLE_MS = 1000
 # instead of ending the run, making a large run feel unusable. Eight seconds
 # covers a settling page without making a bad patch grind.
 BODY_TEXT_TIMEOUT_MS = 8000
+
+# Playwright reports this when the browser it was driving no longer exists,
+# whether it crashed, ran out of memory, or was closed by hand. Nothing after
+# that point can succeed: every remaining part fails identically. It is not a
+# page error and must not be counted as one, because doing so wastes parts
+# producing meaningless failures and then blames the pages.
+BROWSER_GONE_MARKERS = (
+    "target page, context or browser has been closed",
+    "browser has been closed",
+    "target closed",
+    "connection closed",
+    "browser closed",
+)
+
+
+def browser_is_gone(message: str | None) -> bool:
+    text = str(message or "").lower()
+    return any(marker in text for marker in BROWSER_GONE_MARKERS)
 PARTZILLA_RENDER_SETTLE_MS = 1000
 PARTZILLA_PRICE_POLL_MS = 250
 PARTZILLA_PRICE_POLL_ATTEMPTS = 16
@@ -352,6 +370,16 @@ def run_collection(args, plan) -> int:
                     if stop_status:
                         result.run_status = stop_status
                         result.stop_reason = row.result_type
+                        break
+                    if browser_is_gone(row.status_reason):
+                        # Unrecoverable: the browser is gone, so continuing only
+                        # produces identical failures on every remaining part.
+                        result.run_status = "failed"
+                        result.stop_reason = (
+                            f"the browser closed unexpectedly at part {len(result.rows)} of "
+                            f"{len(plan.planned_parts)}, so the run could not continue"
+                        )
+                        print(f"  The browser closed unexpectedly. Stopping after {len(result.rows)} parts.")
                         break
                     if row.result_type in {"navigation_error", "error"}:
                         consecutive_errors += 1
