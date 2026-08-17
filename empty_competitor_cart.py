@@ -96,9 +96,32 @@ def main() -> int:
         page = context.pages[0] if context.pages else context.new_page()
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            try:
+                page.wait_for_load_state("networkidle", timeout=15000)
+            except Exception:
+                pass
             page.wait_for_timeout(3000)
 
+            from app.browser_profile import browser_profile_dir
             from probe_cart_price import clear_whole_cart, count_cart_lines
+
+            # "0 lines" on its own is ambiguous between an empty cart, the wrong
+            # browser session, and a page that has not finished rendering. These
+            # tell those apart, which the previous report could not.
+            print(f"\nBrowser profile: {browser_profile_dir(competitor)}")
+            print(f"Landed on:       {page.url}")
+            print(f"Page title:      {page.title()}")
+            try:
+                body = page.locator("body").inner_text(timeout=5000)
+            except Exception:
+                body = ""
+            print(f"Page text length: {len(body)} characters")
+            print("Says the cart is empty:", "empty" in body.lower()[:4000])
+            for marker in ("Order Summary", "Subtotal", "Save For Later", "CHECKOUT"):
+                print(f"  contains {marker!r}: {marker.lower() in body.lower()}")
+            print("\nFirst 600 characters of the cart area:")
+            start = body.lower().find("your cart")
+            print("  " + (body[start : start + 600] if start >= 0 else body[:600]).replace("\n", " | "))
 
             lines = count_cart_lines(page)
             print(f"\nCart lines detected: {lines}")

@@ -1680,6 +1680,33 @@ CART_LINE_SELECTORS = (
 )
 
 
+CART_BADGE_SCRIPT = r"""
+() => {
+  // The site's own item count, shown on the cart icon. More reliable than
+  // inferring rows from the page, because it is what the site itself believes
+  // is in the cart and does not depend on how the cart is laid out.
+  const nodes = document.querySelectorAll(
+    '#nt-cart-btn, .cart-button, [class*="cart-count" i], [class*="cartCount" i], [class*="mini-cart" i], [data-testid*="cart" i]'
+  );
+  for (const node of nodes) {
+    const text = (node.textContent || '').trim();
+    const match = text.match(/\b(\d{1,3})\b/);
+    if (match) return parseInt(match[1], 10);
+  }
+  return -1;
+}
+"""
+
+
+def cart_badge_count(page) -> int:
+    """How many items the site says are in the cart, or -1 if it does not say."""
+    try:
+        value = page.evaluate(CART_BADGE_SCRIPT)
+        return int(value) if value is not None else -1
+    except Exception:
+        return -1
+
+
 def count_cart_lines(page) -> int:
     """How many lines the cart appears to hold.
 
@@ -1687,6 +1714,9 @@ def count_cart_lines(page) -> int:
     "Save For Later" controls, which MotoSport renders once per line, when no
     structural selector matches.
     """
+    badge = cart_badge_count(page)
+    if badge >= 0:
+        return badge
     for selector in CART_LINE_SELECTORS:
         try:
             count = page.locator(selector).count()

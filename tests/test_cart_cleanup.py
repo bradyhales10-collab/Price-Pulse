@@ -286,3 +286,50 @@ def test_the_collector_opens_a_profile_for_cart_competitors() -> None:
     assert 'getattr(get_competitor(competitor_key), "uses_cart_for_price", False)' in source
     # And reuses the profile's existing page rather than opening a second tab.
     assert "uses_profile = adapter_for_page.requires_login" in source
+
+
+def test_the_sites_own_cart_count_is_preferred_over_inferring_rows() -> None:
+    """MotoSport shows an item count on the cart icon. That is what the site
+    itself believes is in the cart, so it is a better signal than inferring rows
+    from the layout, which is what repeated fixes had been guessing at."""
+    from probe_cart_price import cart_badge_count
+
+    class _Page:
+        def __init__(self, badge_text: str) -> None:
+            self.badge_text = badge_text
+
+        def evaluate(self, script: str):
+            import re
+
+            match = re.search(r"\b(\d{1,3})\b", self.badge_text)
+            return int(match.group(1)) if match else -1
+
+    assert cart_badge_count(_Page("3")) == 3
+    assert cart_badge_count(_Page("Cart 10")) == 10
+    assert cart_badge_count(_Page("Cart")) == -1
+
+
+def test_a_page_with_no_badge_falls_back_to_counting_rows() -> None:
+    """Not every cart shows a count, so the previous behaviour has to remain."""
+    from probe_cart_price import count_cart_lines
+
+    class _Page(_CartPage):
+        def evaluate(self, script: str):
+            return -1
+
+    page = _Page(4)
+
+    assert count_cart_lines(page) == 4
+
+
+def test_cleanup_opens_the_cart_page_as_a_last_resort() -> None:
+    """Removal controls only exist on the cart page. By the time cleanup runs
+    the collector may be on a product page, where there is nothing to click, so
+    the item stays and every later part inherits it."""
+    from pathlib import Path
+
+    source = Path("collect_parts.py").read_text(encoding="utf-8")
+
+    assert "MOTOSPORT_CART_URL" in source
+    assert 'return "success_after_visiting_cart"' in source
+    assert "cart_cleared_after_opening_the_cart_page" in source

@@ -120,6 +120,7 @@ COMPETITOR_RENDER_SETTLE_MS = 1000
 # instead of ending the run, making a large run feel unusable. Eight seconds
 # covers a settling page without making a bad patch grind.
 BODY_TEXT_TIMEOUT_MS = 8000
+MOTOSPORT_CART_URL = "https://www.motosport.com/cart"
 
 # Playwright reports this when the browser it was driving no longer exists,
 # whether it crashed, ran out of memory, or was closed by hand. Nothing after
@@ -746,6 +747,17 @@ def _cleanup_added_cart_item(
     # every part after this one.
     if clear_whole_cart(page)["cleared"]:
         return "success_after_full_clear"
+    # Last resort: navigate to the cart and clear it there. Removal controls are
+    # only present on the cart page itself, and by this point the collector may
+    # be on a product page where there is nothing to click. Without this the
+    # cart silently keeps the item and every later part inherits it.
+    try:
+        page.goto(MOTOSPORT_CART_URL, wait_until="domcontentloaded", timeout=30000)
+        page.wait_for_timeout(2000)
+        if clear_whole_cart(page)["cleared"]:
+            return "success_after_visiting_cart"
+    except Exception:
+        pass
     return "failed"
 
 
@@ -864,6 +876,8 @@ def collect_one_motosport_part(database_path: Path, page, planned, scan_run_id: 
         observation.warnings.append("cart_cleanup_failed")
     elif cleanup_status == "success_after_full_clear":
         observation.warnings.append("cart_cleared_by_emptying_whole_cart")
+    elif cleanup_status == "success_after_visiting_cart":
+        observation.warnings.append("cart_cleared_after_opening_the_cart_page")
     product_observation = _product_observation_from_competitor(observation, requested_url=requested_url, checked_at=checked_at)
     output_dir = OUTPUT_DIR / "motosport_collection_diagnostics" / f"{checked_at.replace(':','').replace('-','')}_{planned.oem_part_number}"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1044,6 +1058,8 @@ def collect_one_chaparral_part(database_path: Path, page, planned, scan_run_id: 
         observation.warnings.append("cart_cleanup_failed")
     elif cleanup_status == "success_after_full_clear":
         observation.warnings.append("cart_cleared_by_emptying_whole_cart")
+    elif cleanup_status == "success_after_visiting_cart":
+        observation.warnings.append("cart_cleared_after_opening_the_cart_page")
         observation.raw_evidence_summary["lookup_status"] = "cart_cleanup_failed"
 
     if _chaparral_observation_matches(observation, planned.oem_part_number) and observation.canonical_url and not _chaparral_is_search_url(observation.canonical_url):
