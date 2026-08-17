@@ -1713,6 +1713,28 @@ def find_remove_controls(page) -> tuple[str, int]:
     return "", 0
 
 
+def _await_cart_change(page, *, lines_before: int, timeout_ms: int = 10000, interval_ms: int = 400) -> str:
+    """Wait until the cart empties or loses a line.
+
+    Returns "empty", "removed", or "unchanged". Polling for the change the click
+    was supposed to cause is what makes this reliable on a slow re-render,
+    without waiting the full timeout when it is quick.
+    """
+    waited = 0
+    while waited < timeout_ms:
+        try:
+            text = page.locator("body").inner_text(timeout=2000) if page.locator("body").count() else ""
+        except Exception:
+            text = ""
+        if _cart_empty_text(text):
+            return "empty"
+        if lines_before and count_cart_lines(page) < lines_before:
+            return "removed"
+        page.wait_for_timeout(interval_ms)
+        waited += interval_ms
+    return "unchanged"
+
+
 def clear_whole_cart(page, *, max_items: int = 25) -> dict[str, object]:
     """Remove every line from the cart.
 
@@ -1747,20 +1769,22 @@ def clear_whole_cart(page, *, max_items: int = 25) -> dict[str, object]:
 
         try:
             page.locator(selector).first.click(timeout=5000)
-            page.wait_for_timeout(1200)
         except Exception as exc:
             diagnostics.append(f"click failed on {selector}: {type(exc).__name__}")
             return {"cleared": False, "removed": removed, "reason": "remove_click_failed", "detail": "; ".join(diagnostics)}
 
-        try:
-            after_text = page.locator("body").inner_text(timeout=2000) if page.locator("body").count() else ""
-        except Exception:
-            after_text = ""
-        if _cart_empty_text(after_text):
+        # Wait for the cart to actually change rather than checking once after a
+        # fixed pause. Removing a line re-renders the cart, and how long that
+        # takes varies with its size and the network. A single check 1.2 seconds
+        # later read a slow re-render as "no effect", which is why a few items
+        # were removed and then clearing gave up with items still in the cart.
+        outcome = _await_cart_change(page, lines_before=lines_before)
+        if outcome == "empty":
             return {"cleared": True, "removed": removed + 1, "reason": "cart_empty", "detail": "; ".join(diagnostics)}
-        lines_after = count_cart_lines(page)
-        if lines_before and lines_after >= lines_before:
-            diagnostics.append(f"clicking {selector} left {lines_after} line(s), unchanged")
+        if outcome == "unchanged":
+            diagnostics.append(
+                f"clicking {selector} left {count_cart_lines(page)} line(s) after waiting, unchanged"
+            )
             return {"cleared": False, "removed": removed, "reason": "remove_had_no_effect", "detail": "; ".join(diagnostics)}
         removed += 1
     return {"cleared": False, "removed": removed, "reason": "too_many_items", "detail": "; ".join(diagnostics)}

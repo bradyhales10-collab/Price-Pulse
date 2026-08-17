@@ -177,7 +177,9 @@ def test_a_failure_says_what_it_actually_saw() -> None:
 
     result = clear_whole_cart(page)
 
-    assert "line(s), unchanged" in result["detail"]
+    assert "unchanged" in result["detail"]
+    # It should be clear it waited rather than checking once and giving up.
+    assert "after waiting" in result["detail"]
 
 
 def test_removing_one_line_refuses_when_several_controls_are_present() -> None:
@@ -190,3 +192,68 @@ def test_removing_one_line_refuses_when_several_controls_are_present() -> None:
     evidence = {"confirmed": True, "raw_cart_line_text": "Kawasaki OEM Parts Save For Later"}
 
     assert safe_remove_fallback_selectors(page, line_evidence=evidence) == []
+
+
+class _SlowCartPage(_CartPage):
+    """A cart whose re-render lags behind the click.
+
+    Removing a line re-renders the cart, and how long that takes varies with its
+    size and the network. This is the case that broke clearing: a few items were
+    removed, then one re-render was slower than the fixed pause and clearing
+    concluded the click had done nothing.
+    """
+
+    def __init__(self, items: int, *, lag_polls: int = 6) -> None:
+        super().__init__(items)
+        self.lag_polls = lag_polls
+        self.pending = 0
+
+    def locator(self, selector: str):
+        page = self
+        parent = super().locator(selector)
+
+        class _Locator:
+            def count(self) -> int:
+                return parent.count()
+
+            def inner_text(self, timeout: int | None = None) -> str:
+                return parent.inner_text(timeout)
+
+            @property
+            def first(self):
+                return self
+
+            def click(self, timeout: int | None = None) -> None:
+                page.clicks += 1
+                page.pending = page.lag_polls
+
+        return _Locator()
+
+    def wait_for_timeout(self, milliseconds: int) -> None:
+        if self.pending:
+            self.pending -= 1
+            if self.pending == 0:
+                self.items -= 1
+
+
+def test_a_slow_cart_re_render_is_waited_for_rather_than_called_a_failure() -> None:
+    """The reported behaviour: the first few items were removed and then
+    clearing stopped with items still in the cart."""
+    page = _SlowCartPage(5)
+
+    result = clear_whole_cart(page)
+
+    assert result["cleared"] is True
+    assert result["removed"] == 5
+    assert page.items == 0
+
+
+def test_waiting_does_not_mask_a_click_that_genuinely_does_nothing() -> None:
+    """Waiting longer must not turn a real failure into an endless one."""
+    page = _CartPage(3, removals_work=False)
+
+    result = clear_whole_cart(page)
+
+    assert result["cleared"] is False
+    assert result["reason"] == "remove_had_no_effect"
+    assert page.clicks == 1
