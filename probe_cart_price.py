@@ -1695,18 +1695,29 @@ CART_LINE_SELECTORS = (
 
 CART_BADGE_SCRIPT = r"""
 () => {
-  // The site's own item count, shown on the cart icon. More reliable than
+  // The site's own item count, shown on the cart control. More reliable than
   // inferring rows from the page, because it is what the site itself believes
   // is in the cart and does not depend on how the cart is laid out.
-  const nodes = document.querySelectorAll(
-    '#nt-cart-btn, .cart-button, [class*="cart-count" i], [class*="cartCount" i], [class*="mini-cart" i], [data-testid*="cart" i]'
-  );
-  for (const node of nodes) {
-    const text = (node.textContent || '').trim();
-    const match = text.match(/\b(\d{1,3})\b/);
-    if (match) return parseInt(match[1], 10);
+  //
+  // An empty cart shows the control with no number at all. That has to read as
+  // zero rather than "unknown", or the caller falls back to counting rows and
+  // matches unrelated page elements: a genuinely empty cart was reported as
+  // holding 95 lines that way.
+  const selectors = [
+    '#nt-cart-btn', '.cart-button', '[class*="cart-count" i]',
+    '[class*="cartCount" i]', '[class*="mini-cart" i]', '[data-testid*="cart" i]'
+  ];
+  let sawControl = false;
+  for (const selector of selectors) {
+    for (const node of document.querySelectorAll(selector)) {
+      const text = (node.textContent || '').trim();
+      if (!/cart/i.test(text) && !node.id && !node.className) continue;
+      sawControl = true;
+      const match = text.match(/\b(\d{1,3})\b/);
+      if (match) return parseInt(match[1], 10);
+    }
   }
-  return -1;
+  return sawControl ? 0 : -1;
 }
 """
 
