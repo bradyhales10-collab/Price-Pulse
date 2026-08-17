@@ -1645,6 +1645,57 @@ def extract_quantity(text: str) -> int | None:
     return 1 if text else None
 
 
+def clear_whole_cart(page, *, max_items: int = 12) -> dict[str, object]:
+    """Remove every line from the cart, one at a time.
+
+    Reading a MotoSport price means adding the item to the cart, so the cart has
+    to be emptied afterwards or items accumulate. remove_cart_item deliberately
+    refuses to act unless exactly one Remove control is present, which is right
+    for removing a specific line but leaves no way to recover a cart that is
+    already dirty. Without that, one failed cleanup makes every later part
+    refuse to add anything, and none of them return a price.
+
+    Each removal is confirmed by the Remove count falling, so this stops rather
+    than looping if a click has no effect.
+    """
+    removed = 0
+    for _attempt in range(max_items):
+        try:
+            text = page.locator("body").inner_text(timeout=2000) if page.locator("body").count() else ""
+        except Exception:
+            return {"cleared": False, "removed": removed, "reason": "cart_not_readable"}
+        if _cart_empty_text(text):
+            return {"cleared": True, "removed": removed, "reason": "cart_empty"}
+        before = len(re.findall(r"\bRemove\b", text, flags=re.IGNORECASE))
+        if not before:
+            # Items are present but nothing offers to remove them, so guessing
+            # at controls here would be worse than reporting it.
+            return {"cleared": False, "removed": removed, "reason": "no_remove_control_found"}
+        clicked = False
+        for selector in ("a:has-text('Remove')", "button:has-text('Remove')"):
+            try:
+                locator = page.locator(selector)
+                if locator.count():
+                    locator.first.click(timeout=4000)
+                    page.wait_for_timeout(600)
+                    clicked = True
+                    break
+            except Exception:
+                continue
+        if not clicked:
+            return {"cleared": False, "removed": removed, "reason": "remove_click_failed"}
+        try:
+            after_text = page.locator("body").inner_text(timeout=2000) if page.locator("body").count() else ""
+            after = len(re.findall(r"\bRemove\b", after_text, flags=re.IGNORECASE))
+        except Exception:
+            after = before
+        if after >= before and not _cart_empty_text(after_text):
+            # The click did nothing, so repeating it will not help either.
+            return {"cleared": False, "removed": removed, "reason": "remove_had_no_effect"}
+        removed += 1
+    return {"cleared": False, "removed": removed, "reason": "too_many_items"}
+
+
 def remove_cart_item(page, *, context: CartProbeRunContext | None = None, line_evidence: dict[str, object] | None = None) -> bool:
     if context is not None and not context.allow_cleanup_attempt():
         return False

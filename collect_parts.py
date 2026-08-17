@@ -95,6 +95,7 @@ from app.url_builder import build_partzilla_product_url
 from export_current_prices import export_current_prices
 from export_price_changes import export_price_changes
 from probe_cart_price import (
+    clear_whole_cart,
     CartProbeInputRow,
     bounded_cart_action_inventory,
     cart_line_evidence,
@@ -725,6 +726,11 @@ def _cleanup_added_cart_item(
         if evidence.get("confirmed") and remove_cart_item(page, line_evidence=evidence) and ensure_cart_empty(page):
             return "success"
         evidence = {}
+    # Removing the specific line did not work. Clearing the cart outright is the
+    # last chance to leave it empty, because anything left behind is inherited by
+    # every part after this one.
+    if clear_whole_cart(page)["cleared"]:
+        return "success_after_full_clear"
     return "failed"
 
 
@@ -826,12 +832,23 @@ def collect_one_motosport_part(database_path: Path, page, planned, scan_run_id: 
             elif not form_validation["valid"]:
                 observation.warnings.append("add_to_cart_form_validation_failed")
             else:
+                # The cart already had something in it. Emptying it and carrying
+                # on is far better than skipping: this part needs the cart to
+                # read a price at all, and refusing meant a single earlier
+                # cleanup failure silently cost every later part its price.
                 observation.warnings.append("cart_not_empty_before_add")
+                clear_result = clear_whole_cart(page)
+                if clear_result["cleared"]:
+                    observation.warnings.append(f"cart_cleared_before_add: removed {clear_result['removed']}")
+                else:
+                    observation.warnings.append(f"cart_clear_failed: {clear_result['reason']}")
         else:
             observation.warnings.append("add_to_cart_button_not_found" if action["status"] == "not_found" else "ambiguous_cart_action")
 
     if cleanup_status == "failed":
         observation.warnings.append("cart_cleanup_failed")
+    elif cleanup_status == "success_after_full_clear":
+        observation.warnings.append("cart_cleared_by_emptying_whole_cart")
     product_observation = _product_observation_from_competitor(observation, requested_url=requested_url, checked_at=checked_at)
     output_dir = OUTPUT_DIR / "motosport_collection_diagnostics" / f"{checked_at.replace(':','').replace('-','')}_{planned.oem_part_number}"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1010,6 +1027,8 @@ def collect_one_chaparral_part(database_path: Path, page, planned, scan_run_id: 
             observation.warnings.append("cart_not_empty_before_chaparral_check")
     if cleanup_status == "failed":
         observation.warnings.append("cart_cleanup_failed")
+    elif cleanup_status == "success_after_full_clear":
+        observation.warnings.append("cart_cleared_by_emptying_whole_cart")
         observation.raw_evidence_summary["lookup_status"] = "cart_cleanup_failed"
 
     if _chaparral_observation_matches(observation, planned.oem_part_number) and observation.canonical_url and not _chaparral_is_search_url(observation.canonical_url):
