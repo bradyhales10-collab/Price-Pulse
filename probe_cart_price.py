@@ -1650,16 +1650,29 @@ def extract_quantity(text: str) -> int | None:
 # cart it found nothing, reported no_remove_control_found, and deleted nothing.
 # These cover a labelled control however it is presented: an accessible name, a
 # title, a test hook, or a class naming the action.
+# Order matters. MotoSport's cart has two controls whose accessible name
+# contains "Remove": the real removal link, and the quantity stepper's decrement
+# button, which is labelled "Remove item" but only reduces the quantity. The
+# stepper appears first in the document, so a generic aria-label match found it
+# and clicked it, which is why quantities changed while lines stayed.
 REMOVE_CONTROL_SELECTORS = (
-    "button[aria-label*='Remove' i]",
+    # The genuine removal link, matched by its own class and title first.
+    "a.cart-remove-item",
+    "a[class*='remove-fallback' i]",
+    "a[title*='Remove item from cart' i]",
+    "[title*='Remove item from cart' i]",
+    "a[href*='cartremoveqty' i]",
+    # Then anything labelled for removal that is not a quantity stepper.
+    "button[aria-label*='Remove' i]:not([class*='stepper' i])",
+    "a[aria-label*='Remove' i]:not([class*='stepper' i])",
     "a[aria-label*='Remove' i]",
-    "button[title*='Remove' i]",
+    "button[title*='Remove' i]:not([class*='stepper' i])",
     "a[title*='Remove' i]",
-    "button[aria-label*='Delete' i]",
+    "button[aria-label*='Delete' i]:not([class*='stepper' i])",
     "button[title*='Delete' i]",
     "[data-testid*='remove' i]",
     "[data-test*='remove' i]",
-    "button[class*='remove' i]",
+    "button[class*='remove' i]:not([class*='stepper' i])",
     "a[class*='remove' i]",
     "button[class*='trash' i]",
     "[class*='cart-item'] button[class*='delete' i]",
@@ -1748,6 +1761,10 @@ FIND_REMOVE_BY_SHAPE = r"""
       const hasIcon = el.querySelector('svg, i, use, img') !== null;
       const label = (el.getAttribute('aria-label') || '') + (el.getAttribute('title') || '') + (el.className || '');
       if (/save\s*for\s*later/i.test(text)) continue;
+      // A quantity stepper is labelled "Remove item" but only decrements, so
+      // clicking it changes the quantity while the line stays.
+      if (/stepper|qty|quantity|increment|decrement/i.test(el.className || '')) continue;
+      if (text === '-' || text === '+') continue;
       if (/remove|delete|trash/i.test(label) || (hasIcon && text.length === 0)) {
         best = el;
         break;

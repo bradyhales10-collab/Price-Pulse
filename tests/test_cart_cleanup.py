@@ -333,3 +333,56 @@ def test_cleanup_opens_the_cart_page_as_a_last_resort() -> None:
     assert "MOTOSPORT_CART_URL" in source
     assert 'return "success_after_visiting_cart"' in source
     assert "cart_cleared_after_opening_the_cart_page" in source
+
+
+def test_the_quantity_stepper_is_not_mistaken_for_the_remove_control() -> None:
+    """From the real cart markup: MotoSport has two controls whose accessible
+    name contains "Remove".
+
+        <button class="cart-line-item__stepper-btn--down" aria-label="Remove item">-</button>
+        <a class="cart-remove-item ... cart-line-item__remove-fallback"
+           title="Remove item from cart.">Remove</a>
+
+    The stepper comes first in the document, so a generic aria-label match found
+    it and clicked it. That only decrements the quantity, so lines stayed in the
+    cart while their quantities changed.
+    """
+    from probe_cart_price import find_remove_controls
+
+    class _RealCart:
+        def locator(self, selector: str):
+            class _Locator:
+                def count(self) -> int:
+                    if selector == "a.cart-remove-item":
+                        return 4
+                    if "stepper" in selector:
+                        return 0
+                    # The trap: the stepper also answers a bare aria-label match.
+                    if selector == "button[aria-label*='Remove' i]":
+                        return 4
+                    return 0
+
+            return _Locator()
+
+    selector, count = find_remove_controls(_RealCart())
+
+    assert selector == "a.cart-remove-item"
+    assert count == 4
+
+
+def test_the_genuine_remove_link_is_preferred_over_generic_matches() -> None:
+    from probe_cart_price import REMOVE_CONTROL_SELECTORS
+
+    generic = REMOVE_CONTROL_SELECTORS.index("button[aria-label*='Remove' i]:not([class*='stepper' i])")
+
+    for specific in ("a.cart-remove-item", "a[class*='remove-fallback' i]", "a[href*='cartremoveqty' i]"):
+        assert REMOVE_CONTROL_SELECTORS.index(specific) < generic, specific
+
+
+def test_stepper_buttons_are_excluded_from_the_shape_fallback() -> None:
+    """The fallback finds a control by shape, and a stepper is the same shape:
+    an icon button inside a cart row beside the quantity box."""
+    from probe_cart_price import FIND_REMOVE_BY_SHAPE
+
+    assert "stepper" in FIND_REMOVE_BY_SHAPE
+    assert "'-'" in FIND_REMOVE_BY_SHAPE
