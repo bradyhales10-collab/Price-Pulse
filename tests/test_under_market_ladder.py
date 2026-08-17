@@ -23,7 +23,7 @@ from app.pricing_engine import (
     ACTION_HOLD,
     ACTION_INCREASE,
     ACTION_NEEDS_RESEARCH,
-    RULE_LOW_EXPOSURE_995,
+    RULE_LOW_MEANINGFUL_995,
     RULE_LOW_MINIMAL_100,
     CompetitorQuote,
     recommend,
@@ -68,7 +68,7 @@ def test_low_sensitivity_with_meaningful_sales_targets_995_percent() -> None:
 
     assert result.action == ACTION_INCREASE
     assert result.recommended_price == Decimal("99.50")
-    assert result.rule_applied == RULE_LOW_EXPOSURE_995
+    assert result.rule_applied == RULE_LOW_MEANINGFUL_995
 
 
 def test_low_sensitivity_with_minimal_exposure_matches_the_market() -> None:
@@ -135,7 +135,7 @@ def test_exposure_alone_can_qualify_a_slow_moving_part() -> None:
         quotes=MARKET, qty_sold_12m=20, annual_sales=Decimal("1400"),
     )
 
-    assert result.rule_applied == RULE_LOW_EXPOSURE_995
+    assert result.rule_applied == RULE_LOW_MEANINGFUL_995
 
 
 def test_weak_competitor_data_stops_a_minimal_part_matching_the_market() -> None:
@@ -177,3 +177,85 @@ def test_the_explanation_names_the_target_used() -> None:
 
     assert "99.5%" in result.reason
     assert "sells enough" in result.reason
+
+
+def test_a_high_ticket_part_keeps_a_small_advantage_despite_low_volume() -> None:
+    """The change this specification adds. One unit a year is minimal volume,
+    but customers comparison shop a $1,200 purchase, and half a percent of
+    $1,500 is $7.50 to give up for a visible position below the market."""
+    result = recommend(
+        current_price=Decimal("1200"), cost=Decimal("600"), sensitivity=SENSITIVITY_LOW,
+        quotes=[
+            CompetitorQuote("Partzilla", Decimal("1500")),
+            CompetitorQuote("MotoSport", Decimal("1550")),
+            CompetitorQuote("Chaparral", Decimal("1520")),
+        ],
+        qty_sold_12m=1, annual_sales=Decimal("1200"),
+    )
+
+    assert result.rule_applied == RULE_LOW_MEANINGFUL_995
+    assert result.recommended_price == Decimal("1492.50")
+    assert "High Ticket" in result.target_tier_qualification
+
+
+def test_qualifying_by_annual_sales_alone() -> None:
+    result = recommend(
+        current_price=Decimal("400"), cost=Decimal("200"), sensitivity=SENSITIVITY_LOW,
+        quotes=[
+            CompetitorQuote("Partzilla", Decimal("500")),
+            CompetitorQuote("MotoSport", Decimal("520")),
+            CompetitorQuote("Chaparral", Decimal("510")),
+        ],
+        qty_sold_12m=20, annual_sales=Decimal("8000"),
+    )
+
+    assert result.rule_applied == RULE_LOW_MEANINGFUL_995
+    assert result.recommended_price == Decimal("497.50")
+
+
+def test_the_qualification_names_why_the_tier_was_reached() -> None:
+    """A 99.5% recommendation has to be auditable without working back through
+    the thresholds by hand."""
+    result = recommend(
+        current_price=Decimal("80"), cost=Decimal("40"), sensitivity=SENSITIVITY_LOW,
+        quotes=MARKET, qty_sold_12m=75,
+    )
+
+    assert "Qty >= 50" in result.target_tier_qualification
+
+
+def test_every_outcome_names_the_rule_that_produced_it() -> None:
+    """A blank rule column makes a recommendation impossible to audit, so no
+    path may leave it empty."""
+    cases = [
+        dict(current_price=Decimal("80"), cost=Decimal("40"), sensitivity=SENSITIVITY_HIGH,
+             quotes=MARKET, qty_sold_12m=500),
+        dict(current_price=Decimal("96"), cost=Decimal("40"), sensitivity=SENSITIVITY_HIGH,
+             quotes=MARKET, qty_sold_12m=500),
+        dict(current_price=Decimal("130"), cost=Decimal("50"), sensitivity=SENSITIVITY_MEDIUM,
+             quotes=MARKET, qty_sold_12m=100),
+        dict(current_price=Decimal("8.35"), cost=Decimal("4"), sensitivity=SENSITIVITY_MEDIUM,
+             quotes=[CompetitorQuote("A", Decimal("7.17")), CompetitorQuote("B", Decimal("7.60"))],
+             qty_sold_12m=7000),
+        dict(current_price=Decimal("50"), cost=Decimal("30"), sensitivity=SENSITIVITY_HIGH,
+             manufacturer="KTM", quotes=MARKET),
+        dict(current_price=Decimal("100"), cost=Decimal("40"), sensitivity=SENSITIVITY_MEDIUM,
+             quotes=[CompetitorQuote("A", Decimal("95")), CompetitorQuote("B", Decimal("98")),
+                     CompetitorQuote("C", Decimal("52"))]),
+        dict(current_price=Decimal("50"), cost=Decimal("20"), sensitivity=SENSITIVITY_MEDIUM,
+             quotes=[CompetitorQuote("A", None)]),
+    ]
+    for case in cases:
+        result = recommend(**case)
+        assert result.rule_applied, f"no rule for action {result.action}"
+
+
+def test_the_competitive_target_is_reported_separately_from_the_final_price() -> None:
+    """So management can see how much the margin floor moved the competitive
+    recommendation, rather than only the number it landed on."""
+    result = recommend(
+        current_price=Decimal("80"), cost=Decimal("40"), sensitivity=SENSITIVITY_HIGH,
+        quotes=MARKET, qty_sold_12m=500,
+    )
+
+    assert result.competitive_target_price == Decimal("98.00")

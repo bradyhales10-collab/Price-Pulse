@@ -106,6 +106,11 @@ def recommendation_for_row(row: dict[str, Any], *, minimum_margin: Decimal = Dec
             )
         )
 
+    priced = [quote for quote in quotes if quote.price is not None]
+    raw_lowest_quote = min(priced, key=lambda quote: quote.price) if priced else None
+    raw_lowest = raw_lowest_quote.price if raw_lowest_quote else None
+    raw_lowest_name = raw_lowest_quote.name if raw_lowest_quote else ""
+
     result = recommend(
         current_price=current_price,
         cost=_decimal(row.get("current_cost")),
@@ -152,6 +157,22 @@ def recommendation_for_row(row: dict[str, Any], *, minimum_margin: Decimal = Dec
             f"{result.target_percent_of_lowest:.1f}" if result.target_percent_of_lowest is not None else ""
         ),
         "rule_applied": result.rule_applied,
+        "target_tier_qualification": result.target_tier_qualification,
+        "competitive_target_price": (
+            f"{result.competitive_target_price:.2f}" if result.competitive_target_price is not None else ""
+        ),
+        # The raw lowest is shown next to the validated one because a
+        # recommendation can look wrong when the engine correctly rejected the
+        # cheapest quote. Seeing both makes that visible rather than puzzling.
+        "raw_lowest_name": raw_lowest_name,
+        "raw_lowest_price": f"{raw_lowest:.2f}" if raw_lowest is not None else "",
+        "excluded_competitor_count": len(result.market.rejected),
+        "excluded_competitors": " | ".join(
+            f"{quote.name} - "
+            + (f"${quote.price:.2f}" if quote.price is not None else "no price")
+            + f" - Excluded: {reason}"
+            for quote, reason in result.market.rejected
+        ),
     }
 
 

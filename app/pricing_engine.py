@@ -93,13 +93,39 @@ UNDER_MARKET_TARGET = {
 }
 # A low-sensitivity part below these has little enough at stake that matching
 # the lowest competitor exactly is the sensible starting point.
-LOW_EXPOSURE_QTY = 50
-LOW_EXPOSURE_SALES = Decimal("5000")
-LOW_EXPOSURE_DOLLARS = Decimal("500")
+LOW_995_QTY = 50
+LOW_995_ANNUAL_SALES = Decimal("5000")
+LOW_995_EXPOSURE = Decimal("500")
 LOW_MINIMAL_TARGET = Decimal("1.00")
 
-RULE_LOW_EXPOSURE_995 = "LOW_EXPOSURE_995"
+# A high-ticket part is comparison shopped whatever its volume, and half a
+# percent of a large price is real money to a customer while costing us little:
+# on a $1,500 item, 99.5% gives up $7.50 to stay visibly below the market.
+LOW_995_HIGH_TICKET = Decimal("500")
+
+# Every recommendation names the rule that produced it, so a price can be
+# audited without re-deriving it.
+RULE_HIGH_98 = "HIGH_98"
+RULE_MEDIUM_99 = "MEDIUM_99"
+RULE_LOW_MEANINGFUL_995 = "LOW_MEANINGFUL_995"
 RULE_LOW_MINIMAL_100 = "LOW_MINIMAL_100"
+RULE_ABOVE_MARKET_HIGH = "ABOVE_MARKET_HIGH_102"
+RULE_ABOVE_MARKET_MEDIUM = "ABOVE_MARKET_MEDIUM_103"
+RULE_ABOVE_MARKET_LOW = "ABOVE_MARKET_LOW_105"
+RULE_LOW_DOLLAR_TOLERANCE_HOLD = "LOW_DOLLAR_TOLERANCE_HOLD"
+RULE_HIGH_SALES_REVIEW = "HIGH_SALES_PRICE_REVIEW"
+RULE_MARGIN_FLOOR_REVIEW = "MARGIN_FLOOR_REVIEW"
+RULE_MARGIN_HARD_FLOOR = "MARGIN_HARD_FLOOR_HOLD"
+RULE_COMPETITOR_DATA_REVIEW = "COMPETITOR_DATA_REVIEW"
+RULE_HOLD_WITHIN_BAND = "HOLD_WITHIN_BAND"
+RULE_MAP_EXCLUDED = "MAP_EXCLUDED"
+
+ABOVE_MARKET_RULES = {
+    SENSITIVITY_HIGH: RULE_ABOVE_MARKET_HIGH,
+    SENSITIVITY_MEDIUM: RULE_ABOVE_MARKET_MEDIUM,
+    SENSITIVITY_LOW: RULE_ABOVE_MARKET_LOW,
+}
+UNDER_MARKET_RULES = {SENSITIVITY_HIGH: RULE_HIGH_98, SENSITIVITY_MEDIUM: RULE_MEDIUM_99}
 
 # A lowest quote this far under the rest of the market is more likely to be a
 # different item, a multipack, or a bad reading than a real price.
@@ -143,6 +169,12 @@ class Recommendation:
     # audited without re-deriving it. Blank when a different rule applied.
     target_percent_of_lowest: Decimal | None = None
     rule_applied: str = ""
+    # Why this tier was reached, so a 99.5% recommendation can be explained
+    # without working back through the thresholds.
+    target_tier_qualification: str = ""
+    # What the competitive logic wanted before the margin floor moved it, so the
+    # effect of the floor is visible rather than hidden in the final number.
+    competitive_target_price: Decimal | None = None
 
 
 def _money(value: Decimal) -> Decimal:
@@ -234,7 +266,7 @@ def _under_market_rationale(sensitivity: str, rule_applied: str) -> str:
         )
     if sensitivity == SENSITIVITY_MEDIUM:
         return "This part is moderately shopped, so the price stays just under the market."
-    if rule_applied == RULE_LOW_EXPOSURE_995:
+    if rule_applied == RULE_LOW_MEANINGFUL_995:
         return (
             "Customers rarely compare this part, but it sells enough that a small advantage is "
             "worth keeping rather than matching the market exactly."
@@ -265,6 +297,8 @@ def recommend(
             reason=f"{manufacturer} pricing is managed under MAP or full retail, so no change is recommended.",
             market=assess_market(quotes, our_cost=cost),
             projected_margin_pct=_margin_pct(current_price, cost),
+            rule_applied=RULE_MAP_EXCLUDED,
+            target_tier_qualification="Excluded from automatic pricing",
         )
 
     market = assess_market(quotes, our_cost=cost)
@@ -278,6 +312,8 @@ def recommend(
             market=market,
             projected_margin_pct=_margin_pct(current_price, cost),
             factors=[reason for _, reason in market.rejected],
+            rule_applied=RULE_COMPETITOR_DATA_REVIEW,
+            target_tier_qualification="No validated competitor",
         )
 
     if market.outlier_suspected:
@@ -291,6 +327,8 @@ def recommend(
             ),
             market=market,
             projected_margin_pct=_margin_pct(current_price, cost),
+            rule_applied=RULE_COMPETITOR_DATA_REVIEW,
+            target_tier_qualification="Lowest quote not corroborated",
         )
 
     lowest = market.lowest
@@ -314,39 +352,50 @@ def recommend(
                 market=market,
                 projected_margin_pct=_margin_pct(current_price, cost),
                 factors=factors,
-            )
+            rule_applied=RULE_HOLD_WITHIN_BAND,
+            target_tier_qualification="under-market trigger not met",
+        )
         # Split low sensitivity by what is actually at stake. A part still
         # selling in reasonable numbers is worth keeping visibly cheaper; only
         # one with minimal exposure should match the market exactly.
         target_percent = UNDER_MARKET_TARGET[sensitivity]
-        rule_applied = ""
+        rule_applied = UNDER_MARKET_RULES.get(sensitivity, "")
+        qualification = f"{sensitivity} Sensitivity"
+
         if sensitivity == SENSITIVITY_LOW:
             exposure = abs(current_price - lowest) * Decimal(qty_sold_12m or 0)
-            meaningful = (
-                (qty_sold_12m is not None and qty_sold_12m >= LOW_EXPOSURE_QTY)
-                or (annual_sales is not None and annual_sales >= LOW_EXPOSURE_SALES)
-                or exposure >= LOW_EXPOSURE_DOLLARS
-            )
-            if meaningful:
-                rule_applied = RULE_LOW_EXPOSURE_995
-                factors.append("low sensitivity, but sales are worth keeping a small advantage for")
+            # Any one of these is enough. Volume, revenue and exposure each say
+            # something is at stake; price says the customer will shop it
+            # regardless of how rarely it sells.
+            reasons: list[str] = []
+            if qty_sold_12m is not None and qty_sold_12m >= LOW_995_QTY:
+                reasons.append(f"Qty >= {LOW_995_QTY}")
+            if annual_sales is not None and annual_sales >= LOW_995_ANNUAL_SALES:
+                reasons.append(f"Annual Sales >= ${LOW_995_ANNUAL_SALES:,.0f}")
+            if exposure >= LOW_995_EXPOSURE:
+                reasons.append(f"Competitive Exposure >= ${LOW_995_EXPOSURE:,.0f}")
+            if current_price >= LOW_995_HIGH_TICKET:
+                reasons.append(f"High Ticket >= ${LOW_995_HIGH_TICKET:,.0f}")
+
+            if reasons:
+                rule_applied = RULE_LOW_MEANINGFUL_995
+                qualification = "LOW - " + ("Multiple Qualifiers: " if len(reasons) > 1 else "") + "; ".join(reasons)
+                factors.append("low sensitivity, but there is enough at stake to keep a small advantage")
+            elif market.confidence == "LOW":
+                # Matching a figure that has no corroboration is too far to go.
+                rule_applied = RULE_LOW_MEANINGFUL_995
+                qualification = "LOW - Minimal Exposure, held under market on weak competitor data"
+                factors.append("competitor data is weak, so holding just under the market rather than matching it")
             else:
-                # Matching the market is only the default when there is little
-                # to protect. With unreliable competitor data even that is too
-                # far, since the figure being matched may not be right.
-                if market.confidence == "LOW":
-                    target_percent = UNDER_MARKET_TARGET[SENSITIVITY_LOW]
-                    rule_applied = RULE_LOW_EXPOSURE_995
-                    factors.append("competitor data is weak, so holding just under the market rather than matching it")
-                else:
-                    target_percent = LOW_MINIMAL_TARGET
-                    rule_applied = RULE_LOW_MINIMAL_100
-                    factors.append("low sensitivity with minimal sales exposure")
+                target_percent = LOW_MINIMAL_TARGET
+                rule_applied = RULE_LOW_MINIMAL_100
+                qualification = "LOW - Minimal Exposure"
+                factors.append("low sensitivity with minimal sales exposure and not high ticket")
 
         # The percentage is applied to the price and only then rounded, so the
         # result is not distorted by rounding the multiplier first.
         target = _money(lowest * target_percent)
-        if sensitivity == SENSITIVITY_LOW and rule_applied == RULE_LOW_MINIMAL_100 and market.median is not None:
+        if rule_applied == RULE_LOW_MINIMAL_100 and market.median is not None:
             # Moving toward the median needs data worth trusting.
             if market.confidence in {"MEDIUM", "HIGH"}:
                 target = min(max(target, lowest), market.median)
@@ -366,6 +415,8 @@ def recommend(
             factors=factors,
             target_percent_of_lowest=target_percent * Decimal("100"),
             rule_applied=rule_applied,
+            target_tier_qualification=qualification,
+            competitive_target_price=target,
         )
 
     # Priced at or above the market.
@@ -385,7 +436,9 @@ def recommend(
                 market=market,
                 projected_margin_pct=_margin_pct(current_price, cost),
                 factors=factors + [f"annual exposure ${exposure:,.0f}"],
-            )
+            rule_applied=RULE_HIGH_SALES_REVIEW,
+            target_tier_qualification="small gap but high annual exposure",
+        )
         return Recommendation(
             action=ACTION_HOLD,
             recommended_price=current_price,
@@ -397,6 +450,8 @@ def recommend(
             market=market,
             projected_margin_pct=_margin_pct(current_price, cost),
             factors=factors,
+            rule_applied=RULE_LOW_DOLLAR_TOLERANCE_HOLD,
+            target_tier_qualification="gap within dollar tolerance",
         )
 
     gap_pct = (gap / lowest * Decimal("100")) if lowest > 0 else Decimal("0")
@@ -413,6 +468,8 @@ def recommend(
             market=market,
             projected_margin_pct=_margin_pct(current_price, cost),
             factors=factors,
+            rule_applied=RULE_HOLD_WITHIN_BAND,
+            target_tier_qualification="percentage gap under 2%",
         )
 
     target = _money(lowest * ABOVE_MARKET_TARGET_MULTIPLIER[sensitivity])
@@ -432,6 +489,8 @@ def recommend(
             market=market,
             projected_margin_pct=_margin_pct(current_price, cost),
             factors=factors,
+            rule_applied=RULE_HOLD_WITHIN_BAND,
+            target_tier_qualification="market above current price",
         )
 
     if cost is not None:
@@ -451,7 +510,9 @@ def recommend(
                 market=market,
                 projected_margin_pct=_margin_pct(current_price, cost),
                 factors=factors,
-            )
+            rule_applied=RULE_MARGIN_HARD_FLOOR,
+            target_tier_qualification="below the hard margin floor",
+        )
         if target < floor_price:
             return Recommendation(
                 action=ACTION_DECREASE_REVIEW,
@@ -464,7 +525,9 @@ def recommend(
                 market=market,
                 projected_margin_pct=_margin_pct(floor_price, cost),
                 factors=factors,
-            )
+            rule_applied=RULE_MARGIN_FLOOR_REVIEW,
+            target_tier_qualification="competitive target below margin floor",
+        )
 
     return Recommendation(
         action=ACTION_DECREASE,
@@ -476,4 +539,6 @@ def recommend(
         market=market,
         projected_margin_pct=_margin_pct(target, cost),
         factors=factors,
-    )
+            rule_applied=ABOVE_MARKET_RULES[sensitivity],
+            target_tier_qualification="above market beyond tolerance",
+        )
