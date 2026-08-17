@@ -1701,6 +1701,45 @@ def count_cart_lines(page) -> int:
         return 0
 
 
+# When no selector matches, find the control by what it does rather than what it
+# is called: a clickable thing inside a cart row, sitting beside the quantity
+# box, containing an icon and no text. That is what the trash can actually is on
+# MotoSport, and it survives class names changing.
+FIND_REMOVE_BY_SHAPE = """
+() => {
+  const rows = document.querySelectorAll('[class*="cart" i] tr, [class*="cart-item" i], [class*="cartItem" i], [class*="line-item" i], tr');
+  let best = null;
+  for (const row of rows) {
+    const qty = row.querySelector('input[type="number"], input[name*="qty" i], input[name*="quantity" i]');
+    if (!qty) continue;
+    const controls = row.querySelectorAll('button, a, [role="button"]');
+    for (const el of controls) {
+      const text = (el.textContent || '').trim();
+      const hasIcon = el.querySelector('svg, i, use, img') !== null;
+      const label = (el.getAttribute('aria-label') || '') + (el.getAttribute('title') || '') + (el.className || '');
+      if (/save\s*for\s*later/i.test(text)) continue;
+      if (/remove|delete|trash/i.test(label) || (hasIcon && text.length === 0)) {
+        best = el;
+        break;
+      }
+    }
+    if (best) break;
+  }
+  if (!best) return false;
+  best.click();
+  return true;
+}
+"""
+
+
+def click_remove_by_shape(page) -> bool:
+    """Click a removal control identified by its position and shape."""
+    try:
+        return bool(page.evaluate(FIND_REMOVE_BY_SHAPE))
+    except Exception:
+        return False
+
+
 def find_remove_controls(page) -> tuple[str, int]:
     """The first selector that matches a removal control, and how many it found."""
     for selector in REMOVE_CONTROL_SELECTORS:
@@ -1757,15 +1796,25 @@ def clear_whole_cart(page, *, max_items: int = 25) -> dict[str, object]:
         lines_before = count_cart_lines(page)
         selector, control_count = find_remove_controls(page)
         if not control_count:
-            # Report what was actually there rather than guessing at controls,
-            # so the next attempt can be aimed at something real.
-            diagnostics.append(f"no removal control matched; {lines_before} line(s) visible")
-            return {
-                "cleared": False,
-                "removed": removed,
-                "reason": "no_remove_control_found",
-                "detail": "; ".join(diagnostics),
-            }
+            # No selector matched, so fall back to finding the control by shape.
+            # Giving up here is what left carts full when the trash can carries
+            # no recognisable name or class.
+            if not click_remove_by_shape(page):
+                diagnostics.append(f"no removal control matched; {lines_before} line(s) visible")
+                return {
+                    "cleared": False,
+                    "removed": removed,
+                    "reason": "no_remove_control_found",
+                    "detail": "; ".join(diagnostics),
+                }
+            outcome = _await_cart_change(page, lines_before=lines_before)
+            if outcome == "empty":
+                return {"cleared": True, "removed": removed + 1, "reason": "cart_empty", "detail": "; ".join(diagnostics)}
+            if outcome == "unchanged":
+                diagnostics.append("clicked a control found by shape, but the cart did not change")
+                return {"cleared": False, "removed": removed, "reason": "remove_had_no_effect", "detail": "; ".join(diagnostics)}
+            removed += 1
+            continue
 
         try:
             page.locator(selector).first.click(timeout=5000)
