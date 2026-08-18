@@ -104,6 +104,7 @@ from probe_cart_price import (
     collect_cart_line_records,
     ensure_cart_empty,
     extract_tracking_label,
+    log_cart_action,
     open_cart_text,
     remove_cart_item,
     select_high_confidence_cart_action,
@@ -840,6 +841,9 @@ def collect_one_motosport_part(database_path: Path, page, planned, scan_run_id: 
             # cleanup was never noticed: over a long run the items simply built
             # up, while a short run rarely failed often enough to show it.
             items_in_cart = cart_badge_count(page)
+            log_cart_action(
+                f"part {planned.oem_part_number}: cart holds {items_in_cart} before adding"
+            )
             cart_is_clear = items_in_cart == 0 if items_in_cart >= 0 else ensure_cart_empty(page)
             if form_validation["valid"] and cart_is_clear:
                 click_result = click_cart_action_with_result(

@@ -7,6 +7,7 @@ import re
 import sys
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -1831,6 +1832,44 @@ SAVED_ITEMS_EXCLUSION = (
 # and one click before. Remembering the answer makes the usual case two queries.
 _KNOWN_REMOVE_SELECTOR: str = ""
 
+# Every removal attempt is appended here: what was clicked, the href behind it,
+# and what happened to the cart. Six attempts at this bug have been made by
+# reasoning about which control was probably being clicked, and each fixed
+# something real that was not the cause. A record of what actually happened,
+# part by part, replaces that guessing with evidence.
+CART_ACTION_LOG = Path(__file__).resolve().parent / "data" / "output" / "cart_actions.log"
+
+
+def log_cart_action(message: str) -> None:
+    try:
+        CART_ACTION_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with CART_ACTION_LOG.open("a", encoding="utf-8") as handle:
+            handle.write(f"{datetime.now(UTC).strftime('%H:%M:%S')} {message}\n")
+    except Exception:
+        pass
+
+
+def describe_click_target(page, selector: str) -> str:
+    """What the selector currently points at, for the record."""
+    try:
+        return str(
+            page.evaluate(
+                """
+                (sel) => {
+                  let el = null;
+                  try { el = document.querySelector(sel); } catch (e) { return 'selector-invalid'; }
+                  if (!el) return 'no-match';
+                  const href = el.getAttribute('href') || '';
+                  const cls = (el.className || '').toString().slice(0, 80);
+                  return el.tagName.toLowerCase() + ' href=' + href.slice(0, 120) + ' class=' + cls;
+                }
+                """,
+                selector,
+            )
+        )
+    except Exception:
+        return "could-not-describe"
+
 
 def find_remove_controls(page) -> tuple[str, int]:
     """The first selector that matches a removal control, and how many it found."""
@@ -1943,7 +1982,9 @@ def _click_possibly_hidden(page, selector: str, *, allow_save_links: bool = Fals
     """
     # Clearing Saved Items deliberately clicks those very links, so the guard is
     # only for removing from the cart.
+    log_cart_action(f"click {selector[:70]} -> {describe_click_target(page, selector)}")
     if not allow_save_links and _would_save_instead_of_remove(page, selector):
+        log_cart_action("  REFUSED: that link would save the item, not remove it")
         # Refusing is correct: saving the item leaves the cart unchanged and
         # grows the saved list, which is worse than reporting a failure.
         return False
@@ -2067,6 +2108,7 @@ def clear_whole_cart(page, *, max_items: int = 60) -> dict[str, object]:
     """
     removed = 0
     diagnostics: list[str] = []
+    log_cart_action(f"clear_whole_cart starting, badge says {cart_badge_count(page)}")
     for _attempt in range(max_items):
         try:
             if not page.locator("body").count():
@@ -2143,6 +2185,7 @@ def clear_whole_cart(page, *, max_items: int = 60) -> dict[str, object]:
             )
             return {"cleared": False, "removed": removed, "reason": "remove_had_no_effect", "detail": "; ".join(diagnostics)}
         removed += 1
+    log_cart_action(f"clear_whole_cart gave up after {removed} removal(s)")
     return {"cleared": False, "removed": removed, "reason": "too_many_items", "detail": "; ".join(diagnostics)}
 
 

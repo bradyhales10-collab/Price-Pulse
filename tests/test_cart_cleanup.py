@@ -531,10 +531,12 @@ def test_a_hidden_mini_cart_saying_empty_does_not_stop_clearing() -> None:
 
         def evaluate(self, script: str, arg=None):
             if "saveforlater=1" in script:
-                # The guard asking what kind of link this is: answer without
-                # changing anything, as a real page would.
+                # The guard asking what kind of link this is.
                 return "remove"
-            if "querySelector" in script and arg:
+            if "el.tagName" in script:
+                # Describing the target for the log.
+                return "a href=/cart?saveforlater=0 class=cart-remove-item"
+            if "el.click()" in script:
                 self.clicks += 1
                 self.items -= 1
                 return True
@@ -561,10 +563,12 @@ def test_a_cart_clears_completely_at_several_sizes() -> None:
 
         def evaluate(self, script: str, arg=None):
             if "saveforlater=1" in script:
-                # The guard asking what kind of link this is: answer without
-                # changing anything, as a real page would.
+                # The guard asking what kind of link this is.
                 return "remove"
-            if "querySelector" in script and arg:
+            if "el.tagName" in script:
+                # Describing the target for the log.
+                return "a href=/cart?saveforlater=0 class=cart-remove-item"
+            if "el.click()" in script:
                 if self.items > 0:
                     self.items -= 1
                     self.clicks += 1
@@ -703,10 +707,12 @@ def test_a_removal_is_confirmed_even_while_the_badge_trails() -> None:
 
         def evaluate(self, script: str, arg=None):
             if "saveforlater=1" in script:
-                # The guard asking what kind of link this is: answer without
-                # changing anything, as a real page would.
+                # The guard asking what kind of link this is.
                 return "remove"
-            if "querySelector" in script and arg:
+            if "el.tagName" in script:
+                # Describing the target for the log.
+                return "a href=/cart?saveforlater=0 class=cart-remove-item"
+            if "el.click()" in script:
                 self.items -= 1
                 self.clicks += 1
                 self.lag = 5
@@ -774,10 +780,12 @@ def test_a_stale_control_after_the_last_removal_is_not_reported_as_failure() -> 
 
         def evaluate(self, script: str, arg=None):
             if "saveforlater=1" in script:
-                # The guard asking what kind of link this is: answer without
-                # changing anything, as a real page would.
+                # The guard asking what kind of link this is.
                 return "remove"
-            if "querySelector" in script and arg:
+            if "el.tagName" in script:
+                # Describing the target for the log.
+                return "a href=/cart?saveforlater=0 class=cart-remove-item"
+            if "el.click()" in script:
                 self.clicks += 1
                 if self.items > 0:
                     self.items -= 1
@@ -841,10 +849,12 @@ def test_a_removal_that_truly_does_nothing_is_still_reported() -> None:
 
         def evaluate(self, script: str, arg=None):
             if "saveforlater=1" in script:
-                # The guard asking what kind of link this is: answer without
-                # changing anything, as a real page would.
+                # The guard asking what kind of link this is.
                 return "remove"
-            if "querySelector" in script and arg:
+            if "el.tagName" in script:
+                # Describing the target for the log.
+                return "a href=/cart?saveforlater=0 class=cart-remove-item"
+            if "el.click()" in script:
                 return True
             return 3
 
@@ -1038,6 +1048,8 @@ def test_a_removal_click_refuses_a_link_that_would_save_the_item() -> None:
         def evaluate(self, script: str, arg=None):
             if "saveforlater=1" in script:
                 return "save" if "saveforlater=1" in self.href else "remove"
+            if "el.tagName" in script:
+                return f"a href={self.href} class=cart-remove-item"
             self.clicked = True
             return True
 
