@@ -1779,6 +1779,8 @@ FIND_REMOVE_BY_SHAPE = r"""
       // A quantity stepper is labelled "Remove item" but only decrements, so
       // clicking it changes the quantity while the line stays.
       if (/stepper|qty|quantity|increment|decrement/i.test(el.className || '')) continue;
+      // Saved Items are not in the cart. Removing one leaves the cart untouched.
+      if (el.closest('[class*="saved" i], [class*="save-for-later" i], [class*="wishlist" i]')) continue;
       if (text === '-' || text === '+') continue;
       if (/remove|delete|trash/i.test(label) || (hasIcon && text.length === 0)) {
         best = el;
@@ -1802,15 +1804,27 @@ def click_remove_by_shape(page) -> bool:
         return False
 
 
+SAVED_ITEMS_EXCLUSION = (
+    ":not([class*='saved' i] *)"
+    ":not([class*='save-for-later' i] *)"
+    ":not([class*='wishlist' i] *)"
+)
+
+
 def find_remove_controls(page) -> tuple[str, int]:
     """The first selector that matches a removal control, and how many it found."""
     for selector in REMOVE_CONTROL_SELECTORS:
-        try:
-            count = page.locator(selector).count()
-        except Exception:
-            continue
-        if count:
-            return selector, count
+        # Prefer the same selector scoped away from Saved Items. Those rows sit
+        # on the cart page with their own Remove links and the same part
+        # numbers, so an unscoped match can remove a saved row while the cart
+        # line stays exactly where it was.
+        for candidate in (selector + SAVED_ITEMS_EXCLUSION, selector):
+            try:
+                count = page.locator(candidate).count()
+            except Exception:
+                continue
+            if count:
+                return candidate, count
     return "", 0
 
 

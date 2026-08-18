@@ -662,3 +662,40 @@ def test_a_cart_clears_completely_at_several_sizes() -> None:
         assert result["cleared"] is True, size
         assert result["removed"] == size, size
         assert cart.items == 0, size
+
+
+def test_removal_prefers_controls_outside_the_saved_items_section() -> None:
+    """MotoSport's cart page also lists Saved Items, each with its own Remove
+    link and the same part numbers and prices as a cart line. An unscoped match
+    can remove a saved row while the cart line stays exactly where it was, which
+    looks identical to removal silently failing.
+    """
+    from probe_cart_price import find_remove_controls
+
+    class _PageWithSavedItems:
+        def __init__(self) -> None:
+            self.asked: list[str] = []
+
+        def locator(self, selector: str):
+            page = self
+            page.asked.append(selector)
+
+            class _Locator:
+                def count(self) -> int:
+                    # Only the scoped selector is treated as matching, standing
+                    # in for a page where the cart row is outside Saved Items.
+                    return 1 if "saved" in selector else 0
+
+            return _Locator()
+
+    selector, count = find_remove_controls(_PageWithSavedItems())
+
+    assert count == 1
+    assert "saved" in selector
+
+
+def test_the_shape_fallback_skips_saved_items() -> None:
+    from probe_cart_price import FIND_REMOVE_BY_SHAPE
+
+    assert "saved" in FIND_REMOVE_BY_SHAPE
+    assert "closest" in FIND_REMOVE_BY_SHAPE
