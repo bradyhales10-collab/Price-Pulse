@@ -530,6 +530,10 @@ def test_a_hidden_mini_cart_saying_empty_does_not_stop_clearing() -> None:
             return _Locator()
 
         def evaluate(self, script: str, arg=None):
+            if "saveforlater=1" in script:
+                # The guard asking what kind of link this is: answer without
+                # changing anything, as a real page would.
+                return "remove"
             if "querySelector" in script and arg:
                 self.clicks += 1
                 self.items -= 1
@@ -556,6 +560,10 @@ def test_a_cart_clears_completely_at_several_sizes() -> None:
             self.clicks = 0
 
         def evaluate(self, script: str, arg=None):
+            if "saveforlater=1" in script:
+                # The guard asking what kind of link this is: answer without
+                # changing anything, as a real page would.
+                return "remove"
             if "querySelector" in script and arg:
                 if self.items > 0:
                     self.items -= 1
@@ -694,6 +702,10 @@ def test_a_removal_is_confirmed_even_while_the_badge_trails() -> None:
             self.clicks = 0
 
         def evaluate(self, script: str, arg=None):
+            if "saveforlater=1" in script:
+                # The guard asking what kind of link this is: answer without
+                # changing anything, as a real page would.
+                return "remove"
             if "querySelector" in script and arg:
                 self.items -= 1
                 self.clicks += 1
@@ -761,6 +773,10 @@ def test_a_stale_control_after_the_last_removal_is_not_reported_as_failure() -> 
             self.reloads = 0
 
         def evaluate(self, script: str, arg=None):
+            if "saveforlater=1" in script:
+                # The guard asking what kind of link this is: answer without
+                # changing anything, as a real page would.
+                return "remove"
             if "querySelector" in script and arg:
                 self.clicks += 1
                 if self.items > 0:
@@ -824,6 +840,10 @@ def test_a_removal_that_truly_does_nothing_is_still_reported() -> None:
             self.reloads = 0
 
         def evaluate(self, script: str, arg=None):
+            if "saveforlater=1" in script:
+                # The guard asking what kind of link this is: answer without
+                # changing anything, as a real page would.
+                return "remove"
             if "querySelector" in script and arg:
                 return True
             return 3
@@ -1000,3 +1020,60 @@ def test_saved_items_can_be_cleared() -> None:
         assert result["cleared"] is True, size
         assert result["removed"] == size, size
         assert page.count_remaining == 0, size
+
+
+def test_a_removal_click_refuses_a_link_that_would_save_the_item() -> None:
+    """A last line of defence. Several code paths build their own removal
+    selectors, and MotoSport's save link shares both the class cart-remove-item
+    and the title "Remove item from cart." with the real one, differing only in
+    the href. Checking the element before clicking means a mistake anywhere in
+    that chain cannot silently move an item to Saved Items."""
+    from probe_cart_price import _click_possibly_hidden
+
+    class _LinkPage:
+        def __init__(self, href: str) -> None:
+            self.href = href
+            self.clicked = False
+
+        def evaluate(self, script: str, arg=None):
+            if "saveforlater=1" in script:
+                return "save" if "saveforlater=1" in self.href else "remove"
+            self.clicked = True
+            return True
+
+        def locator(self, selector: str):
+            page = self
+
+            class _Locator:
+                @property
+                def first(self):
+                    return self
+
+                def click(self, timeout: int | None = None, force: bool = False) -> None:
+                    page.clicked = True
+
+            return _Locator()
+
+    saving = _LinkPage("/cart?cartrowid=1&cartremoveqty=1&saveforlater=1")
+    assert _click_possibly_hidden(saving, "a.cart-remove-item") is False
+    assert saving.clicked is False
+
+    removing = _LinkPage("/cart?cartrowid=1&cartremoveqty=1&saveforlater=0")
+    assert _click_possibly_hidden(removing, "a.cart-remove-item") is True
+    assert removing.clicked is True
+
+    # Clearing Saved Items must still be able to click those links.
+    saving_again = _LinkPage("/cart?cartrowid=1&cartremoveqty=1&saveforlater=1")
+    assert _click_possibly_hidden(saving_again, "a.x", allow_save_links=True) is True
+
+
+def test_the_per_line_selector_also_requires_the_removing_href() -> None:
+    """This path builds its own selector and bypasses REMOVE_CONTROL_SELECTORS
+    entirely, which is why fixing those alone did not stop items being saved."""
+    from pathlib import Path
+
+    source = Path("probe_cart_price.py").read_text(encoding="utf-8")
+
+    # The per-line selector must key on the href, not the shared title.
+    assert 'a.cart-remove-item[href*="saveforlater=0"][data-sku=' in source
+    assert 'a.cart-remove-item[title="Remove item from cart."][data-sku=' not in source

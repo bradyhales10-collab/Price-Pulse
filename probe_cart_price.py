@@ -1209,13 +1209,20 @@ def collect_cart_line_records(page) -> list[dict[str, object]]:
                 Number(right.hasAttribute('data-part-pulse-cart-line')) - Number(left.hasAttribute('data-part-pulse-cart-line'))
               );
               return uniqueRows.slice(0, 100).map((el, index) => {
-              const remove = el.matches('a.cart-remove-item,.removeCartItem,[data-part-pulse-cart-remove]') ? el : el.querySelector('a.cart-remove-item[title="Remove item from cart."],.removeCartItem,[data-part-pulse-cart-remove]');
+              // saveforlater=0 removes; saveforlater=1 moves the item to Saved
+              // Items. Both links carry class cart-remove-item AND the title
+              // "Remove item from cart.", so neither distinguishes them and
+              // matching on those alone saved items instead of removing them.
+              const removesForReal = 'a.cart-remove-item[href*="saveforlater=0"]';
+              const remove = el.matches(removesForReal + ',.removeCartItem,[data-part-pulse-cart-remove]')
+                ? el
+                : el.querySelector(removesForReal + ',.removeCartItem,[data-part-pulse-cart-remove]');
               const qtyInput = el.querySelector('input.quantity-selector-input,input[id^="amount_"]');
               const dataSku = el.getAttribute('data-sku') || (remove ? remove.getAttribute('data-sku') : '') || '';
               const dataQuantity = el.getAttribute('data-quantity') || (remove ? remove.getAttribute('data-quantity') : '') || (qtyInput ? qtyInput.value : '') || '';
               const removeSelector = (() => {
                 if (remove && dataSku) {
-                  return `a.cart-remove-item[title="Remove item from cart."][data-sku="${CSS.escape(dataSku)}"]`;
+                  return `a.cart-remove-item[href*="saveforlater=0"][data-sku="${CSS.escape(dataSku)}"]`;
                 }
                 if (remove && remove.hasAttribute('data-part-pulse-cart-remove')) {
                   return `[data-part-pulse-cart-remove="${remove.getAttribute('data-part-pulse-cart-remove')}"]`;
@@ -1892,7 +1899,38 @@ def _await_cart_change(page, *, lines_before: int, timeout_ms: int = 6000, inter
     return "unchanged"
 
 
-def _click_possibly_hidden(page, selector: str) -> bool:
+def _would_save_instead_of_remove(page, selector: str) -> bool:
+    """Whether this selector points at a link that saves rather than removes.
+
+    A last line of defence. Several code paths build their own removal selectors,
+    and MotoSport's save link shares both the class and the title of the real
+    one, differing only in the href. Checking the element itself before clicking
+    means a mistake anywhere in that chain cannot silently move an item to Saved
+    Items instead of deleting it.
+    """
+    try:
+        return bool(
+            page.evaluate(
+                """
+                (sel) => {
+                  let el = null;
+                  try { el = document.querySelector(sel); } catch (e) { return false; }
+                  if (!el) return false;
+                  const href = el.getAttribute('href') || '';
+                  // A definite marker rather than a bare true, so a caller can
+                  // only conclude "this saves" from a positive identification.
+                  return href.includes('saveforlater=1') ? 'save' : 'remove';
+                }
+                """,
+                selector,
+            )
+            == "save"
+        )
+    except Exception:
+        return False
+
+
+def _click_possibly_hidden(page, selector: str, *, allow_save_links: bool = False) -> bool:
     """Click a control that may be deliberately hidden from sight.
 
     MotoSport's real removal control carries the class sr-only: it exists for
@@ -1903,6 +1941,12 @@ def _click_possibly_hidden(page, selector: str) -> bool:
     So an ordinary click is tried first, since that is the most faithful to what
     a person does, then a forced click, then dispatching the event directly.
     """
+    # Clearing Saved Items deliberately clicks those very links, so the guard is
+    # only for removing from the cart.
+    if not allow_save_links and _would_save_instead_of_remove(page, selector):
+        # Refusing is correct: saving the item leaves the cart unchanged and
+        # grows the saved list, which is worse than reporting a failure.
+        return False
     try:
         page.locator(selector).first.click(timeout=4000)
         return True
@@ -1992,7 +2036,7 @@ def clear_saved_items(page, *, max_items: int = 200) -> dict[str, object]:
         if not count:
             return {"cleared": True, "removed": removed, "reason": "no_saved_items"}
         before = count
-        if not _click_possibly_hidden(page, selector):
+        if not _click_possibly_hidden(page, selector, allow_save_links=True):
             return {"cleared": False, "removed": removed, "reason": "click_failed"}
         page.wait_for_timeout(800)
         try:
