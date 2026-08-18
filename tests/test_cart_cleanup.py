@@ -738,3 +738,125 @@ def test_a_removal_is_confirmed_even_while_the_badge_trails() -> None:
         result = clear_whole_cart(cart)
         assert result["cleared"] is True, size
         assert cart.items == 0, size
+
+
+def test_a_stale_control_after_the_last_removal_is_not_reported_as_failure() -> None:
+    """A real run removed all five items and then reported failure on the last
+    one, with the reload immediately afterwards confirming the cart was empty:
+
+        removed: 5, reason: remove_had_no_effect
+        Cart lines remaining after reload: 0
+        The cart is empty.
+
+    The page kept showing one stale control after the final removal. Reloading
+    and looking again distinguishes that from a removal that genuinely did
+    nothing.
+    """
+    from probe_cart_price import clear_whole_cart
+
+    class _StaleLastControl:
+        def __init__(self, items: int) -> None:
+            self.items = items
+            self.stale = False
+            self.clicks = 0
+            self.reloads = 0
+
+        def evaluate(self, script: str, arg=None):
+            if "querySelector" in script and arg:
+                self.clicks += 1
+                if self.items > 0:
+                    self.items -= 1
+                if self.items == 0:
+                    self.stale = True
+                return True
+            return self.items
+
+        def locator(self, selector: str):
+            page = self
+
+            class _Locator:
+                def count(self) -> int:
+                    if selector == "body":
+                        return 1
+                    visible = page.items + (1 if page.stale else 0)
+                    if visible <= 0:
+                        return 0
+                    return visible if "cart-remove-item" in selector else 0
+
+                @property
+                def first(self):
+                    return self
+
+                def click(self, timeout: int | None = None, force: bool = False) -> None:
+                    page.clicks += 1
+                    if page.items > 0:
+                        page.items -= 1
+                    if page.items == 0:
+                        page.stale = True
+
+                def inner_text(self, timeout: int | None = None) -> str:
+                    if page.items <= 0 and not page.stale:
+                        return "Your Cart is Empty"
+                    return "Your Cart Subtotal $100 Remove"
+
+            return _Locator()
+
+        def reload(self, **kwargs) -> None:
+            self.reloads += 1
+            self.stale = False
+
+        def wait_for_timeout(self, milliseconds: int) -> None:
+            return None
+
+    cart = _StaleLastControl(5)
+    result = clear_whole_cart(cart)
+
+    assert result["cleared"] is True
+    assert cart.items == 0
+    assert cart.reloads >= 1
+
+
+def test_a_removal_that_truly_does_nothing_is_still_reported() -> None:
+    """Reloading must not turn a real failure into a false success."""
+    from probe_cart_price import clear_whole_cart
+
+    class _NeverRemoves:
+        def __init__(self) -> None:
+            self.reloads = 0
+
+        def evaluate(self, script: str, arg=None):
+            if "querySelector" in script and arg:
+                return True
+            return 3
+
+        def locator(self, selector: str):
+            class _Locator:
+                def count(self) -> int:
+                    if selector == "body":
+                        return 1
+                    return 3 if "cart-remove-item" in selector else 0
+
+                @property
+                def first(self):
+                    return self
+
+                def click(self, timeout: int | None = None, force: bool = False) -> None:
+                    return None
+
+                def inner_text(self, timeout: int | None = None) -> str:
+                    return "Your Cart Subtotal $100 Remove"
+
+            return _Locator()
+
+        def reload(self, **kwargs) -> None:
+            self.reloads += 1
+
+        def wait_for_timeout(self, milliseconds: int) -> None:
+            return None
+
+    cart = _NeverRemoves()
+    result = clear_whole_cart(cart)
+
+    assert result["cleared"] is False
+    assert result["reason"] == "remove_had_no_effect"
+    assert "after waiting and reloading" in result["detail"]

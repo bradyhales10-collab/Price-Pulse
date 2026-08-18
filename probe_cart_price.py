@@ -1980,8 +1980,25 @@ def clear_whole_cart(page, *, max_items: int = 60) -> dict[str, object]:
         if outcome == "empty":
             return {"cleared": True, "removed": removed + 1, "reason": "cart_empty", "detail": "; ".join(diagnostics)}
         if outcome == "unchanged":
+            # The removal may well have worked while the page kept showing a
+            # stale control: a real run removed every item and then reported
+            # failure on the last one, with a reload immediately confirming the
+            # cart was empty. So reload and look again before concluding
+            # anything, rather than reporting a failure that has not happened.
+            try:
+                page.reload(wait_until="domcontentloaded", timeout=30000)
+                page.wait_for_timeout(2000)
+            except Exception:
+                pass
+            if cart_is_empty(page):
+                return {"cleared": True, "removed": removed + 1, "reason": "cart_empty", "detail": "; ".join(diagnostics)}
+            _, still_there = find_remove_controls(page)
+            if still_there < lines_before:
+                # It did remove something, so carry on rather than stopping.
+                removed += 1
+                continue
             diagnostics.append(
-                f"clicking {selector} left {count_cart_lines(page)} line(s) after waiting, unchanged"
+                f"clicking {selector} left {still_there} line(s) after waiting and reloading, unchanged"
             )
             return {"cleared": False, "removed": removed, "reason": "remove_had_no_effect", "detail": "; ".join(diagnostics)}
         removed += 1
