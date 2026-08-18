@@ -100,7 +100,10 @@ def test_items_with_no_remove_control_are_reported_not_guessed_at() -> None:
                     return 1 if selector == "body" else 0
 
                 def inner_text(self, timeout: int | None = None) -> str:
-                    return "Some Item In Cart"
+                    # A real cart page holding items always shows an order
+                    # summary with a subtotal, which is what distinguishes it
+                    # from an empty one when no removal control can be found.
+                    return "Your Cart Some Item In Cart Order Summary Subtotal $42.00"
 
                 @property
                 def first(self):
@@ -543,74 +546,6 @@ def test_a_hidden_mini_cart_saying_empty_does_not_stop_clearing() -> None:
     assert result["cleared"] is True
     assert result["removed"] == 19
     assert page.items == 0
-
-
-def test_emptiness_is_decided_by_the_badge_when_it_is_available() -> None:
-    from probe_cart_price import cart_is_empty
-
-    class _Page:
-        def __init__(self, badge: int) -> None:
-            self.badge = badge
-
-        def evaluate(self, script: str, arg=None):
-            return self.badge
-
-        def locator(self, selector: str):
-            class _Locator:
-                def count(self) -> int:
-                    return 1
-
-                def inner_text(self, timeout: int | None = None) -> str:
-                    # Claims empty regardless, as the real page does.
-                    return "your cart is empty"
-
-            return _Locator()
-
-    assert cart_is_empty(_Page(0)) is True
-    assert cart_is_empty(_Page(9)) is False
-    assert cart_is_empty(_Page(19)) is False
-
-
-def test_a_cart_control_showing_no_number_means_the_cart_is_empty() -> None:
-    """The reported contradiction: clearing removed 8 items and the badge was
-    seen reaching zero, yet the report said "left 1 line(s), unchanged" and then
-    "95 lines remaining".
-
-    An empty cart shows the cart control with no number at all. That was read as
-    "unknown", so the caller fell back to counting rows, whose selectors match
-    unrelated page elements: a genuinely empty cart came back as 95 lines.
-    """
-    from probe_cart_price import cart_badge_count, cart_is_empty
-
-    class _Page:
-        def __init__(self, badge_result: int) -> None:
-            self.badge_result = badge_result
-
-        def evaluate(self, script: str, arg=None):
-            return self.badge_result
-
-        def locator(self, selector: str):
-            class _Locator:
-                def count(self) -> int:
-                    return 1
-
-                def inner_text(self, timeout: int | None = None) -> str:
-                    return "your cart is empty"
-
-            return _Locator()
-
-    # A control with a number: that many items.
-    assert cart_badge_count(_Page(19)) == 19
-    assert cart_is_empty(_Page(19)) is False
-
-    # A control present but showing no number: empty, not unknown.
-    assert cart_badge_count(_Page(0)) == 0
-    assert cart_is_empty(_Page(0)) is True
-
-    # No cart control found at all is genuinely unknown.
-    assert cart_badge_count(_Page(-1)) == -1
-
-
 def test_a_cart_clears_completely_at_several_sizes() -> None:
     """End to end against a cart that behaves as the real one does: a number
     while items remain, no number once empty."""
@@ -699,3 +634,107 @@ def test_the_shape_fallback_skips_saved_items() -> None:
 
     assert "saved" in FIND_REMOVE_BY_SHAPE
     assert "closest" in FIND_REMOVE_BY_SHAPE
+
+
+def test_a_lagging_badge_does_not_make_a_full_cart_look_empty() -> None:
+    """The badge takes a few seconds to update. Reading "control present but no
+    number" as zero items meant that right after a page load, before the badge
+    populated, a full cart looked empty: clearing declared success and stopped
+    without removing anything.
+
+    Emptiness is decided by whether a removal control exists, which appears with
+    the DOM rather than seconds later. If there is a control, there is something
+    to remove, whatever the badge currently says.
+    """
+    from probe_cart_price import cart_is_empty
+
+    class _Page:
+        def __init__(self, controls: int, badge: int, text: str) -> None:
+            self.controls = controls
+            self.badge = badge
+            self.text = text
+
+        def locator(self, selector: str):
+            page = self
+
+            class _Locator:
+                def count(self) -> int:
+                    if selector == "body":
+                        return 1
+                    return page.controls if "cart-remove-item" in selector else 0
+
+                def inner_text(self, timeout: int | None = None) -> str:
+                    return page.text
+
+            return _Locator()
+
+        def evaluate(self, script: str, arg=None):
+            return self.badge
+
+    full_but_badge_not_loaded = _Page(4, 0, "Your Cart Order Summary Subtotal $1593.19")
+    assert cart_is_empty(full_but_badge_not_loaded) is False
+
+    genuinely_empty = _Page(0, 0, "Your Cart is Empty Continue Shopping")
+    assert cart_is_empty(genuinely_empty) is True
+
+    # And the hidden mini-cart text still must not fool it.
+    mini_cart_claims_empty = _Page(4, 4, "Your Cart Item Remove your cart is empty Subtotal")
+    assert cart_is_empty(mini_cart_claims_empty) is False
+
+
+def test_a_removal_is_confirmed_even_while_the_badge_trails() -> None:
+    """Comparing badge counts read a successful removal as unchanged for several
+    seconds, which stopped clearing partway."""
+    from probe_cart_price import clear_whole_cart
+
+    class _LaggingBadgeCart:
+        def __init__(self, items: int) -> None:
+            self.items = items
+            self.badge = items
+            self.lag = 0
+            self.clicks = 0
+
+        def evaluate(self, script: str, arg=None):
+            if "querySelector" in script and arg:
+                self.items -= 1
+                self.clicks += 1
+                self.lag = 5
+                return True
+            return self.badge
+
+        def locator(self, selector: str):
+            page = self
+
+            class _Locator:
+                def count(self) -> int:
+                    if selector == "body":
+                        return 1
+                    if page.items <= 0:
+                        return 0
+                    return page.items if "cart-remove-item" in selector else 0
+
+                @property
+                def first(self):
+                    return self
+
+                def click(self, timeout: int | None = None, force: bool = False) -> None:
+                    page.clicks += 1
+                    page.items -= 1
+                    page.lag = 5
+
+                def inner_text(self, timeout: int | None = None) -> str:
+                    return "Your Cart is Empty" if page.items <= 0 else "Your Cart Subtotal $100 Remove"
+
+            return _Locator()
+
+        def wait_for_timeout(self, milliseconds: int) -> None:
+            if self.lag:
+                self.lag -= 1
+                if self.lag == 0:
+                    self.badge = self.items
+
+    for size in (4, 19):
+        cart = _LaggingBadgeCart(size)
+        result = clear_whole_cart(cart)
+        assert result["cleared"] is True, size
+        assert cart.items == 0, size

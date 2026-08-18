@@ -1839,7 +1839,11 @@ def _await_cart_change(page, *, lines_before: int, timeout_ms: int = 10000, inte
     while waited < timeout_ms:
         if cart_is_empty(page):
             return "empty"
-        if lines_before and count_cart_lines(page) < lines_before:
+        # Count removal controls rather than the badge. One control per cart
+        # line, updated with the DOM rather than seconds later, so a removal is
+        # visible here as soon as it has happened.
+        _, controls_now = find_remove_controls(page)
+        if lines_before and controls_now < lines_before:
             return "removed"
         page.wait_for_timeout(interval_ms)
         waited += interval_ms
@@ -1888,20 +1892,33 @@ def _click_possibly_hidden(page, selector: str) -> bool:
 def cart_is_empty(page) -> bool:
     """Whether the cart really holds nothing.
 
-    The badge decides when it is available, because it is the site's own count.
-    Page text alone is not reliable: MotoSport's markup includes a hidden
-    mini-cart whose text contains "your cart is empty" regardless of what is
-    actually in the cart, so matching on that declared success with nine items
-    still in the cart.
+    Decided by whether any removal control exists, not by the badge. The badge
+    takes a few seconds to update, so immediately after a page load or a removal
+    it can read as no number at all, which was being taken to mean zero items:
+    clearing then declared success and stopped with the cart still full. The
+    page text is no better, because a hidden mini-cart claims the cart is empty
+    regardless.
+
+    A removal control is the thing that actually matters here: if there is one,
+    there is something to remove, whatever the badge currently says. Controls
+    inside Saved Items are excluded, since those are not in the cart.
     """
+    _, controls = find_remove_controls(page)
+    if controls:
+        return False
+    # No controls found. Corroborate before concluding the cart is empty, since
+    # a page that has not finished rendering also has none.
     badge = cart_badge_count(page)
-    if badge >= 0:
-        return badge == 0
+    if badge > 0:
+        return False
     try:
         text = page.locator("body").inner_text(timeout=2000) if page.locator("body").count() else ""
     except Exception:
         return False
-    return _cart_empty_text(text)
+    # A full cart shows an order summary with a subtotal; an empty one says so.
+    if "your cart is empty" in text.lower():
+        return True
+    return "subtotal" not in text.lower()
 
 
 def clear_whole_cart(page, *, max_items: int = 60) -> dict[str, object]:
@@ -1924,8 +1941,11 @@ def clear_whole_cart(page, *, max_items: int = 60) -> dict[str, object]:
         if cart_is_empty(page):
             return {"cleared": True, "removed": removed, "reason": "cart_empty", "detail": "; ".join(diagnostics)}
 
-        lines_before = count_cart_lines(page)
         selector, control_count = find_remove_controls(page)
+        # One control per removable cart line, so this is the count to compare
+        # against afterwards. The badge is not usable for this: it updates a few
+        # seconds behind, so a successful removal reads as unchanged.
+        lines_before = control_count
         if not control_count:
             # No selector matched, so fall back to finding the control by shape.
             # Giving up here is what left carts full when the trash can carries
