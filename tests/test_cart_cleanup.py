@@ -358,7 +358,8 @@ def test_the_quantity_stepper_is_not_mistaken_for_the_remove_control() -> None:
         def locator(self, selector: str):
             class _Locator:
                 def count(self) -> int:
-                    if selector == "a.cart-remove-item":
+                    # The exact href match is now tried before the class.
+                    if "saveforlater=0" in selector:
                         return 4
                     if "stepper" in selector:
                         return 0
@@ -371,7 +372,7 @@ def test_the_quantity_stepper_is_not_mistaken_for_the_remove_control() -> None:
 
     selector, count = find_remove_controls(_RealCart())
 
-    assert selector == "a.cart-remove-item"
+    assert "saveforlater=0" in selector
     assert count == 4
 
 
@@ -380,7 +381,7 @@ def test_the_genuine_remove_link_is_preferred_over_generic_matches() -> None:
 
     generic = REMOVE_CONTROL_SELECTORS.index("button[aria-label*='Remove' i]:not([class*='stepper' i])")
 
-    for specific in ("a.cart-remove-item", "a[class*='remove-fallback' i]", "a[href*='cartremoveqty' i]"):
+    for specific in ("a[href*='saveforlater=0']", "a.cart-remove-item[href*='saveforlater=0']"):
         assert REMOVE_CONTROL_SELECTORS.index(specific) < generic, specific
 
 
@@ -914,3 +915,88 @@ def test_counting_controls_during_a_poll_costs_one_query() -> None:
 
     assert probe_cart_price._count_known_controls(page) == 2
     assert page.queries == 1
+
+
+def test_a_link_that_saves_for_later_is_never_used_to_remove() -> None:
+    """The cause of the Saved Items list. MotoSport distinguishes the two actions
+    in the link itself:
+
+        ...&cartremoveqty=1&saveforlater=0   removes the item
+        ...&cartremoveqty=1&saveforlater=1   moves it to Saved Items
+
+    Both carry the class cart-remove-item, so matching on the class alone could
+    save an item instead of removing it. Every part checked would then leave one
+    behind, which is how the list grew.
+    """
+    from probe_cart_price import REMOVE_CONTROL_SELECTORS
+
+    # The exact removing form is tried first.
+    assert REMOVE_CONTROL_SELECTORS[0] == "a[href*='saveforlater=0']"
+
+    # And no selector may match a saving link.
+    class _OnlySavingLinks:
+        def locator(self, selector: str):
+            class _Locator:
+                def count(self) -> int:
+                    # Stands in for a page whose only cart-remove-item links
+                    # save rather than remove.
+                    if "saveforlater=0" in selector:
+                        return 0
+                    if "not([href*='saveforlater=1'])" in selector:
+                        return 0
+                    return 3 if "cart-remove-item" in selector else 0
+
+            return _Locator()
+
+    import probe_cart_price
+    from probe_cart_price import find_remove_controls
+
+    probe_cart_price._KNOWN_REMOVE_SELECTOR = ""
+    selector, _ = find_remove_controls(_OnlySavingLinks())
+
+    # It may fall through to a generic match, but never to one that would save.
+    assert "saveforlater=1" not in selector
+
+
+def test_saved_items_can_be_cleared() -> None:
+    """Saved Items do not affect a price reading, but they render on the cart
+    page, so a long list slows every cart page load."""
+    from probe_cart_price import clear_saved_items
+
+    class _SavedItemsPage:
+        def __init__(self, count: int) -> None:
+            self.count_remaining = count
+            self.clicks = 0
+
+        def locator(self, selector: str):
+            page = self
+
+            class _Locator:
+                def count(self) -> int:
+                    return page.count_remaining if "saveforlater=1" in selector else 0
+
+                @property
+                def first(self):
+                    return self
+
+                def click(self, timeout: int | None = None, force: bool = False) -> None:
+                    page.clicks += 1
+                    page.count_remaining -= 1
+
+            return _Locator()
+
+        def evaluate(self, script: str, arg=None):
+            return True
+
+        def reload(self, **kwargs) -> None:
+            return None
+
+        def wait_for_timeout(self, milliseconds: int) -> None:
+            return None
+
+    for size in (0, 5, 40):
+        page = _SavedItemsPage(size)
+        result = clear_saved_items(page)
+        assert result["cleared"] is True, size
+        assert result["removed"] == size, size
+        assert page.count_remaining == 0, size

@@ -103,7 +103,7 @@ def main() -> int:
             page.wait_for_timeout(3000)
 
             from app.browser_profile import browser_profile_dir
-            from probe_cart_price import clear_whole_cart, count_cart_lines
+            from probe_cart_price import clear_saved_items, clear_whole_cart, count_cart_lines
 
             # "0 lines" on its own is ambiguous between an empty cart, the wrong
             # browser session, and a page that has not finished rendering. These
@@ -148,6 +148,14 @@ def main() -> int:
             print(f"  reason:  {result['reason']}")
             if result.get("detail"):
                 print(f"  detail:  {result['detail']}")
+
+            # Saved Items are not in the cart, but they render on the same page,
+            # so a long list slows every cart page load.
+            print("\nClearing saved items...\n")
+            saved = clear_saved_items(page)
+            print(f"  cleared: {saved['cleared']}")
+            print(f"  removed: {saved['removed']}")
+            print(f"  reason:  {saved['reason']}")
 
             page.reload(wait_until="domcontentloaded", timeout=45000)
             page.wait_for_timeout(2500)

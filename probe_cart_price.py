@@ -1656,8 +1656,15 @@ def extract_quantity(text: str) -> int | None:
 # stepper appears first in the document, so a generic aria-label match found it
 # and clicked it, which is why quantities changed while lines stayed.
 REMOVE_CONTROL_SELECTORS = (
-    # The genuine removal link, matched by its own class and title first.
-    "a.cart-remove-item",
+    # Exact first. MotoSport distinguishes the two actions in the link itself:
+    # saveforlater=0 removes the item, saveforlater=1 moves it to Saved Items.
+    # Both carry the class cart-remove-item, so matching on the class alone can
+    # save an item instead of removing it, which is how a large Saved Items list
+    # accumulated.
+    "a[href*='saveforlater=0']",
+    "a.cart-remove-item[href*='saveforlater=0']",
+    # Never a link that saves rather than removes.
+    "a.cart-remove-item:not([href*='saveforlater=1'])",
     "a[class*='remove-fallback' i]",
     "a[title*='Remove item from cart' i]",
     "[title*='Remove item from cart' i]",
@@ -1954,6 +1961,55 @@ def cart_is_empty(page) -> bool:
     if "your cart is empty" in text.lower():
         return True
     return "subtotal" not in text.lower()
+
+
+SAVED_ITEM_SELECTORS = (
+    "a[href*='saveforlater=1'][href*='cartremoveqty']",
+    "[class*='saved' i] a.cart-remove-item",
+)
+
+
+def clear_saved_items(page, *, max_items: int = 200) -> dict[str, object]:
+    """Remove everything from Saved Items.
+
+    Saved Items are not in the cart and do not affect a price reading, but they
+    are rendered on the same page, so a long list makes every cart page load
+    slower. They accumulated because the link that saves an item looks almost
+    identical to the one that removes it.
+    """
+    removed = 0
+    for _attempt in range(max_items):
+        selector = ""
+        count = 0
+        for candidate in SAVED_ITEM_SELECTORS:
+            try:
+                found = page.locator(candidate).count()
+            except Exception:
+                continue
+            if found:
+                selector, count = candidate, found
+                break
+        if not count:
+            return {"cleared": True, "removed": removed, "reason": "no_saved_items"}
+        before = count
+        if not _click_possibly_hidden(page, selector):
+            return {"cleared": False, "removed": removed, "reason": "click_failed"}
+        page.wait_for_timeout(800)
+        try:
+            after = page.locator(selector).count()
+        except Exception:
+            after = before
+        if after >= before:
+            try:
+                page.reload(wait_until="domcontentloaded", timeout=30000)
+                page.wait_for_timeout(1500)
+                after = page.locator(selector).count()
+            except Exception:
+                pass
+            if after >= before:
+                return {"cleared": False, "removed": removed, "reason": "remove_had_no_effect"}
+        removed += 1
+    return {"cleared": False, "removed": removed, "reason": "too_many_items"}
 
 
 def clear_whole_cart(page, *, max_items: int = 60) -> dict[str, object]:
