@@ -275,3 +275,20 @@ def test_the_stop_reason_says_the_browser_closed() -> None:
 
     assert "the browser closed unexpectedly at part" in source
     assert "browser_is_gone(row.status_reason)" in source
+
+
+def test_a_part_taking_too_long_is_reported() -> None:
+    """A freeze produces no crash file, because a hang throws nothing: there is
+    no exception to catch and nothing to record. RevZilla stopped around part 900
+    with no error and no crash file for exactly that reason.
+
+    Individual browser calls have timeouts, but nothing bounded a whole part, so
+    a stall between those calls left the run waiting indefinitely.
+    """
+    from pathlib import Path
+
+    source = Path("collect_parts.py").read_text(encoding="utf-8")
+
+    assert "PART_TIME_LIMIT_SECONDS" in source
+    assert "part_started = time.monotonic()" in source
+    assert "longer than the" in source

@@ -123,6 +123,13 @@ COMPETITOR_RENDER_SETTLE_MS = 1000
 BODY_TEXT_TIMEOUT_MS = 8000
 MOTOSPORT_CART_URL = "https://www.motosport.com/cart"
 
+# No single part should take this long. Individual browser calls have their own
+# timeouts, but nothing bounded a whole part, so a stall between those calls hung
+# the run indefinitely with no error and no crash file: a freeze throws nothing,
+# so there is nothing to catch or record. This makes a hang visible as a stopped
+# run with a reason, rather than a price check that never finishes.
+PART_TIME_LIMIT_SECONDS = 180
+
 # Playwright reports this when the browser it was driving no longer exists,
 # whether it crashed, ran out of memory, or was closed by hand. Nothing after
 # that point can succeed: every remaining part fails identically. It is not a
@@ -349,6 +356,7 @@ def run_collection(args, plan) -> int:
                     f"{args.delay_seconds}s, because this run covers {len(plan.planned_parts)} parts."
                 )
             for planned in plan.planned_parts:
+                part_started = time.monotonic()
                 try:
                     if result.rows and competitor_supports_manufacturer(competitor_key, planned.manufacturer):
                         time.sleep(jittered_delay(run_delay_seconds))
@@ -380,6 +388,12 @@ def run_collection(args, plan) -> int:
                         except Exception:
                             pass
                         row = collection_error_row(args.database, planned, scan_run_id, competitor_key, exc)
+                    part_seconds = time.monotonic() - part_started
+                    if part_seconds > PART_TIME_LIMIT_SECONDS:
+                        print(
+                            f"  {planned.oem_part_number} took {part_seconds:.0f}s, longer than the "
+                            f"{PART_TIME_LIMIT_SECONDS}s limit."
+                        )
                     result.rows.append(row)
                     result.last_attempted_part = planned.oem_part_number
                     print(f"[{planned.run_order}/{len(plan.planned_parts)}] {planned.oem_part_number} | {row.selling_price or ''} | {row.result_type.upper()}")

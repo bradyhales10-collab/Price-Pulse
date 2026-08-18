@@ -9,7 +9,12 @@ if not exist ".venv\Scripts\python.exe" (
   exit /b 1
 )
 
-".venv\Scripts\python.exe" explain_last_run.py
+rem Written to a file as well as the screen, so the output survives even if the
+rem window closes, and can be sent on for someone else to read.
+".venv\Scripts\python.exe" explain_last_run.py > what_happened.txt 2>&1
+type what_happened.txt
 
+echo.
+echo A copy was saved to what_happened.txt in this folder.
 echo.
 pause
