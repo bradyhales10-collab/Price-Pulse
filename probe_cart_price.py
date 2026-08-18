@@ -1811,8 +1811,27 @@ SAVED_ITEMS_EXCLUSION = (
 )
 
 
+# The selector that last worked. Probing 22 selectors in two forms each costs 44
+# round trips to the browser, and that probe sits inside a loop polling 25 times
+# per removal: roughly 1,100 queries to remove one item, against one text read
+# and one click before. Remembering the answer makes the usual case two queries.
+_KNOWN_REMOVE_SELECTOR: str = ""
+
+
 def find_remove_controls(page) -> tuple[str, int]:
     """The first selector that matches a removal control, and how many it found."""
+    global _KNOWN_REMOVE_SELECTOR
+
+    # The one that worked last time, first. The page does not change shape
+    # between parts, so this is almost always the answer.
+    if _KNOWN_REMOVE_SELECTOR:
+        try:
+            count = page.locator(_KNOWN_REMOVE_SELECTOR).count()
+            if count:
+                return _KNOWN_REMOVE_SELECTOR, count
+        except Exception:
+            pass
+
     for selector in REMOVE_CONTROL_SELECTORS:
         # Prefer the same selector scoped away from Saved Items. Those rows sit
         # on the cart page with their own Remove links and the same part
@@ -1824,11 +1843,27 @@ def find_remove_controls(page) -> tuple[str, int]:
             except Exception:
                 continue
             if count:
+                _KNOWN_REMOVE_SELECTOR = candidate
                 return candidate, count
     return "", 0
 
 
-def _await_cart_change(page, *, lines_before: int, timeout_ms: int = 10000, interval_ms: int = 400) -> str:
+def _count_known_controls(page) -> int:
+    """Count removal controls using the selector already known to work.
+
+    One query rather than forty-four, which matters because this is called on
+    every poll of every removal.
+    """
+    if _KNOWN_REMOVE_SELECTOR:
+        try:
+            return page.locator(_KNOWN_REMOVE_SELECTOR).count()
+        except Exception:
+            return -1
+    _, count = find_remove_controls(page)
+    return count
+
+
+def _await_cart_change(page, *, lines_before: int, timeout_ms: int = 6000, interval_ms: int = 250) -> str:
     """Wait until the cart empties or loses a line.
 
     Returns "empty", "removed", or "unchanged". Polling for the change the click
@@ -1837,12 +1872,12 @@ def _await_cart_change(page, *, lines_before: int, timeout_ms: int = 10000, inte
     """
     waited = 0
     while waited < timeout_ms:
-        if cart_is_empty(page):
+        # Deliberately cheap. This runs on every poll, so it counts controls with
+        # the known selector rather than calling cart_is_empty, which re-probes
+        # every selector and re-reads the page text each time.
+        controls_now = _count_known_controls(page)
+        if controls_now == 0:
             return "empty"
-        # Count removal controls rather than the badge. One control per cart
-        # line, updated with the DOM rather than seconds later, so a removal is
-        # visible here as soon as it has happened.
-        _, controls_now = find_remove_controls(page)
         if lines_before and controls_now < lines_before:
             return "removed"
         page.wait_for_timeout(interval_ms)
@@ -1985,9 +2020,15 @@ def clear_whole_cart(page, *, max_items: int = 60) -> dict[str, object]:
             # failure on the last one, with a reload immediately confirming the
             # cart was empty. So reload and look again before concluding
             # anything, rather than reporting a failure that has not happened.
+            # Only worth a reload when the page claims a single control remains,
+            # which is the stale-last-item case this exists for. Reloading on
+            # every unchanged verdict costs a full page load each time.
+            if _count_known_controls(page) > 1:
+                diagnostics.append(f"clicking {selector} left {lines_before} line(s), unchanged")
+                return {"cleared": False, "removed": removed, "reason": "remove_had_no_effect", "detail": "; ".join(diagnostics)}
             try:
                 page.reload(wait_until="domcontentloaded", timeout=30000)
-                page.wait_for_timeout(2000)
+                page.wait_for_timeout(1500)
             except Exception:
                 pass
             if cart_is_empty(page):

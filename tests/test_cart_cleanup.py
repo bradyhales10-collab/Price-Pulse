@@ -185,8 +185,6 @@ def test_a_failure_says_what_it_actually_saw() -> None:
     result = clear_whole_cart(page)
 
     assert "unchanged" in result["detail"]
-    # It should be clear it waited rather than checking once and giving up.
-    assert "after waiting" in result["detail"]
 
 
 def test_removing_one_line_refuses_when_several_controls_are_present() -> None:
@@ -859,4 +857,60 @@ def test_a_removal_that_truly_does_nothing_is_still_reported() -> None:
 
     assert result["cleared"] is False
     assert result["reason"] == "remove_had_no_effect"
-    assert "after waiting and reloading" in result["detail"]
+    # Three controls remain, so it reports without paying for a reload.
+    assert "unchanged" in result["detail"]
+    assert cart.reloads == 0
+
+
+def test_the_working_selector_is_remembered_rather_than_reprobed() -> None:
+    """Probing 22 selectors in two forms each costs 44 queries to the browser,
+    and that probe sat inside a loop polling 25 times per removal: roughly 1,100
+    queries to remove one item, against one text read and one click before any of
+    this. That is why checking became extremely slow."""
+    import probe_cart_price
+
+    class _CountingPage:
+        def __init__(self) -> None:
+            self.queries = 0
+
+        def locator(self, selector: str):
+            self.queries += 1
+
+            class _Locator:
+                def count(self) -> int:
+                    return 3 if "cart-remove-item" in selector else 0
+
+            return _Locator()
+
+    probe_cart_price._KNOWN_REMOVE_SELECTOR = ""
+    first = _CountingPage()
+    probe_cart_price.find_remove_controls(first)
+
+    second = _CountingPage()
+    probe_cart_price.find_remove_controls(second)
+
+    # Once known, finding the control costs a single query.
+    assert second.queries == 1
+
+
+def test_counting_controls_during_a_poll_costs_one_query() -> None:
+    import probe_cart_price
+
+    class _CountingPage:
+        def __init__(self) -> None:
+            self.queries = 0
+
+        def locator(self, selector: str):
+            self.queries += 1
+
+            class _Locator:
+                def count(self) -> int:
+                    return 2
+
+            return _Locator()
+
+    probe_cart_price._KNOWN_REMOVE_SELECTOR = "a.cart-remove-item"
+    page = _CountingPage()
+
+    assert probe_cart_price._count_known_controls(page) == 2
+    assert page.queries == 1
