@@ -1841,6 +1841,12 @@ CART_ACTION_LOG = Path(__file__).resolve().parent / "data" / "output" / "cart_ac
 
 
 def log_cart_action(message: str) -> None:
+    # The test suite exercises these same functions, and its entries were mixed
+    # into the real record: the log sent for diagnosis opened with dozens of
+    # lines from fake pages, which is misleading at exactly the moment clarity
+    # matters. Tests are identified by pytest being loaded.
+    if "pytest" in sys.modules:
+        return
     try:
         CART_ACTION_LOG.parent.mkdir(parents=True, exist_ok=True)
         with CART_ACTION_LOG.open("a", encoding="utf-8") as handle:
@@ -2097,7 +2103,7 @@ def clear_saved_items(page, *, max_items: int = 200) -> dict[str, object]:
     return {"cleared": False, "removed": removed, "reason": "too_many_items"}
 
 
-def clear_whole_cart(page, *, max_items: int = 60) -> dict[str, object]:
+def clear_whole_cart(page, *, max_items: int = 60, time_budget_seconds: float | None = None) -> dict[str, object]:
     """Remove every line from the cart.
 
     Reading a MotoSport price means adding the item to the cart, so the cart has
@@ -2108,8 +2114,19 @@ def clear_whole_cart(page, *, max_items: int = 60) -> dict[str, object]:
     """
     removed = 0
     diagnostics: list[str] = []
+    started = time.monotonic()
     log_cart_action(f"clear_whole_cart starting, badge says {cart_badge_count(page)}")
     for _attempt in range(max_items):
+        if time_budget_seconds is not None and time.monotonic() - started > time_budget_seconds:
+            # Out of time for this part. What remains is cleared by the parts
+            # that follow, rather than one part carrying the whole backlog.
+            log_cart_action(f"clear_whole_cart paused after {removed} removal(s), out of time for this part")
+            return {
+                "cleared": False,
+                "removed": removed,
+                "reason": "paused_to_continue_collection",
+                "detail": "; ".join(diagnostics),
+            }
         try:
             if not page.locator("body").count():
                 return {"cleared": False, "removed": removed, "reason": "cart_not_readable", "detail": "; ".join(diagnostics)}

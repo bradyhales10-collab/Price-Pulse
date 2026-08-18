@@ -150,7 +150,7 @@ def test_a_dirty_cart_no_longer_causes_the_part_to_be_skipped() -> None:
     # It must go to the cart page, because that is the only place the removal
     # controls exist, and then return to the product page to carry on.
     assert "MOTOSPORT_CART_URL" in following
-    assert "clear_whole_cart(page)" in following
+    assert "clear_whole_cart(page, time_budget_seconds=45)" in following
     assert "page.goto(product_url" in following
 
 
@@ -1089,3 +1089,86 @@ def test_the_per_line_selector_also_requires_the_removing_href() -> None:
     # The per-line selector must key on the href, not the shared title.
     assert 'a.cart-remove-item[href*="saveforlater=0"][data-sku=' in source
     assert 'a.cart-remove-item[title="Remove item from cart."][data-sku=' not in source
+
+
+def test_clearing_pauses_rather_than_blocking_one_part_for_minutes() -> None:
+    """The recorded log showed removals taking about ten seconds each, because
+    the removal link is a full page navigation. A cart that had reached 40 items
+    therefore cost nearly seven minutes, all charged to whichever part discovered
+    it, which is what made the run appear to hang.
+
+    Clearing now stops when it runs out of time for this part. The backlog drains
+    across the parts that follow instead of one part carrying all of it.
+    """
+    import probe_cart_price
+    from probe_cart_price import clear_whole_cart
+
+    class _SlowCart:
+        def __init__(self, items: int) -> None:
+            self.items = items
+            self.clock = 0.0
+
+        def evaluate(self, script: str, arg=None):
+            if "saveforlater=1" in script:
+                return "remove"
+            if "el.tagName" in script:
+                return "a href=/cart?saveforlater=0 class=cart-remove-item"
+            if "el.click()" in script:
+                self.items -= 1
+                self.clock += 10.0
+                return True
+            return self.items
+
+        def locator(self, selector: str):
+            page = self
+
+            class _Locator:
+                def count(self) -> int:
+                    if selector == "body":
+                        return 1
+                    return page.items if "cart-remove-item" in selector else 0
+
+                @property
+                def first(self):
+                    return self
+
+                def click(self, timeout: int | None = None, force: bool = False) -> None:
+                    page.items -= 1
+                    page.clock += 10.0
+
+                def inner_text(self, timeout: int | None = None) -> str:
+                    return "Your Cart is Empty" if page.items <= 0 else "Your Cart Subtotal Remove"
+
+            return _Locator()
+
+        def wait_for_timeout(self, milliseconds: int) -> None:
+            self.clock += milliseconds / 1000
+
+    cart = _SlowCart(40)
+    fake_now = {"value": 0.0}
+
+    def monotonic() -> float:
+        fake_now["value"] = cart.clock
+        return cart.clock
+
+    original = probe_cart_price.time.monotonic
+    probe_cart_price.time.monotonic = monotonic
+    try:
+        result = clear_whole_cart(cart, time_budget_seconds=45)
+    finally:
+        probe_cart_price.time.monotonic = original
+
+    # It removed some, then handed the rest to the following parts.
+    assert result["reason"] == "paused_to_continue_collection"
+    assert 0 < result["removed"] < 40
+    assert cart.items > 0
+
+
+def test_the_test_suite_does_not_write_to_the_real_cart_log() -> None:
+    """The log sent for diagnosis opened with dozens of entries from fake pages,
+    which is misleading at exactly the moment clarity matters."""
+    from pathlib import Path
+
+    source = Path("probe_cart_price.py").read_text(encoding="utf-8")
+
+    assert 'if "pytest" in sys.modules:' in source

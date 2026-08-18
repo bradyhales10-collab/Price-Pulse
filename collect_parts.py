@@ -896,7 +896,7 @@ def collect_one_motosport_part(database_path: Path, page, planned, scan_run_id: 
                     # Removal controls only exist on the cart page, so go there.
                     page.goto(MOTOSPORT_CART_URL, wait_until="domcontentloaded", timeout=30000)
                     page.wait_for_timeout(1500)
-                    clear_result = clear_whole_cart(page)
+                    clear_result = clear_whole_cart(page, time_budget_seconds=45)
                     page.goto(product_url, wait_until="domcontentloaded", timeout=30000)
                     page.wait_for_timeout(1000)
                 except Exception as exc:
